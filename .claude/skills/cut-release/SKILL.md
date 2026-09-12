@@ -387,14 +387,20 @@ gh release view <version> --json tagName,name,assets,isDraft
 
 Once the Release exists (step 16), post an update at ko-fi.com/luke321. **Do it yourself with the
 Claude in Chrome tools** -- he is signed in there; do not hand him a link and a block of text to
-paste. The flow, as measured on 2.6.0:
+paste.
 
-- `ko-fi.com/Manage` -> the **Add something** button, then **Image** in the modal (not "Write a
-  quick update", which has no title field).
-- `read_page` gives the Title and Description fields; `form_input` fills them.
-- **The image needs `find`, not `read_page`.** The dropzone's `<input type=file>` is not in the
-  accessibility tree, and clicking **Add +** opens nothing useful. `find` for "hidden file input
-  for uploading post images (dropzone)" returns it, then `file_upload` attaches the PNG.
+**The mechanics live in the user-level `post-to-kofi` skill -- read it before touching the page.**
+It is shared with vault-shelf and the second machine because the traps belong to Ko-fi rather than
+to this plugin, and one of them is destructive:
+
+- **A page-wide `find` for the post's file input also returns the COVER image input.** Uploading to
+  it replaces the page's cover with no confirm step and no undo -- Ko-fi's cover dialog offers only
+  upload and remove, and keeps no history. That destroyed the cover cutting 2.7.0. Open the **Add
+  image** dialog first, scope the search to it, and screenshot straight after uploading: the
+  dropzone must read **`1 of 8 images`**. A dialog that closed, or a counter still at `0 of 8`,
+  means you hit the cover -- stop and say so.
+- Entry point is the **Feed card's `Add` button** -> **Image** (not "Write a quick update", which
+  has no title field).
 - Screenshot the filled dialog, confirm the exact wording with him, then click **Post image** --
   that publishes publicly and is the one click in this step that needs a yes.
 
