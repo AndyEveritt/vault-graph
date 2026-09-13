@@ -20,7 +20,7 @@ Call out what's newly done since the last table and what's still blocked or awai
 | 6 | **Re-record every clip and the hero — the default, not a judgment call (github#121)** — a diff cannot reliably say which clips went stale (a constant like `FIT_RATIO`, a storyboard reorder, a sizing fix makes *every* clip stale, not just the ones whose own beats moved), so `scripts/record-all.ps1` re-records all of them in one pass. Needs the `record` lock; ask before recording. Before merge, not after — the merged tree is what the clips should show. Skip only for a release that touches nothing visual (a docs-only PATCH), and name that exception here rather than defaulting to it. | | **Then run the `review-clips` skill and look at the page** (`& "$env:USERPROFILE\.claude\skills\review-clips\build-clip-review.ps1" -Repo . -Open`) — it reads the storyboard itself and prints `clips present N/N` with the missing act names, so the recording step is confirmed rather than assumed. Do not eyeball a diff to decide what was re-recorded.
 | 7 | Merge `release/<version>` → `develop` (local) | |
 | 8 | **One** plain `git push origin develop` (the hook takes the `suite` lock itself, github#92 — never wrap the push in your own acquire/release, it deadlocks against the hook's) | |
-| 9 | PR/merge `develop` → `main` | |
+| 9 | Merge/push `develop` → `main` (no PR required since 2026-09-13) | |
 | 10 | **Draft the release body, publish it as a Claude Artifact, and get an explicit go-ahead before the tag goes out** — `release.yml` publishes live the moment the tag lands, using the `## <version>` CHANGELOG section verbatim as the body and no `--draft` gate; the artifact is what puts the actual rendered page a stranger will land on in front of a human, not a changelog entry read back by the same session that wrote it. This is the actual review step, not `release.ps1`'s pre-flight suite. | |
 | 11 | `release.ps1` on `main` — gates, tag, push | |
 | 12 | GitHub Actions publishes the release (attestation, assets) — automatic once tagged | |
@@ -74,10 +74,13 @@ through); prints the hero and feature-clip warnings; runs lint, `check-notice.mj
 invariant suite; builds the plugin once as a pre-flight (the one failure the split introduces
 is a build that only fails in CI, leaving a tag with no release, and a tag cannot be re-cut);
 then writes the annotated tag with the CHANGELOG section as its message and pushes the tag.
-**It never pushes `main`.** The ruleset on `main` requires a pull request and has no bypass,
-so the `develop → main` merge happens on the website before the script runs; the first cut of
-2.4.0 made its tag and then had `git push origin HEAD` come back with GH013, which is the
-dangling-tag case this file warns about. `-DryRun` stops after the suite.
+**It never pushes `main`.** The `develop → main` merge happens before the script runs —
+either on the website, or as a local merge pushed directly now that the ruleset no longer
+requires a pull request (dropped 2026-09-13; it still requires `branch-policy.yml`'s
+source-branch check to pass, whichever way the commit arrives). The first cut of 2.4.0 made
+its tag and then had `git push origin HEAD` come back with GH013 — back when the ruleset
+still refused a direct push outright — which is the dangling-tag case this file warns about.
+`-DryRun` stops after the suite.
 
 **`.github/workflows/release.yml` is the publisher (github#10).** The tag push triggers it. It
 checks out the tagged commit, resolves and re-checks the version against the manifest and the
@@ -472,12 +475,15 @@ exactly once.
    the hook runs the suite for real — and stamps the new tree. Do not reach for `SKIP_SMOKE`
    here; the stamp is what makes the skip honest, and a skipped run leaves no record of what
    was trusted.
-5. Open `develop` → `main` on the website and merge it. The only required check is the
-   branch-policy job (4 s). The merge commit carries `develop`'s tree byte for byte — measured
-   on 2.3.0, 2.4.0 and 2.4.1.
+5. Merge `develop` → `main`, either way — open it on the website (the only required check is
+   the branch-policy job, 4 s), or merge locally and `git push origin main` (branch-policy.yml's
+   push job runs the same check: `develop` must already be an ancestor). No pull request is
+   required either way, since the ruleset dropped that rule 2026-09-13 — only the source-branch
+   check remains. The merge commit carries `develop`'s tree byte for byte — measured on 2.3.0,
+   2.4.0 and 2.4.1.
 6. `git switch main && git pull --ff-only`, then `.\scripts\release.ps1 <version>`. It checks
-   that `main` is exactly `origin/main` (github#94: a `main` that is ahead is a local merge the
-   ruleset will never accept, and the script stops before any tag exists), finds the stamp for
+   that `main` is exactly `origin/main` (github#94: a `main` that is ahead is a local merge
+   nobody has pushed yet, and the script stops before any tag exists), finds the stamp for
    `HEAD`'s tree and skips the suite, tags, and pushes the tag (never gated). The workflow
    publishes.
 
@@ -508,9 +514,10 @@ that can say what it trusted.
    PATCH), and say so explicitly rather than skipping by default — see above.
 5. **Run the gates.** `npm run lint`, `node scripts/check-notice.mjs`, `node scripts/smoke.mjs`
    — and they run again on push via `.githooks/pre-push`, so a red suite cannot be released.
-6. **Get the commit onto `origin/main` first**: merge `develop → main` through a pull request
-   on the website — the ruleset refuses a direct push (github#94) — then `git switch main &&
-   git pull --ff-only`.
+6. **Get the commit onto `origin/main` first**: merge `develop → main`, either on the website
+   or locally followed by `git push origin main` — no pull request required since 2026-09-13,
+   just `branch-policy.yml`'s source-branch check (`develop` must already be an ancestor) —
+   then `git switch main && git pull --ff-only`.
 7. **Tag, annotated**, with the release summary as the message, on that `main`, and **push the
    tag.** The commit is already on `origin/main`, so the workflow's main-ancestry guard has no
    race to lose. Everything below is what the workflow then does for you.

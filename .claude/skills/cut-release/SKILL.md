@@ -50,8 +50,6 @@ stopping again.
 - **The clip review (step 8) and the update strip (step 9).** He looks at what was recorded
   before it is committed, and at the strip rendered, before either ships. These catch a capture
   that grabbed the wrong window and a strip nobody has seen — neither of which any gate sees.
-- **The `develop` -> `main` PR (step 12).** Merge it yourself if you can; the ruleset requires a
-  PR, not a human.
 - **Anything that fails.** A red gate, a failing check, a workflow that goes red: stop, fix it,
   say what it was. Never route around a gate to keep the run moving.
 - **Anything genuinely new.** A decision the questions above did not cover, or a finding that
@@ -92,7 +90,7 @@ apply to this release; add one row per this release's own polish/fix asks at the
 | 8 | **Render the update strip and show it** (MINOR/MAJOR only) — a real screenshot, not the markdown | |
 | 9 | Merge `release/<version>` → `develop` (local) | |
 | 10 | **One** plain `git push origin develop` | |
-| 11 | PR/merge `develop` → `main` | |
+| 11 | Merge `develop` → `main` and push (no PR required since 2026-09-13) | |
 | 12 | Draft the release body, publish as an Artifact, get an explicit go-ahead | |
 | 13 | `release.ps1` on `main` — gates, tag, push | |
 | 14 | GitHub Actions publishes the release — automatic once tagged | |
@@ -297,12 +295,17 @@ don't assume flake without isolating the specific check first.
 
 ## 13. Merge `develop` → `main`
 
-On the website: open the PR, merge it. The ruleset requires this and has no bypass for a direct
-push (github#94). The only required check is the branch-policy job.
+No PR required since 2026-09-13 — merge locally and push directly, gated by
+`branch-policy.yml`'s push job (`develop` must already be an ancestor of the pushed commit):
 
 ```bash
 git switch main && git pull --ff-only
+git merge --no-ff develop
+git push origin main
 ```
+
+(The website route — open `develop` → `main` as a PR and merge it — still works too; the only
+required check either way is the branch-policy job.)
 
 ## 14. Review the release body — before the tag, not after
 

@@ -3406,10 +3406,12 @@ node scripts/smoke.mjs --only "intro landed"  # ends with "not stamping this run
 ```
 
 Why (github#93, decisions/0013): every release paid the suite more than once against one tree.
-`main` only ever receives `develop` — the ruleset requires a pull request with no bypass actors
-— and the merge commits for 2.3.0, 2.4.0 and 2.4.1 each have a tree byte-identical to the
-`develop` tip they merged, so a run on either measures the same content. Re-driving Chrome for
-identical content is cost with nothing it could catch that the first run would not.
+`main` only ever receives `develop` — until 2026-09-13 the ruleset enforced that through a
+required pull request with no bypass actors; it now allows a direct push instead, gated by the
+same source-branch check in `branch-policy.yml` — and the merge commits for 2.3.0, 2.4.0 and
+2.4.1 each have a tree byte-identical to the `develop` tip they merged, so a run on either
+measures the same content. Re-driving Chrome for identical content is cost with nothing it
+could catch that the first run would not.
 
 Measured 2026-09-10, one full run under the `suite` lock, 94/94 on all three fixtures:
 
