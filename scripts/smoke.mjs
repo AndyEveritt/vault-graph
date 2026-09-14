@@ -4200,6 +4200,144 @@ check("a pin hidden by a filter is skipped, not released", async (p) => {
                        `${after} held` };
 }, { on: "all" });
 
+// github#12 -- PIN_MAX in src/page.js; a change there changes this
+const PIN_MAX = 13;
+
+// github#143
+let pinBuilds = null;
+function pinIdentityBuilds() {
+  if (pinBuilds) return pinBuilds;
+  pinBuilds = (async () => {
+    const root = mkdtempSync(join(tmpdir(), "vg-smoke-pins-"));
+    process.on("exit", () => { try { rmSync(root, { recursive: true, force: true }); } catch {} });
+    const B = "# B\n\nA link to [[Missing]] and to [[C]].\n";
+    const C = "# C\n\nBack to [[B]].\n";
+    const build = (label, notes) => {
+      // github#143 -- one vault NAME, so both builds read the same settings key
+      const dir = join(root, label, "pin-vault");
+      mkdirSync(join(dir, ".obsidian"), { recursive: true });
+      for (const [name, body] of notes) writeFileSync(join(dir, name), body);
+      const out = join(root, label + ".html");
+      const b = spawnSync(process.execPath,
+                          [join(HERE, "..", "src", "build-graph.mjs"),
+                           "--vault", dir, "--out", out, "--ghosts"],
+                          { encoding: "utf8" });
+      if (b.status !== 0) throw new Error("build-graph.mjs failed on " + label + ":\n" + (b.stderr || ""));
+      return pathToFileURL(out).href + "?rest";
+    };
+    return {
+      // github#143 -- the ticket's own reproduction: B.md is id "0" here
+      before: build("before", [["B.md", B], ["C.md", C]]),
+      // github#143 -- A.md inserted ahead of it, and enough notes to pass PIN_MAX
+      after: build("after", [["A.md", "# A\n\nTo [[B]].\n"], ["B.md", B], ["C.md", C]].concat(
+        Array.from({ length: 16 }, (_, i) => [`N${String(i).padStart(2, "0")}.md`, `# N${i}\n\nTo [[B]].\n`]))),
+    };
+  })();
+  return pinBuilds;
+}
+
+// github#143
+check("a pin is stored by the note's path, not by its position", async (p, ctx) => {
+  const home = await p.eval("location.href");
+  const READY = "!!(window.__vg && __vg.heat && __vg.state.until === null)";
+  const goto = async (url, budget) => {
+    await p.send("Page.navigate", { url });
+    for (const until = Date.now() + budget; ;) {
+      const ok = await p.eval(`location.href === ${JSON.stringify(url)} && ${READY}`).catch(() => false);
+      if (ok) return true;
+      if (Date.now() > until) return false;
+      await sleep(200);
+    }
+  };
+  const PATHS = `(function(){ var m = {};
+    __vg.graph.forEachNode(function (id, a) { m[id] = a.path; }); return m; })()`;
+  const v = await pinIdentityBuilds();
+  const mark = ctx.errors.length;
+  let one = null, two = null, live = null, back = false, why = "";
+  try {
+    if (!(await goto(v.before, 20000))) why = "the two-note build never came up";
+    if (!why) {
+      one = await p.j(`(function(){
+        var pathOf = ${PATHS}, byPath = {};
+        for (var k in pathOf) byPath[pathOf[k]] = k;
+        __vg.clearPins();
+        __vg.pin(byPath["B.md"]);
+        __vg.pin(byPath["ghost:Missing"]);
+        var live = false;
+        try { window.localStorage.setItem("vg-probe", "1");
+              live = window.localStorage.getItem("vg-probe") === "1";
+              window.localStorage.removeItem("vg-probe"); } catch (e) { live = false; }
+        return { bId: byPath["B.md"], live: live,
+                 paths: __vg.pinned().map(function (i) { return pathOf[i]; }),
+                 stored: __vg.pinsStored() };
+      })()`);
+      if (!(await goto(v.after, 25000))) why = "the rebuild never came up";
+    }
+    if (!why) {
+      two = await p.j(`(function(){
+        var pathOf = ${PATHS}, byPath = {};
+        for (var k in pathOf) byPath[pathOf[k]] = k;
+        var all = Object.keys(byPath), marker = __vg.pinsStored()[0];
+        var name = function (ids) { return ids.map(function (i) { return pathOf[i]; }); };
+        return {
+          seeded: name(__vg.pinned()),
+          carried: name(__vg.pinsFrom(${JSON.stringify(one.stored)})),
+          bId: byPath["B.md"], ordinalNames: pathOf[${JSON.stringify(one.bId)}],
+          legacy: __vg.pinsFrom([${JSON.stringify(one.bId)}]).length,
+          unknown: __vg.pinsFrom([marker, "Nope.md"]).length,
+          deduped: name(__vg.pinsFrom([marker, "B.md", "B.md", "C.md"])),
+          capped: __vg.pinsFrom([marker].concat(all)).length,
+          nodes: all.length
+        };
+      })()`);
+      // github#143 -- the other boundary: a live rebuild that drops a pinned note
+      await p.eval(LIVE_JS);
+      live = await p.j(`(function(){
+        var byPath = {};
+        __vg.graph.forEachNode(function (id, a) { byPath[a.path] = id; });
+        __vg.clearPins(); __vg.pin(byPath["B.md"]); __vg.pin(byPath["C.md"]);
+        var nodes = __vg.data().nodes, at = -1;
+        for (var i = 0; i < nodes.length; i++) if (nodes[i].id === "B.md") at = i;
+        var res = __vg.applyData(window.__live.without(at));
+        return { applied: !!res.applied, host: (function(){
+          try { return JSON.parse(window.localStorage.getItem("vault-graph:settings:pin-vault") || "{}").pinned || []; }
+          catch (e) { return null; }
+        })() };
+      })()`);
+    }
+  } finally {
+    ctx.errors.splice(mark);
+    // github#105 -- home is ?rest: a full re-mount, the size of the fixture
+    back = await goto(home, 30000);
+    // github#143 -- leave the fixture's own store as this check found it
+    if (back) { await p.eval(`__vg.clearPins(); void 0`); await settle(p); }
+  }
+  if (why) return { ok: false, detail: why };
+  const want = ["B.md", "ghost:Missing"];
+  const same = (a) => a.join("|") === want.join("|");
+  // github#143 -- pruning a dropped pin must write the FORMAT, not the raw ids
+  const pruned = !one.live || !live.host ||
+                 (live.applied && live.host.length === 2 && live.host[0] === one.stored[0] &&
+                  live.host[1] === "C.md");
+  const ok = pruned && same(one.paths) && same(two.carried) && (!one.live || same(two.seeded)) &&
+             one.stored.length === 3 && one.stored[1] === "B.md" && one.stored[2] === "ghost:Missing" &&
+             two.bId !== one.bId && two.ordinalNames === "A.md" &&
+             two.legacy === 0 && two.unknown === 0 &&
+             two.deduped.join("|") === "B.md|C.md" && two.capped === PIN_MAX && two.nodes > PIN_MAX &&
+             back;
+  return { ok, detail:
+    `pinned [${one.paths}] in the 2-note build -> stored [${one.stored.slice(1)}]; ` +
+    `reopened the rebuild (B.md ${one.bId} -> ${two.bId}, ${one.bId} now names ${two.ordinalNames}) ` +
+    `with [${two.carried}] carried` +
+    (one.live ? ` and [${two.seeded}] restored through localStorage` : "; localStorage blocked, not asserted") +
+    `; a version-1 store restores ${two.legacy}, an unknown path ${two.unknown}, ` +
+    `[B,B,C] dedupes to [${two.deduped}], ${two.nodes} paths cap at ${two.capped}; ` +
+    (one.live && live.host
+      ? `a live rebuild dropping a pinned B.md left the host holding ${JSON.stringify(live.host)}`
+      : "the host's store was unreadable, pruning not asserted") +
+    (back ? "" : "; DID NOT GET BACK to the fixture") };
+});
+
 // github#3
 // github#3
 check("every unlinked note wears the (unlinked) swatch", async (p) => {

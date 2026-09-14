@@ -446,7 +446,7 @@ try {
   }
 
   if (selected("right-click")) {
-    const before = await E("(" + VIEW + ").plugin.settings.pinned.length");
+    const before = await E("(" + VIEW + ").plugin.settings.pinned.slice()");
     await E("(function(){ var v = " + VIEW + "; window.__vgSmokeRc = { menu: 0, node: 0 };" +
             " v.contentEl.querySelector('#vg-graph').addEventListener('contextmenu', function () { window.__vgSmokeRc.menu++; }, true);" +
             " v.handle.api.renderer.on('rightClickNode', function () { window.__vgSmokeRc.node++; }); })(); void 0");
@@ -462,14 +462,17 @@ try {
     };
     const at = await rightClick();
     const pinned = await E("(" + VIEW + ").plugin.settings.pinned.slice()");
+    // github#143 -- the setting holds the note's PATH now, never its runtime id
+    const path = await E(VIEW + ".handle.api.graph.getNodeAttribute(" + JSON.stringify(id) + ", 'path')");
     const at2 = await noteAt(c, id);
     await rightClick();
-    const after = await E("(" + VIEW + ").plugin.settings.pinned.length");
+    const after = await E("(" + VIEW + ").plugin.settings.pinned.slice()");
     const rc = await E("window.__vgSmokeRc");
     const instances = await E("(function(){ var v = " + VIEW + "; return v.plugin === app.plugins.getPlugin('" + PLUGIN_ID + "') ? 'one plugin instance' : 'TWO plugin instances (the view belongs to an earlier load)'; })()");
     const moved = Math.hypot(at2.x - at.x, at2.y - at.y);
-    report(pinned.includes(id) && pinned.length === before + 1 && after === before, "right-click pins the note into the hub and persists it, a second right-click releases it",
-      "pinned " + before + " -> " + pinned.length + " (" + (pinned.includes(id) ? "holds " + id : "does not hold " + id) + ") -> " + after + "; the note moved " + Math.round(moved) + " px into the hub; " +
+    report(pinned.includes(path) && !pinned.includes(id) && after.indexOf(path) < 0 && pinned.length === after.length + 1,
+      "right-click pins the note into the hub and persists it by path, a second right-click releases it",
+      "stored " + JSON.stringify(before) + " -> " + JSON.stringify(pinned) + " (" + (pinned.includes(path) ? "holds " + path : "does NOT hold " + path) + ", runtime id " + id + (pinned.includes(id) ? " ALSO STORED" : " not stored") + ") -> " + JSON.stringify(after) + "; the note moved " + Math.round(moved) + " px into the hub; " +
       rc.menu + " contextmenu events, " + rc.node + " rightClickNode events over two right-clicks; " + instances);
   }
 

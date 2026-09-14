@@ -66,7 +66,7 @@ function bareMap() {
  * @property {Record<string, string>} subtagColors      github#86 -- "tag/sub" -> slot key
  * @property {Record<string, boolean>} tagShown         github#86 -- tag -> shown by default
  * @property {Record<string, boolean>} folderShown      folder name -> shown by default
- * @property {string[]} pinned                          note ids in the hub, in slot order
+ * @property {string[]} pinned                          github#143 -- opaque; the page owns it
  * @property {boolean} panEnabled
  * @property {boolean} compactAxis
  * @property {boolean} unlinkedByFolder
