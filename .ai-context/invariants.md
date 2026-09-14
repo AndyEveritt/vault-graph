@@ -278,21 +278,82 @@ notes or fewer, so the inner ring fills with wedges of one or two dots each. Sep
 palette resolves **12 distinct colours across 122 groups**, 22 of which read as grey — measured on
 the real vault too, 12 colours across 76 groups. Both have their own issues.
 
-### The real cause is the band split, and it is not fixed here
+### The real cause is the band split — fixed in github#117, in two halves
 
-Neither change touches why the inner lattice is tighter in the first place. `balanceBands()`
-optimises ring **thickness** — its cost is `|inner − BAND_RATIO · outer|`, `BAND_RATIO = 0.55` —
-not room per note, so on the demo vault the inner ring gets **20% of the disc's area for 31% of
-its weight**. Relative to its own room an inner dot was already sized like an outer one before
-github#107 (`2·dot/step` 0.31 against 0.34); the dots were small because the room was.
+Neither github#107 change touched why the inner lattice was tighter in the first place.
+`balanceBands()` optimised ring **thickness** — its cost was `|inner − BAND_RATIO · outer|`,
+`BAND_RATIO = 0.55` — with nothing in it aware of how much each ring was carrying. Room per
+note, inner over outer, measured over the annulus each band's own rows sweep:
 
-Two facts to carry into any attempt at that. Band membership is seeded by folder **size**
-(`c.wsum < smallAt`), not by how well-linked a folder is — on the demo vault the inner band's
-median link weight is **5.7 against the outer band's 6.40**, so the inner ring is not where the
-best-connected notes land. And membership is per **group**: `c.inner = groupInner[c.g]` and
-`takeGeom()` stores `bandLock[c.g]`, so a folder cannot span both rings and "the best-connected
-*notes* inner" is not reachable without dismantling the wedge. Within a wedge the notes are
-already ordered by link weight along the serpentine.
+| fixture | before | after github#117 | median inner dot | median outer dot |
+|---|---|---|---|---|
+| demo | 0.708 | **0.817** | +36% | +3% |
+| 10k synthetic | 0.569 | **0.588** | 0% | −0% |
+| dominant-folder | 0.729 | **0.891** | +22% | −3% |
+| tag-organised | 0.810 | **0.906** | +15% | −1% |
+
+## Room parity between the rings, and why one term was not enough
+
+github#117. Two changes, and **neither delivers anything without the other** — this is the
+part to carry forward, because the first one alone looks like a win on the metric and is a
+regression on the screen.
+
+**`ROOM_WEIGHT = 5`, the room-parity term.** `spanFor()` returns `room`, the `|ln|` of one
+band's area per note over the other's, and `evaluate()`'s cost gains `ROOM_WEIGHT * t.room`.
+Three things about it were measured rather than chosen:
+
+- **Scored at the candidate `r0`, never a fixed one.** Hoisting it to `R0_BASE` so it cannot
+  buy parity by inflating the hub was tried and reverted: it scores geometry the search does
+  not choose, and takes the tag vault to **0.786, below the 0.810 it starts at**.
+- **5 is the bottom of a plateau**, not a knife edge. 5 and 10 give the identical layout on
+  all four fixtures; 2 is inert on the 10k; 20 and up let the term beat the thickness term
+  outright and the inner ring collapses to 3 rows with parity overshooting past 1.
+- **`BAND_RATIO` survives it.** The measured thickness ratio moves 0.52 → 0.51 (demo),
+  0.49 → 0.48 (10k), and not at all on the other two. The term trades against the thickness
+  term by construction and in practice barely bends it.
+
+**`Math.ceil` in `solveBand()`, which is the half that reaches the dot.** `s` is the square
+cell side, so `T / s` is the row count that makes a cell square, and the old `Math.round`
+rounded *down* whenever the fraction fell under a half. That leaves the cell radially taller
+than wide, and **the dot cannot grow into radial slack** — `dotPx` scales by `room / pitch`,
+so a coarser pitch makes the dot a smaller fraction of its own row. Measured with the room
+term in and `Math.round` left alone: parity improves on all four fixtures and the median
+**inner dot falls 8% on the dominant-folder vault and 12% on the tag vault**, because the
+inner band drops 5 rows to 4 and spends the whole gain on pitch. The trip is not the hub —
+holding `r0` fixed and letting only membership move reproduces it exactly. It is a
+quantisation: one row out of five is a 20–25% step, which is why the 10k vault's 16-row
+inner band never shows it and the small-ring fixtures always do. Rounding up leaves the
+slack *angular* instead, which the dot does use.
+
+**Two facts that survive, for anyone going further.** Membership is per **group**:
+`c.inner = groupInner[c.g]` and `takeGeom()` stores `bandLock[c.g]`, so a folder cannot span
+both rings and "the best-connected *notes* inner" is not reachable without dismantling the
+wedge. Within a wedge the notes are already ordered by link weight along the serpentine.
+
+**Seeding `groupInner` by link weight instead of size is inert — measured, not argued.**
+This was github#117's other candidate and it cannot work. `balanceBands()` searches
+**exhaustively** on all four fixtures (`movable` 13, 13, 4, 14, all within
+`EXHAUSTIVE_UP_TO` 14), so it re-decides every movable group from cost alone and the seed
+reaches the outcome through one channel only: `pinnedInner`. With the pin made
+seed-independent, a link-weight seed gives a layout **identical to the size seed on all four
+fixtures** — same parity, same areas, same inner set, same hole share. Left as it is, the
+link-weight seed only *empties* the pin set, which pushes demo and the 10k past
+`EXHAUSTIVE_UP_TO` into hill-climbing: demo parity goes **0.708 → 0.539**, the inner set
+collapses to one folder, and four small folders land outer — a straight failure of *band
+assignment obeys its two hard rules*.
+
+**`pinnedInner` no longer asks what the seed decided**, and that is a safety rail for the
+room term rather than a tidy-up. `smallAt` is `TOTAL / 60`, so on a vault under ~600 notes a
+folder of 7–9 notes is seeded *outer*, never pinned, and the room term is happy to leave it
+there — a stray. On all four fixtures `smallAt` is already past `PIN_BELOW` (23.4, 166.7,
+15.9, 14.9), so every such group was seeded inner anyway and nothing moves.
+
+**The hub grows, and the drift invariant does not notice.** `holeShare` goes 0.263 → 0.342
+(demo), 0.304 → 0.353 (10k), 0.273 → 0.292 (dominant-folder), 0.290 → 0.353 (tag, in the
+folder dimension) — under the cost's own `HOLE_MAX` ceiling of 0.36, which is what holds it.
+*The hub stays the same share of the disc as it is filtered* reads **drift 0.000 on every
+fixture that asserts it**, before and after, because `balanceBands()` runs only when
+`bandLock` is null: a filter re-packs inside rings it does not re-choose.
 
 ## The hub stays the same share of the disc
 
