@@ -81,6 +81,7 @@ export function mountVaultGraph(page, data, deps) {
     page: page,
     win: deps && deps.win,
     doc: page && page.ownerDocument,
+    onRefresh: deps && deps.onRefresh,
     api: {
       setWords() {},
       applyData() { return {}; },
@@ -108,8 +109,18 @@ const H = {
   armed: null, readTag: "",
 };
 window.__race = H;
-window.activeWindow = window;
-window.activeDocument = document;
+document.body.className = "theme-dark";
+
+// THE POPOUT, MODELLED. activeWindow/activeDocument name whichever window has focus, and for
+// a view living in a popout that is routinely not its own. An iframe gives this harness a
+// second real window and document to point them at, carrying the OTHER theme -- so reading
+// the active one instead of the view's own becomes a wrong data-theme and a wrong win on the
+// mount, rather than being invisible the way it is in a single-window test.
+const decoy = document.createElement("iframe");
+document.body.appendChild(decoy);
+decoy.contentDocument.body.className = "theme-light";
+window.activeWindow = decoy.contentWindow;
+window.activeDocument = decoy.contentDocument;
 
 const FILES = ["one.md", "two.md", "three.md"].map((p, i) => ({
   path: p, name: p, basename: p.replace(/\\.md$/, ""), extension: "md",
@@ -174,12 +185,17 @@ H.fresh = () => {
   return true;
 };
 
-H.start = (tag) => {
+H.arm = (tag) => {
   let rel;
   const p = new Promise((r) => { rel = r; });
   const l = { tag: tag, p: p, rel: rel };
   H.latches.push(l);
   H.armed = l;
+  return tag;
+};
+
+H.start = (tag) => {
+  H.arm(tag);
   const run = { tag: tag, state: "pending" };
   H.runs.push(run);
   H.view.render().then(
@@ -198,6 +214,18 @@ H.release = (tag) => {
 
 H.close = () => { H.view.onClose(); return true; };
 
+// Two clicks already dispatched: the callback is captured BEFORE the first render tears
+// the page (and its button) out, which is the only way a second one can arrive at all.
+H.refreshTwice = () => {
+  const f = H.view.handle.onRefresh;
+  f();
+  const busyBetween = !!H.view.rebuilding;
+  f();
+  return busyBetween;
+};
+
+H.busy = () => !!H.view.rebuilding;
+
 H.settled = () => H.runs.every((r) => r.state !== "pending");
 
 H.snapshot = () => ({
@@ -212,6 +240,9 @@ H.snapshot = () => ({
   runs: H.runs.map((r) => r.tag + ":" + r.state + (r.error ? "(" + r.error + ")" : "")),
   notices: H.notices.slice(),
   sameDoc: H.mounts.filter((m) => m.alive).every((m) => m.doc === H.view.contentEl.ownerDocument),
+  winIsView: H.mounts.filter((m) => m.alive).every((m) => m.win === window),
+  winIsDecoy: H.mounts.filter((m) => m.alive).some((m) => m.win === decoy.contentWindow),
+  pageTheme: H.view.page ? H.view.page.getAttribute("data-theme") : null,
 });
 `;
 
@@ -389,10 +420,42 @@ try {
   check(s.lastTag === "r3", "the two older builds cleared nothing", "lastData " + s.lastTag);
   check(s.rebuilding === false, "an older request did not leave the view busy",
         "rebuilding " + s.rebuilding);
-  check(s.refs <= 8, "github#120 holds: the live subscription registered once, not per render",
+  check(s.refs === 6, "github#120 holds: six refs after three renders, not eighteen",
         "view event refs " + s.refs);
   check(s.sameDoc === true, "the mount was given the view's own document",
         "sameDoc " + s.sameDoc);
+  check(s.winIsView === true && s.winIsDecoy === false,
+        "the mount got the view's own window, not the one activeWindow names",
+        "win is the view " + s.winIsView + ", win is the decoy " + s.winIsDecoy);
+  check(s.pageTheme === "dark",
+        "the theme came from the view's document (dark), not the decoy (light)",
+        "data-theme " + s.pageTheme);
+
+  // github#140 -- scenario 4: the real Refresh callback, not render() directly
+  console.log("\n=== 4: Refresh declines to re-enter while its own render is in flight ===");
+  await j("window.__race.fresh()");
+  await j('window.__race.start("base")');
+  await j('window.__race.release("base")');
+  if (!(await settle())) throw new Error("scenario 4 never settled the first render");
+  const before = await j("window.__race.snapshot()");
+  await j('window.__race.arm("ref1")');
+  const busyMid = await j("window.__race.refreshTwice()");
+  await j('window.__race.release("ref1")');
+  for (let i = 0; i < 100 && (await j("window.__race.busy()")); i++) await sleep(50);
+  await sleep(80);
+  s = await j("window.__race.snapshot()");
+  console.log("  " + show(s));
+  check(busyMid === true, "the first click marks the view busy before the second arrives",
+        "rebuilding between the two clicks " + busyMid);
+  check(s.mounts === before.mounts + 1,
+        "the second Refresh was declined -- one new mount, not two",
+        "mounts " + before.mounts + " -> " + s.mounts);
+  check(s.alive === 1 && s.handleTag === "ref1", "the rebuild is the live mount",
+        "alive " + s.alive + " [" + s.aliveTags.join(",") + "], handle " + s.handleTag);
+  check(s.rebuilding === false, "Refresh is clickable again afterwards",
+        "rebuilding " + s.rebuilding);
+  check(s.notices.length === 0, "no notice was raised on the way through",
+        "notices " + JSON.stringify(s.notices));
 
   const failed = results.filter((r) => !r.ok);
   console.log("\n" + (failed.length ? failed.length + " of " + results.length + " FAILED"

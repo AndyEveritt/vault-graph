@@ -2892,8 +2892,8 @@ The harness bundles the **real** `VaultGraphView` against stubbed `obsidian`, `s
 read of each build on a latch it releases by name -- which is the one thing the Obsidian harnesses
 cannot offer, since the only way to delay `buildData()` there is to monkeypatch it over CDP and
 measure the patch. Real browser rather than a DOM shim, because `render()` parses `src/page.html`
-with `DOMParser` and a shim that is subtly wrong hides the defect instead of showing it. Sixteen
-checks, three scenarios, measured on either side of the fix:
+with `DOMParser` and a shim that is subtly wrong hides the defect instead of showing it. Twenty-three
+checks, four scenarios, measured on either side of the fix:
 
 | | before | after |
 |---|---|---|
@@ -2906,12 +2906,23 @@ checks, three scenarios, measured on either side of the fix:
 | three rapid rebuilds resolving **3, 1, 2** — pages in the root | 3 | **1** |
 | — live mounts | 3 (`r3`, `r1`, `r2`) | **1 (`r3`)** |
 | — `this.handle` | `r2`, the last to *resolve* | **`r3`, the newest *started*** |
+| two Refresh clicks already dispatched — new mounts | 1 | 1 (**regression guard**) |
+| the mount's `win`, with `activeWindow` naming another window | the **other** window | **the view's own** |
+| the page's `data-theme`, that other document being light | `light` | **`dark`, its own document's** |
 
-**11 of 15 checks failed before, 16 of 16 pass after.** The first row is the leak the issue names:
+**13 of 23 checks failed before, 23 of 23 pass after.** The first row is the leak the issue names:
 the second assignment to `this.handle` orphaned the first mount rather than replacing it, so it
 stayed alive and unreachable and the later teardown destroyed only one of the two. github#120 holds
 through all of it -- **six view event refs across three renders, not eighteen**, which the harness
 asserts so the two fixes cannot quietly undo each other.
+
+**The last two rows are the popout, modelled.** A single-window harness cannot tell `activeWindow` from the view's own window, so it would have asserted the fix while proving nothing. The harness builds an iframe, points `activeWindow` / `activeDocument` at it, and gives it the *opposite* theme -- at which point reading the active one instead of the view's own is a wrong `win` on the mount and a page painted `light` inside a dark document, which is exactly what the pre-fix run reports.
+
+**The fourth scenario passes on both sides, deliberately.** It drives the real `onRefresh` callback
+the view handed its own page, capturing it *before* the render tears the button out -- the only way
+a second click can arrive at all -- and checks that the second is declined. That guard worked before
+and still works, which is the point: `this.rebuilding` moved owner, and the one thing it did do had
+to keep doing it.
 
 **Two things read across the await that were reading the wrong window.** `win:` on the mount deps
 and `syncTheme()`'s theme probe both used `activeWindow` / `activeDocument`, which name whichever
