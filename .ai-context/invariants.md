@@ -953,6 +953,13 @@ only — no size and no alpha multiplier — so a dot the cascade is still walki
 by it, and the resting-size law is not in play. Round trip on the demo: a non-matching note
 goes `#d95926 → #2a2a28 → #d95926`.
 
+Re-measured 2026-09-14 against the four fixtures the suite now carries — the tag-organised
+vault arrived with `github#86` after this work was written — each again on its own newest
+counted day, default `created`: demo **96 haloed / 0 pushed / 0 moved**, 10k **2 / 0 / 0**,
+dominant-folder **10 / 0 / 0**, tag **1 / 0 / 0**. The counts move with every weekly fixture
+regeneration and the shape of the claim does not: whatever a window lights, it pushes nothing.
+Every lens check declares `on: "all"`, so all four shapes carry all of them.
+
 **No check here may key on the real clock, and this is not a style preference.** Measured
 2026-09-08: the newest `touched` day is 2026-09-05 on the demo and dominant-folder fixtures
 and 2026-08-28 on the 10k, so *Today* and *This week* light **0 notes on all three** — a
@@ -1097,6 +1104,35 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
   Where-Object { $_.CommandLine -like "*vg-smoke*" } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
+
+## An armed chip survives a live rebuild, and a stand-in is lit by its own note (github#70)
+
+An armed chip is a **set of ids**, and two things this repo grew after the lens was written
+hand it ids it has never seen. Both were found by merging `develop` back in rather than by a
+failure, and both now have a check that fails without the fix.
+
+```bash
+node scripts/smoke.mjs --only "live rebuild re-arms" --only "stays lit while a dimension switch"
+```
+
+**A live rebuild re-mints ids** (`github#72`, `design/0014`). A note edited or created with the
+view open is *the* case this lens exists for, and it arrives as a node that did not exist when
+the set was built — so a set left alone goes stale on the one event it most has to answer. The
+lens is registered in the invalidation registry (`invalidatesOnData("recent lens", …)`) and
+re-runs its window **against the reference it was armed with, never the clock**, or a check
+arming a chip at a fixture's own newest day would find itself measuring today after a rebuild.
+Measured, one arrival stamped on the armed day: demo **37 lit → 38**, 10k **2 → 3**,
+dominant-folder **2 → 3**, tag **1 → 2**, probe lit on all four. With the registration disabled
+the probe reads `DARK -- the set went stale` on all four.
+
+**A dimension switch draws copies** (`github#86`, `design/0015`). A stand-in is a second dot for
+a note the lens has an opinion about, under an id the lens has never seen; read by its own id it
+is a non-match, so the note would be haloed on the arriving disc and dimmed on the leaving one
+for as long as the cross lasts. Both reads — `isHighlighted` and the `nodeStyle` dim — go
+through `noteOf`, the same accessor `isPinned` uses, which costs one branch while no copies
+exist. Measured over a switch with a week armed: demo **883,890 stand-in frames, 60,480 of them
+lit, 0 disagreeing with their own note**; tag vault **1,353,429 / 1,519 / 0**. Without `noteOf`,
+the demo run reports **83,040 disagreeing frames and not one lit stand-in**.
 
 ## Every highlight source belongs in the signature
 

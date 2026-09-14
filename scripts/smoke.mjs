@@ -1246,9 +1246,12 @@ check("a recent chip haloes but never pushes", async (p) => {
     __vg.setRecent(null);
     return { lit: lit, moved: moved, pushed: rep.pushedCount, lo: win.lo, hi: win.hi };
   })()`);
+  // github#113 -- arming and clearing a chip inside one eval leaves the highlight ramp
+  // walking, and a check hands the page back at rest or the next one measures a moving disc.
+  await settle(p);
   return { ok: r.lit > 0 && r.pushed === 0 && r.moved === 0,
            detail: `${r.lo}..${r.hi}: ${r.lit} haloed, ${r.pushed} pushed, ${r.moved} moved` };
-});
+}, { on: "all" });
 
 check("a recent chip dims what it did not match, and gives it back", async (p) => {
   await settle(p);
@@ -1280,7 +1283,61 @@ check("a recent chip dims what it did not match, and gives it back", async (p) =
            detail: `#${pick} ${before} -> ${during} -> ${after}` +
                    (during === before ? "  <- never dimmed" : "") +
                    (after === before ? "" : "  <- did not come back") };
-});
+}, { on: "all" });
+
+check("a lit note stays lit while a dimension switch draws it as a stand-in", async (p) => {
+  // github#70 x github#86. A switch draws the leaving disc with copies: a stand-in is a
+  // second dot for a note the lens has an opinion about, under an id the lens has never
+  // seen. Read by its own id it is a non-match, so the note would be haloed on one disc and
+  // dimmed on the other, mid-switch, for as long as the cross lasts.
+  await clearRange(p);
+  await settle(p);
+  await camSettle(p);
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const armed = await p.j(`(function(){
+    __vg.setRecent("week", ${ref.ms});
+    var lit = 0; __vg.graph.forEachNode(function(i){ if (__vg.isHighlighted(i)) lit++; });
+    var side = document.querySelector('#vg-dim button[data-dim="tag"]');
+    if (!side) return { lit: lit, switched: false };
+    side.click();
+    return { lit: lit, switched: true };
+  })()`);
+  if (!armed.switched) return { ok: false, detail: "no #vg-dim to switch with" };
+  let samples = 0, standInFrames = 0, disagreed = 0, litStandIns = 0, example = "";
+  const t0 = Date.now();
+  for (;;) {
+    const s = await p.j(`(function(){
+      var seen = 0, wrong = 0, lit = 0, ex = "";
+      __vg.graph.forEachNode(function (id, a) {
+        if (!a.dupOf) return;
+        seen++;
+        var mine = __vg.isHighlighted(id), note = __vg.isHighlighted(__vg.noteOf(id));
+        if (mine) lit++;
+        if (mine !== note) { wrong++; if (!ex) ex = "#" + id + " " + (mine ? "lit" : "dark") +
+                                                    " while its note is " + (note ? "lit" : "dark"); }
+      });
+      return { seen: seen, wrong: wrong, lit: lit, ex: ex, busy: __vg.demo.busy() };
+    })()`);
+    samples++;
+    standInFrames += s.seen;
+    disagreed += s.wrong;
+    litStandIns += s.lit;
+    if (s.wrong && !example) example = s.ex;
+    if (!s.busy && samples > 3) break;
+    if (Date.now() - t0 > 20000) break;
+  }
+  await p.j(`(function(){ __vg.setDim("folder"); __vg.setRecent(null); return true; })()`);
+  await settle(p);
+  await camSettle(p);
+  // litStandIns > 0 is what stops this passing by measuring an empty set.
+  return { ok: disagreed === 0 && litStandIns > 0 && samples > 3,
+           detail: `${armed.lit} lit before the switch; ${samples} samples, ` +
+                   `${standInFrames} stand-in frames of which ${litStandIns} lit, ` +
+                   `${disagreed} disagreeing with their own note` +
+                   (example ? ` (e.g. ${example})` : "") +
+                   (litStandIns ? "" : "  <- NOTHING ASSERTED: no stand-in was ever lit") };
+}, { on: ["demo-vault", "tag-vault"], clock: "real" });
 
 check("the band counts the date it names", async (p) => {
   const r = await p.j(`(function(){
@@ -1323,7 +1380,7 @@ check("the band counts the date it names", async (p) => {
                        `${r.a.label.pressed} of ${r.a.label.positions} pressed, ` +
                        `${r.checked} tiled notes carry their tile's date (${r.wrong} wrong), ` +
                        `${r.moved} moved` };
-});
+}, { on: "all" });
 
 check("a picked day marks exactly the notes that tile counted", async (p) => {
   const r = await p.j(`(function(){
@@ -1349,7 +1406,7 @@ check("a picked day marks exactly the notes that tile counted", async (p) => {
            detail: r.map((x) => x.skip ? `${x.src}: no day to pick`
                                        : `${x.src} ${x.day}: ${x.tile} in tile, ${x.wrong} mismatched`)
                     .join("; ") };
-});
+}, { on: "all" });
 
 check("a bulk day is named rather than hidden", async (p) => {
   const r = await p.j(`(function(){
@@ -1382,7 +1439,7 @@ check("a bulk day is named rather than hidden", async (p) => {
   return { ok, detail: `flagged [${r.got.join(" ")}] want [${r.want.join(" ")}] ` +
                        `(median ${r.median} of ${r.total} dated), ${r.dropped} tiles thinned, ` +
                        `readout ${r.said ? "says so" : "silent"}` };
-});
+}, { on: "all" });
 
 check("the band's control row does not move when its state changes", async (p) => {
   // github#70. Every control in the row was fidgeting: the label swapped "Notes added" for
@@ -1430,7 +1487,7 @@ check("the band's control row does not move when its state changes", async (p) =
   return { ok: r.worst === 0,
            detail: `${r.states} states, worst shift ${r.worst}px` +
                    (r.worst ? `  <- ${r.who}` : "") + `, count slot ${r.countCh}` };
-});
+}, { on: "all" });
 
 check("the exported page offers no since-last-open chip", async (p) => {
   const r = await p.j(`(function(){
@@ -1443,7 +1500,7 @@ check("the exported page offers no since-last-open chip", async (p) => {
   // when it was last open, so the chip is absent rather than present and always zero.
   const ok = r.map((c) => c.kind).join(",") === "today,week";
   return { ok, detail: `chips: ${r.map((c) => `${c.kind}=${c.n}${c.off ? " (off)" : ""}`).join(", ")}` };
-});
+}, { on: "all" });
 
 check("hovering a note ramps in and releases at zero", async (p) => {
   // github#63
@@ -5916,7 +5973,7 @@ check("a rebuild waits for a drag, and a right-click is not a drag", async (p) =
 check("the invalidation registry names every cache a live rebuild stales", async (p) => {
   const names = await p.j("__vg.invalidations()");
   const want = ["timeline", "heatmap tally", "hop trail", "selection, hover and pins", "search hits",
-                "tag filing and sub order"];
+                "tag filing and sub order", "recent lens"];
   const missing = want.filter((w) => !names.includes(w));
   return { ok: missing.length === 0,
            detail: missing.length ? `MISSING: ${missing.join(", ")}` : `${names.length}: ${names.join("; ")}` };
@@ -5953,6 +6010,52 @@ check("a live rebuild lands on the layout a fresh relayout gives", async (p) => 
                        `${after.d.bands} band flip(s); the add moved ${moved.moved} of ${start.n} ` +
                        `notes, worst ${moved.worst}; restored to ${back.moved} off original` };
 }, { on: WALK, clock: "real" });
+
+check("a live rebuild re-arms the chip, so a note that arrives inside its window is lit", async (p) => {
+  // github#70 x github#72. The lens answers "what did I touch", and the live rebuild is what
+  // makes a note touched WHILE THE VIEW IS OPEN reach the disc at all -- so the one event the
+  // chips most have to survive is the one that re-mints their ids. Armed against a fixed day
+  // rather than the clock, like every other chip check here.
+  await settle(p);
+  await p.eval(LIVE_JS);
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const r = await p.j(`(function(){
+    var PATH = "__live/Zz Recent Probe.md";
+    __vg.setRecent("today", ${ref.ms});
+    var before = 0;
+    __vg.graph.forEachNode(function(i){ if (__vg.isHighlighted(i)) before++; });
+    var d = window.__live.clone();
+    var host = d.nodes[Math.floor(d.nodes.length / 2)];
+    d.nodes.push({ id: PATH, label: "Zz Recent Probe", folder: host.folder,
+                   dirs: (host.dirs || []).slice(), sub: host.sub || "", type: "note",
+                   tags: (host.tags || []).slice(), created: ${JSON.stringify(ref.key)},
+                   touched: ${JSON.stringify(ref.key)}, words: 0, deg: 0 });
+    var res = __vg.applyData(d);
+    var lit = 0, probe = null;
+    __vg.graph.forEachNode(function(i, a){
+      if (__vg.isHighlighted(i)) lit++;
+      if (a.path === PATH) probe = i;
+    });
+    return { applied: !!res.applied, reason: res.reason, before: before, lit: lit,
+             probe: probe, probeLit: probe !== null && __vg.isHighlighted(probe) };
+  })()`);
+  // Put the vault back for whatever runs next, and hand the page over at rest and unfiltered.
+  await p.j(`(function(){
+    __vg.setRecent(null);
+    var d = window.__live.clone();
+    var at = -1;
+    d.nodes.forEach(function(n, i){ if (n.id === "__live/Zz Recent Probe.md") at = i; });
+    return at >= 0 ? !!__vg.applyData(window.__live.without(at)).applied
+                   : !!__vg.applyData(d).applied;
+  })()`);
+  await settle(p);
+  const ok = r.applied && r.probe !== null && r.probeLit && r.lit === r.before + 1;
+  return { ok, detail: r.applied
+    ? `${ref.key}: ${r.before} lit -> ${r.lit} after one arrival on that day, ` +
+      `probe ${r.probe === null ? "NOT IN THE GRAPH" : (r.probeLit ? "lit" : "DARK -- the set went stale")}`
+    : `rebuild refused: ${r.reason}` };
+}, { on: "all" });
 
 check("word counts land by path, which is the only thing a live rebuild keeps", async (p) => {
   await settle(p);

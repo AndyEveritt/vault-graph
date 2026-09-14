@@ -3257,6 +3257,19 @@ function mountVaultGraph(root, data, deps) {
     }
   }
 
+  /*
+   * github#72, design/0014 -- an armed chip is a set of ids, and a live rebuild re-mints them:
+   * an arrival is a node that did not exist when the set was built. That arrival is the whole
+   * case this lens exists for -- a note edited or created with the view open is exactly what
+   * "touched today" means -- so a set left alone would go quietly stale on the one event it
+   * most has to answer. Re-run the window against the reference it was armed with, never the
+   * clock: a check arms a chip against a fixture's own newest day and must still be measuring
+   * that day after the rebuild.
+   */
+  invalidatesOnData("recent lens", function () {
+    if (state.recent) setRecent(state.recent, recentRef === null ? undefined : recentRef);
+  });
+
   /**
    * Day-key string compare, which is why the format is worth keeping: YYYY-MM-DD sorts as a
    * date. Through heatDateOf, so a chip lights exactly the notes the band's own tiles counted
@@ -3289,7 +3302,10 @@ function mountVaultGraph(root, data, deps) {
 
   /** @param {string} id */
   function isHighlighted(id) {
-    if (recentSet[id]) return true;
+    // github#86 -- through noteOf, so the stand-in a dimension switch draws for a note is lit
+    // by whatever lights the note. Nothing but a switch makes copies, and noteOf costs one
+    // branch while none exist.
+    if (recentSet[noteOf(id)]) return true;
     if (isMarkedDay(id)) return true;
     var g = groupOf(id);
     if (state.highlight[g]) return true;
@@ -5198,7 +5214,7 @@ function mountVaultGraph(root, data, deps) {
         // dot the cascade is still walking is untouched by this (the law about resting sizes).
         // The note under the pointer is exempt: asking what something is must always answer,
         // and a lens is a way of looking rather than a filter that removes.
-        if (recentT > 0.004 && !recentSet[id] &&
+        if (recentT > 0.004 && !recentSet[noteOf(id)] &&
             id !== state.hovered && id !== state.selected) {
           r.color = mixHex(r.color || nodeColor(id), THEME.dim, recentT);
           r.label = "";
