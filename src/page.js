@@ -2974,14 +2974,19 @@ function mountVaultGraph(root, data, deps) {
 
     renderer.on("downNode", function (e) {
       var o = e.event && e.event.original;
-      if (o && o.button !== 0) return;
+      // github#145 -- .button is a MouseEvent's alone, and a captor event's original is
+      // github#145 -- MouseEvent | TouchEvent. `in` is the narrowing; the bail is unchanged,
+      // github#145 -- since a touch has no .button and `undefined !== 0` bailed here before.
+      if (o && (!("button" in o) || o.button !== 0)) return;
       nodeDrag = { id: e.node, moved: false, over: false, wasPinned: isPinned(e.node) };
       dragJustMoved = null;
     });
 
     captor.on("mousemovebody", function (e) {
       if (!nodeDrag) return;
-      if (e.original && e.original.buttons !== undefined && !(e.original.buttons & 1)) {
+      // github#145 -- `"buttons" in` is exactly the `!== undefined` test it replaces: a
+      // github#145 -- MouseEvent always carries .buttons, a TouchEvent never does
+      if (e.original && "buttons" in e.original && !(e.original.buttons & 1)) {
         drop();
         return;
       }
@@ -3176,11 +3181,12 @@ function mountVaultGraph(root, data, deps) {
     if (el) el.textContent = rangeLabel();
     if (dateSpan) {
       var lo = isoDay(dateSpan.lo), hi = isoDay(dateSpan.hi);
-      var f = $("from"), t = $("to");
+      var f = /** @type {HTMLInputElement} */ ($("from"));
+      var t = /** @type {HTMLInputElement} */ ($("to"));
       if (f) { f.min = lo; f.max = hi; f.value = isoDay(state.from === null ? dateSpan.lo : state.from); }
       if (t) { t.min = lo; t.max = hi; t.value = isoDay(state.to === null ? dateSpan.hi : state.to); }
     }
-    var btn = $("rangeall");
+    var btn = /** @type {HTMLButtonElement} */ ($("rangeall"));
     if (btn) btn.disabled = (state.from === null && state.to === null);
     drawDateUI();
   }
@@ -5634,7 +5640,9 @@ function mountVaultGraph(root, data, deps) {
       // github#120 -- mirror the captor's own condition, not its events
       captor.on("mousedown", function (e) {
         var o = e && e.original;
-        if (o && o.button !== undefined && o.button !== 0) return;
+        // github#145 -- see bindNodeDrag(): `in` narrows MouseEvent | TouchEvent, and says
+        // github#145 -- the same thing about a touch that `!== undefined` said
+        if (o && "button" in o && o.button !== 0) return;
         dragging = true; dragStartedAt = NOW();
       });
       captor.on("mouseup", function () { dragging = false; dragEndedAt = NOW(); });
@@ -5642,7 +5650,7 @@ function mountVaultGraph(root, data, deps) {
       captor.on("mousemovebody", function (e) {
         if (!dragging) return;
         var o = e && e.original;
-        if (o && o.buttons !== undefined && !(o.buttons & 1)) { dragging = false; dragEndedAt = NOW(); }
+        if (o && "buttons" in o && !(o.buttons & 1)) { dragging = false; dragEndedAt = NOW(); }
       });
       // github#120 -- belt to that braces, for a release off-canvas
       var onDocUp = function () {
@@ -5863,6 +5871,7 @@ function mountVaultGraph(root, data, deps) {
   function setReading(which) {
     var tabs = $("tabs"), tg = $("tabgroups"), tn = $("tabnote");
     var pg = $("readgroups"), pn = $("readnote"), sb = $("sidebar");
+    // github#145 -- .disabled is a button's, not an element's; $() hands back the wider type
     if (!tabs || !tg || !tn || !pg || !pn) return;
     var note = which === "note" && !!state.selected && !narrow();
     var next = note ? "note" : "groups";
@@ -5870,7 +5879,7 @@ function mountVaultGraph(root, data, deps) {
     reading = next;
     tg.setAttribute("aria-selected", note ? "false" : "true");
     tn.setAttribute("aria-selected", note ? "true" : "false");
-    tn.disabled = !state.selected || narrow();
+    /** @type {HTMLButtonElement} */ (tn).disabled = !state.selected || narrow();
     pg.hidden = note;
     pn.hidden = !note;
     if (sb) sb.scrollTop = readScroll[reading] || 0;
@@ -5957,8 +5966,8 @@ function mountVaultGraph(root, data, deps) {
     // github#40, design/0012
     d.setAttribute("role", "region");
     d.setAttribute("aria-label", a.label);
-    d.querySelector(".x").onclick = function () { select(null); };
-    d.querySelector(".pin").onclick = function () { togglePin(id); select(id); };
+    /** @type {HTMLElement} */ (d.querySelector(".x")).onclick = function () { select(null); };
+    /** @type {HTMLElement} */ (d.querySelector(".pin")).onclick = function () { togglePin(id); select(id); };
     Array.prototype.forEach.call(d.querySelectorAll("[data-go]"), /** @param {HTMLElement} b */ function (b) {
       b.onclick = function () { goTo(b.getAttribute("data-go")); };
     });
@@ -6847,7 +6856,7 @@ function mountVaultGraph(root, data, deps) {
     state.hovered = null;
     select(null);
     hideTip();
-    $("q").value = "";    $("hits").replaceChildren();
+    /** @type {HTMLInputElement} */ ($("q")).value = "";    $("hits").replaceChildren();
     state.from = null; state.to = null; state.heatEnd = null;
     rangeChrome();
     buildLegend();
@@ -7102,13 +7111,13 @@ function mountVaultGraph(root, data, deps) {
         b.onclick = function () { onPick(b.getAttribute("data-key") || null); closeCtxMenu(); };
       });
       if (onToggleVisible) {
-        el.querySelector("[data-vis]").onclick = function () { onToggleVisible(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-vis]")).onclick = function () { onToggleVisible(); closeCtxMenu(); };
       }
       if (onToggleByFolder) {
-        el.querySelector("[data-byfolder]").onclick = function () { onToggleByFolder(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-byfolder]")).onclick = function () { onToggleByFolder(); closeCtxMenu(); };
       }
       if (onToggleTint) {
-        el.querySelector("[data-tint]").onclick = function () { onToggleTint(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-tint]")).onclick = function () { onToggleTint(); closeCtxMenu(); };
       }
       el.hidden = false;
       var root0 = ROOT.getBoundingClientRect();
@@ -8140,7 +8149,7 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function heatBuild() {
-    var wrap = $("heatwrap"), cv = $("heatc");
+    var wrap = $("heatwrap"), cv = /** @type {HTMLCanvasElement} */ ($("heatc"));
     if (!wrap || !cv) return;
 
     var g = heatGeom();
@@ -8925,7 +8934,8 @@ function mountVaultGraph(root, data, deps) {
       var el = $(which);
       if (!el) return;
       el.onchange = function () {
-        setRangeMs(fieldMs($("from")), fieldMs($("to")));
+        setRangeMs(fieldMs(/** @type {HTMLInputElement} */ ($("from"))),
+                   fieldMs(/** @type {HTMLInputElement} */ ($("to"))));
       };
     });
 
@@ -9269,7 +9279,7 @@ function mountVaultGraph(root, data, deps) {
     if (kind === "year") {
       var yh = $("years");
       if (!yh || !dateSpan) return null;
-      var chips = Array.from(yh.querySelectorAll("button[data-yr]"));
+      var chips = /** @type {HTMLElement[]} */ (Array.from(yh.querySelectorAll("button[data-yr]")));
       if (!chips.length) return null;
       /** @type {Record<string, number>} */
       var have = dict();
