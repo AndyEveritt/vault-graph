@@ -2918,6 +2918,39 @@ asserts so the two fixes cannot quietly undo each other.
 
 **The last two rows are the popout, modelled.** A single-window harness cannot tell `activeWindow` from the view's own window, so it would have asserted the fix while proving nothing. The harness builds an iframe, points `activeWindow` / `activeDocument` at it, and gives it the *opposite* theme -- at which point reading the active one instead of the view's own is a wrong `win` on the mount and a page painted `light` inside a dark document, which is exactly what the pre-fix run reports.
 
+**The four Obsidian and Chrome harnesses the issue names, as regression cover**, all against a
+throwaway copy of the demo fixture with this build installed:
+
+```bash
+node scripts/obsidian-smoke.mjs                       # 21/21
+node scripts/teardown-check.mjs --vault <copy>        # clean, 4 cycles
+node scripts/deferred-check.mjs --vault <copy>        # 10/10
+node scripts/refresh-check.mjs  --vault <copy>        # 8/9, and the 9th fails on develop too
+```
+
+The rows that speak to this change: **closing and reopening the view six times grew nothing** (heap
+34.5 -> 35.3 MB at 0.16 MB/cycle, DOM nodes 9,379 -> 9,379, listeners 1,930 -> 1,930), **Refresh
+remounted and destroyed the old mount** (6,169 ms, build 15 ms, mount 8 ms, old api gone, 0 errors),
+and `teardown-check` held flat over four destroy+remount cycles (nodes 683 -> 684, listeners 186 ->
+186). `deferred-check` covers the other end of the lifecycle -- a leaf restored **deferred**, where
+`leaf.view.render` does not exist -- and stays 10/10.
+
+**The popout pair is the part that matters for `contentEl.win`**, and it is measured rather than
+argued: **the view mounts in a popout and tears down with it** (popout document true, window true,
+1200x860 at -2498,70, 6 canvases, stage 912x550, ready in 509 ms, 0 errors, popout windows left open
+0), and **the hop trail survives a view moved out to a popout** with its back arrow still stepping
+there. So popout behaviour is preserved by the switch away from `activeWindow`. What is still *not*
+measured is the benefit: both windows here sit at 1x on one display, so the wrong-`devicePixelRatio`
+and throttled-frame-clock cases need two displays at different scaling and this branch has no number
+for them.
+
+**One check fails, and it fails on `origin/develop` too.** `refresh-check`'s "the graph has NOT
+noticed it on its own" asserts the *absence* of live refresh -- it is github#6's complaint, written
+before github#72 made live refresh the default -- so the graph now picks the note up on its own
+before Refresh is ever clicked and the check reports 1404 where it wants 1403. Confirmed by running
+the same harness against `origin/develop`'s `plugin/main.js`: same 8/9, same check. Stale harness,
+not a regression, and out of scope here.
+
 **The fourth scenario passes on both sides, deliberately.** It drives the real `onRefresh` callback
 the view handed its own page, capturing it *before* the render tears the button out -- the only way
 a second click can arrive at all -- and checks that the second is declined. That guard worked before
