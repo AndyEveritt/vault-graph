@@ -367,6 +367,26 @@ EOF
   exit 1
 fi
 
+# AND THE LAST OF THE "TWO FILES MUST AGREE" CHECKS: everything above this line also has to run
+# where a merge boundary can see it (github#147). Every check between the gated_push exit and
+# SKIP_SMOKE is a file in an installed checkout -- it runs where someone ran `git config
+# core.hooksPath .githooks`, on the machine that pushed, and it is never a server-side proof
+# about a commit. .github/workflows/quality.yml runs the same block against the checked-out
+# commit, and scripts/check-ci-parity.mjs is what stops the two lists drifting: release.yml
+# keeps a hand-written copy of the same list and five of these gates are already missing from
+# it, which is how a green status stops meaning what it says.
+echo "pre-push: checking the merge boundary runs these same gates..."
+if ! node "$root/scripts/check-ci-parity.mjs" </dev/null; then
+  cat >&2 <<'EOF'
+
+pre-push: the CI parity check failed -- push blocked.
+
+A gate this hook runs is not run by .github/workflows/quality.yml, so nothing on the server
+would catch it. Add the step there, then push again. There is no skip flag for this check.
+EOF
+  exit 1
+fi
+
 # LINT NEXT, same bar again -- about five seconds, no Chrome -- and no skip flag, for a
 # different reason: a lint that runs when someone remembers was 27 warnings deep when it was
 # made a gate (github#55), 26 of them values assigned and never read. The same run

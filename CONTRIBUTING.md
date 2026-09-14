@@ -50,7 +50,7 @@ slots, the six-degree minimum wedge, the fifty-two-week heatmap window. Each has
 measurement behind it, and the recurring failure mode in this repo is reasoning about the
 code instead of measuring it.
 
-Fifteen commands, and every one of them is a gate rather than a suggestion. They all run
+Sixteen commands, and every one of them is a gate rather than a suggestion. They all run
 from `.githooks/pre-push`, in this order, on a push to `develop` or `main` — a feature-branch
 push runs none of them, so a green branch push is not evidence of anything:
 
@@ -68,11 +68,12 @@ node scripts/smoke-runner-selftest.mjs  # a check that threw is scored as a fail
 node scripts/check-link-resolution.mjs  # both producers agree where a link points (github#141)
 node scripts/code-map.mjs --check       # the generated map and index still match the source
 node scripts/gallery-nav.mjs --check    # the gallery's "New in" strip still matches the feature pages
+node scripts/check-ci-parity.mjs        # every gate above also runs in CI, where a merge boundary can see it (github#147)
 npm run lint                            # tsc --noEmit on the engine, then on the JavaScript's own annotations, then typescript-eslint; every finding is held at zero
 node scripts/smoke.mjs                  # the invariant suite: four fixtures, each check on the ones its assertion is about
 ```
 
-**Only the last one has a skip flag.** `SKIP_SMOKE=1 git push` skips the suite; the fourteen
+**Only the last one has a skip flag.** `SKIP_SMOKE=1 git push` skips the suite; the fifteen
 above it do not have one and are not meant to — most of them are cheap, and what they prevent
 is damage to somebody else's software, somebody else's licence, or somebody else's name.
 
@@ -186,6 +187,19 @@ everything else is a static read costing seconds at most, and what most of it pr
 damage to somebody else's software, or to somebody else. The lint gate fails closed on a
 clone that has not run `npm ci` — run it, then push.
 
+**A hook is not a server-side proof.** It runs where somebody ran that `git config`, on
+whichever machine happened to push, so for as long as it was the only place these gates ran,
+nothing a merge boundary could read had evaluated them.
+`.github/workflows/quality.yml` runs the same block — every check between the hook's
+`gated_push` early exit and its `SKIP_SMOKE` line, plus `npm run lint` — against the
+checked-out commit, on a pull request into `develop` or `main` and on a push to either. The
+two lists are kept in step by `node scripts/check-ci-parity.mjs`, which the hook and the
+workflow both run: a gate added to one and not the other fails the push. The suite stays out
+of CI (no headless path, and a frame-sensitive lane tuned against one machine's Chrome), and
+`check-pii.mjs` is patterns-only there, since `.pii-names` is gitignored — read that step's
+output, not its exit code. `.ai-context/invariants.md` ("The merge boundary runs the gates the
+hook runs") has the measurements and github#147 the reasoning.
+
 **A tree is gated once.** A green full run of `smoke.mjs` stamps the git *tree* it measured
 and the fixtures it ran against (`scripts/suite-stamp.mjs`, in the shared git common dir).
 The hook and `release.ps1` skip the suite when the tip of every ref being pushed carries
@@ -223,10 +237,17 @@ commit and neither mechanism can see the other:
 | `.github/workflows/branch-policy.yml` | a pull request into `main` fails unless its head is `develop` in this repository — GitHub has no branch-protection setting for "the PR must come from X", so it is a required check; the same workflow also gates a direct push to `main`, checking `develop` is already an ancestor of the pushed commit, since a pull request is no longer required (below) |
 | `.githooks/pre-push` | a `git push` to `main` is refused unless `develop` is already an ancestor of it — a merge of `develop` passes, a commit made straight on `main` does not |
 | `.github/workflows/release.yml` | a release tag whose commit is not in `origin/main`'s history is refused before anything is built, signed or published — the same rule again, at the one moment it still matters, since a published tag cannot be moved |
+| `.github/workflows/quality.yml` | the quality gates themselves, run against the checked-out commit on a pull request into `develop` or `main` and on a push to either — the branch-source rule above says where a commit came from, and this says whether it is any good |
 
 `main` also carries a ruleset: that check required, no force pushes, no deletion. A pull
 request was also required until 2026-09-13; `develop` can now merge into `main` by a direct
 push, gated by the same check rather than by the website's merge button.
+
+**`quality gates` is not required yet**, and a workflow file cannot make it so — a required
+status is a repository setting. Until `quality gates` is added to that ruleset's required
+contexts alongside `main only accepts develop`, the workflow reports on every pull request and
+every `develop`/`main` push and blocks nothing. That is the open half of github#147; this file
+says what is required today rather than what ought to be.
 
 ## Comments are pointers
 
