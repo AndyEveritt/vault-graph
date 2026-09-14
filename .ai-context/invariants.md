@@ -1105,6 +1105,30 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
 
+## The host owns the "since last open" clock, and hands over the PREVIOUS stamp (github#70)
+
+`decisions/0009` — the page stores nothing, so the third chip's window is a timestamp the host
+keeps and passes in `deps.lastOpen`. Three rules, and none of them is reachable from a page
+check, which is why this one lives in the Obsidian harness rather than the suite:
+
+```bash
+node scripts/obsidian-smoke.mjs --only "since last open"
+```
+
+- **The page is handed the stamp from the previous open, never `Date.now()`** — a chip whose
+  window starts at this instant names a window that closed as it opened.
+- **The stamp is written at open as well as at close.** An Obsidian quit never fires `onClose`,
+  and a chip that silently stops moving is worse than one measuring from slightly too early.
+- **A rebuild re-passes the same value.** `render()`'s own teardown does not stamp, or Refresh
+  would quietly turn *since last open* into *since the last rebuild*.
+
+Measured in a real Obsidian, one open/close/reopen cycle: `data.json` `lastSeen`
+`…139099 → …147288` (close) `→ …147600` (reopen); the page was handed **null** on the first
+open — absent means never seen, and the chip is not built — then **…147288, the stamp from the
+close**, and the same value again after a Refresh. Chips went `today,week` → `today,week,open`.
+The standalone passes no `lastOpen` at all (`src/shell.html`), so the exported page shows two
+chips rather than a third that could only ever read zero.
+
 ## An armed chip survives a live rebuild, and a stand-in is lit by its own note (github#70)
 
 An armed chip is a **set of ids**, and two things this repo grew after the lens was written
