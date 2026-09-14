@@ -44,16 +44,7 @@ export interface NodeAttrs {
   ghost: boolean;
   /** github#86, design/0015 -- set only on a satellite: the note it copies */
   dupOf?: string;
-  /**
-   * github#86, design/0015 -- set only on a stand-in: the leaving note whose seat it holds
-   * while the switch runs, read back by dropStandIns() to hand the position over.
-   *
-   * Written at the same addNode() as dupOf and read through getNodeAttribute(), but it was
-   * missing from this interface until github#145 turned checkJs on -- which is what the
-   * whole ticket is about. Its absence put six diagnostics on dropStandIns() alone, two of
-   * them saying the read key was not a key of NodeAttrs and three saying the value it
-   * returned (the union of every OTHER attribute's type) could not index a dictionary.
-   */
+  /** github#86, design/0015, github#145 -- a stand-in's leaving note */
   standIn?: string;
 }
 
@@ -143,14 +134,7 @@ export interface EdgeDisplayData {
   zIndex?: number;
 }
 
-/**
- * github#145 -- what a reducer must return is what applyNodeDefaults() takes: a position, and
- * as much of the display data as the caller cares to set. It said NodeDisplayData until the
- * JavaScript was compiler-checked, which was a stricter claim than the renderer makes or the
- * page could meet -- nodeStyle() never sets `hidden`, and applyNodeDefaults exists precisely
- * to fill in colour, label, size, hidden, highlighted, forceLabel, type and zIndex when they
- * are absent. EdgeReducer below already said it this way.
- */
+/** github#145 -- what applyNodeDefaults() takes, as EdgeReducer already said */
 export type NodeReducer = (id: string, attrs: NodeAttrs) => Partial<NodeDisplayData> & Point;
 export type EdgeReducer = (id: string, attrs: EdgeAttrs) => EdgeAttrs & Partial<EdgeDisplayData>;
 

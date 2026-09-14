@@ -871,10 +871,7 @@ class VaultGraphView extends ItemView {
     this.lastData = data;
 
     const parsed = new DOMParser().parseFromString(PAGE_HTML, "text/html");
-    // github#145 -- firstElementChild is Element; PAGE_HTML is this repo's own src/page.html
-    // and its root is a <div>, so the narrower claim is made here, at the one site that knows
-    // what was parsed, rather than by widening what mountVaultGraph accepts. Same convention
-    // as src/page.js's $(): the accessor returns the wide type, the site states the narrow one.
+    // github#145 -- PAGE_HTML's root is a div; the narrow claim is made here
     const page = /** @type {HTMLElement | null} */ (parsed.body.firstElementChild);
     if (!page) throw new Error("page markup did not parse to an element");
     root.appendChild(page);

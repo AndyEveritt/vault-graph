@@ -170,9 +170,7 @@
 
 /**
  * The __vg api: what mountVaultGraph builds once its deferred init has run, and what
- * plugin/main.js and the settings UIs call. THESE 41 MEMBERS SHIP IN THE PLUGIN -- the count
- * said 21 and had not been recounted in a while; github#145 added the three getters that were
- * shipping undeclared and counted the rest. The
+ * plugin/main.js and the settings UIs call. THESE 41 MEMBERS SHIP IN THE PLUGIN. The
  * standalone build adds ~70 more -- state, alpha, demo, probe and the rest of the debug
  * surface the invariant suite drives -- through Object.defineProperties inside the region
  * scripts/build-plugin.mjs strips, so they are deliberately not part of this type: nothing
@@ -203,11 +201,10 @@
  * @property {(map: SlotMap) => void} setTagColors
  * @property {(map: SlotMap) => void} setSubtagColors
  * @property {(map: Record<string, boolean>) => void} setFolderShown
- * github#145 -- three getters that have always shipped in this literal and were never
- * declared: the settings UI reads them back to render the tag tab's current pins.
- * @property {SlotMap} tagColors                  github#86 -- a copy of the tag colour pins
- * @property {SlotMap} subtagColors               github#86 -- and of the sub-tint pins
- * @property {Record<string, boolean>} tagShown   github#86 -- tag -> shown by default
+ * github#145 -- three getters that shipped undeclared
+ * @property {SlotMap} tagColors                  github#86 -- the tag colour pins
+ * @property {SlotMap} subtagColors               github#86 -- the sub-tint pins
+ * @property {Record<string, boolean>} tagShown   github#86 -- shown by default
  * @property {(v: boolean) => void} setPanEnabled
  * @property {(v: boolean) => void} setCompactAxis
  * @property {(v: boolean) => void} setUnlinkedByFolder
@@ -260,13 +257,7 @@ function mountVaultGraph(root, data, deps) {
    * folder named "constructor" or "toString" is just a key); nothing about behaviour
    * changed. github#60.
    *
-   * THIS BLOCK SAT ABOVE attempt(), NOT ABOVE dict(), until github#145. attempt() and
-   * hasKeys() were inserted between the comment and the function it documents, so `T` was
-   * declared on attempt() -- which has no use for it -- and dict()'s own `Record<string, T>`
-   * named a type parameter that did not exist. The lint never said so (checkJs was off); the
-   * compiler said `Cannot find name 'T'` the moment it was turned on. Every `= dict()` in
-   * this file inferred Record<string, any> from it, which is exactly the laundering the
-   * comment above promises happens only once.
+   * github#145 -- this block sat above attempt(), so T resolved nowhere
    * @template T
    * @returns {Record<string, T>}
    */
@@ -441,8 +432,7 @@ function mountVaultGraph(root, data, deps) {
       neutrals: ["--n1", "--n2", "--n3"].map(css),
       // github#77
       pal: { l: readPalette("l"), d: readPalette("d") },
-      // github#145 -- filled on the next line, but it belongs in the literal: built beside it,
-      // github#145 -- THEME was a Theme missing a required property for exactly one statement
+      // github#145 -- in the literal, not one statement after it
       byKey: dict()
     };
     THEME.slots.forEach(function (hex, i) { THEME.byKey["g" + (i + 1)] = hex; });
@@ -568,8 +558,7 @@ function mountVaultGraph(root, data, deps) {
     var out = dict();
     if (!raw || typeof raw !== "object") return out;
     Object.keys(raw).forEach(function (g) {
-      // github#145 -- read it into a local so the typeof narrows the value, not just tests it;
-      // github#145 -- cleanSlotMap() above does the same, and this one had drifted from it
+      // github#145 -- a local, so the typeof narrows it; as cleanSlotMap()
       var v = raw[g];
       if (typeof v === "boolean") out[g] = v;
     });
@@ -635,7 +624,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {string | null} hovered                         node id
    * @property {string | null} markDay                         heatmap cell key
    * @property {string | null} hoverDay
-   * @property {string | null} hoverYear   github#145 -- a year as the chip's data-yr spells it
+   * @property {string | null} hoverYear   github#145 -- as data-yr spells it
    * @property {string} query
    * @property {number | null} until                           timeline rank, or null for all
    * @property {number | null} from                            ms, UTC midnight (heatParse)
@@ -1225,10 +1214,7 @@ function mountVaultGraph(root, data, deps) {
    * @returns {T}
    */
   function inDim(dim, fn) {
-    // github#145 -- DIMS is ("folder" | "tag")[] and `dim` is deliberately a wide string --
-    // github#145 -- __vg.setDim() hands this whatever it was called with, and this line is the
-    // github#145 -- validation. some() asks the membership question without a cast; indexOf()
-    // github#145 -- could not, because an array's own element type narrows its argument.
+    // github#145 -- membership without a cast; DIMS narrows indexOf()
     if (dim === state.dim || !DIMS.some(function (d) { return d === dim; })) return fn();
     var sDim = state.dim, sCounts = counts, sFolderCount = folderCount,
         sColor = groupColor, sSlot = groupSlot, sAuto = groupAutoSlot,
@@ -2057,15 +2043,9 @@ function mountVaultGraph(root, data, deps) {
     var HOLE = 0.3;
     var fullTotal = geomLock && geomLock.total > 0 ? geomLock.total : planTotal;
     // github#13
-    // github#145 -- spIn is one parameter carrying two shapes: a bare density, or the
-    // github#145 -- previous plan's spacings to hold. Split it ONCE, here, so that SP, SP_I,
-    // github#145 -- SP_O and density are plain numbers for the eleven sites below that do
-    // github#145 -- arithmetic on them -- the union used to reach all of them, and the
-    // github#145 -- compiler had nothing to say about it because checkJs was off.
-    // github#145 -- `typeof spIn === "number"` is what the old `spIn > 0` test meant: null
-    // github#145 -- and undefined both fall to 0 and take the measured branch, and so does a
-    // github#145 -- negative, exactly as before (typeof null is "object", which is why the
-    // github#145 -- object test above it was written `spIn && ...` in the first place).
+    // github#145 -- split the density from the held spacings, once
+    // github#145 -- typeof "number" is what `spIn > 0` meant: null,
+    // github#145 -- undefined and a negative all take the measured branch
     var given = (spIn && typeof spIn === "object") ? spIn : null;
     var spDensity = typeof spIn === "number" ? spIn : 0;
     var density = given ? (given.o || 1)
@@ -3001,9 +2981,7 @@ function mountVaultGraph(root, data, deps) {
 
     renderer.on("downNode", function (e) {
       var o = e.event && e.event.original;
-      // github#145 -- .button is a MouseEvent's alone, and a captor event's original is
-      // github#145 -- MouseEvent | TouchEvent. `in` is the narrowing; the bail is unchanged,
-      // github#145 -- since a touch has no .button and `undefined !== 0` bailed here before.
+      // github#145 -- `in` narrows MouseEvent | TouchEvent; a touch still bails
       if (o && (!("button" in o) || o.button !== 0)) return;
       nodeDrag = { id: e.node, moved: false, over: false, wasPinned: isPinned(e.node) };
       dragJustMoved = null;
@@ -3011,8 +2989,7 @@ function mountVaultGraph(root, data, deps) {
 
     captor.on("mousemovebody", function (e) {
       if (!nodeDrag) return;
-      // github#145 -- `"buttons" in` is exactly the `!== undefined` test it replaces: a
-      // github#145 -- MouseEvent always carries .buttons, a TouchEvent never does
+      // github#145 -- `in` is the `!== undefined` test it replaces
       if (e.original && "buttons" in e.original && !(e.original.buttons & 1)) {
         drop();
         return;
@@ -3897,8 +3874,7 @@ function mountVaultGraph(root, data, deps) {
    */
   /** @typedef {{ ids: string[], a: number[], b: number[], out: Record<string, number> }} WalkPair */
   /**
-   * github#145 -- done is optional, and always was: the one place that reads it is
-   * `if (done) done();` at the end of the walk, and most callers pass nothing at all.
+   * github#145 -- done is optional; most callers pass nothing
    * @param {(() => void) | null} [done]
    * @param {CascadeOpts} [opts]
    */
@@ -4110,8 +4086,7 @@ function mountVaultGraph(root, data, deps) {
     var tglDir = dict();
     /** @type {Record<string, number>} */
     var tglN = dict();
-    // github#145 -- a flag, not a count: the only writes are `= true` and the only read is a
-    // github#145 -- truthiness test at the wedge-move site
+    // github#145 -- a flag, not a count
     /** @type {Record<string, boolean>} */
     var tglMv = dict();
     if (opts.colToggle) (function () {
@@ -4680,11 +4655,7 @@ function mountVaultGraph(root, data, deps) {
    * The per-frame layout probe behind __vg.probe(), standalone only: one flat record per
    * sampled frame, plus the fixed set of notes it measures (see where it is captured).
    *
-   * ProbeSample WAS `Record<string, number | string | null>` until github#145 -- a bag with
-   * the right keys and no shape, which is what a record written once and read once tends to
-   * become. probeReport() then did arithmetic on `string | number | null` at 24 sites, every
-   * one of them reported the moment checkJs went on. The fields are all known at the single
-   * push site in probeSample(), so they are written down here instead.
+   * github#145 -- was Record<string, number | string | null>, a bag
    * @typedef {Object} ProbeSample
    * @property {string} tag
    * @property {number} ms
@@ -4701,7 +4672,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {string | null} tanId
    * @property {number} tanOver
    * @property {number} tanMean
-   * @property {Record<string, number> | null} starts    the wedge start angles, as lastStart holds them
+   * @property {Record<string, number> | null} starts    the wedge start angles
    * @property {Record<string, number> | null} arcs
    * @property {Record<string, string> | null} bands
    * @property {number} innerN
@@ -4715,10 +4686,8 @@ function mountVaultGraph(root, data, deps) {
    * @typedef {Object} Probe
    * @property {number} t0
    * @property {ProbeSample[]} samples
-   * @property {Record<string, number> | null} prevAng   the previous frame's angle per note
-   * @property {Record<string, number> | null} prevR     and its radius; both were declared
-   *                                                     `number | null` and have always held
-   *                                                     a dictionary (github#145)
+   * @property {Record<string, number> | null} prevAng   github#145 -- per note
+   * @property {Record<string, number> | null} prevR     github#145 -- per note
    * @property {Record<string, number>} set
    * @property {string} [watch]
    * @property {unknown} [watched]
@@ -5152,19 +5121,12 @@ function mountVaultGraph(root, data, deps) {
   }
 
   /**
-   * github#145 -- the return type is what the object IS, and what the renderer takes: the
-   * node's attributes with the display fields this function sets. applyNodeDefaults() in
-   * src/engine/renderer.ts fills in the rest -- `hidden` among them, which nothing here ever
-   * sets -- so claiming a whole NodeDisplayData was a stricter contract than either end kept.
+   * github#145 -- applyNodeDefaults() fills the rest
    * @param {string} id @param {NodeAttrs} a
    * @returns {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }}
    */
   function nodeStyle(id, a) {
-        // github#145 -- what this object IS at this line: the node's attributes, with the
-        // github#145 -- display fields arriving one at a time below. Casting straight to
-        // github#145 -- NodeDisplayData claimed a colour and a hidden flag that are not there
-        // github#145 -- yet, which is why the compiler called the conversion a mistake -- and
-        // github#145 -- the honest intersection keeps every assignment below checked.
+        // github#145 -- the attrs; the display fields arrive below
         var r = /** @type {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }} */ (
                   Object.assign({}, a));
         r.color = nodeColor(id);
@@ -5656,7 +5618,7 @@ function mountVaultGraph(root, data, deps) {
       nodeReducer: function (id, a) {
         var al = alpha[id] || 0;
         if (al <= 0.004) {
-          // github#145 -- as in nodeStyle(): the attrs, with hidden about to be set
+          // github#145 -- as nodeStyle()
           var h = /** @type {NodeAttrs & Partial<NodeDisplayData>} */ (Object.assign({}, a));
           h.hidden = true;
           return h;
@@ -5719,8 +5681,7 @@ function mountVaultGraph(root, data, deps) {
       // github#120 -- mirror the captor's own condition, not its events
       captor.on("mousedown", function (e) {
         var o = e && e.original;
-        // github#145 -- see bindNodeDrag(): `in` narrows MouseEvent | TouchEvent, and says
-        // github#145 -- the same thing about a touch that `!== undefined` said
+        // github#145 -- see bindNodeDrag()
         if (o && "button" in o && o.button !== 0) return;
         dragging = true; dragStartedAt = NOW();
       });
@@ -5950,7 +5911,7 @@ function mountVaultGraph(root, data, deps) {
   function setReading(which) {
     var tabs = $("tabs"), tg = $("tabgroups"), tn = $("tabnote");
     var pg = $("readgroups"), pn = $("readnote"), sb = $("sidebar");
-    // github#145 -- .disabled is a button's, not an element's; $() hands back the wider type
+    // github#145 -- .disabled is a button's
     if (!tabs || !tg || !tn || !pg || !pn) return;
     var note = which === "note" && !!state.selected && !narrow();
     var next = note ? "note" : "groups";
@@ -6373,8 +6334,7 @@ function mountVaultGraph(root, data, deps) {
         var subs = subOrder[g];
         /**
          * @param {string} col @param {string} nm @param {number} ct
-         * @param {number[]} idx  subfolder indexes this row stands for; github#145 -- they are
-         *                        numbers at all three call sites, and index subs[] here
+         * @param {number[]} idx  github#145 -- numbers at all three call sites
          * @param {number} depth @param {string | null} twAttrs @param {boolean} twOpen
          */
         var srow = function (col, nm, ct, idx, depth, twAttrs, twOpen) {
@@ -7153,8 +7113,7 @@ function mountVaultGraph(root, data, deps) {
      * @param {(key: string | null) => void} onPick
      * @param {string} [autoKey]                     the slot with no override, "" for none
      * @param {boolean} [visShown] @param {() => void} [onToggleVisible]
-     *   github#145 -- optional, and always were: the sub-colour menu passes the first four
-     *   arguments and nothing else, and every use of these three below is guarded
+     *   github#145 -- optional; the sub-colour menu passes four
      * @param {boolean} [byFolderOn] @param {(() => void) | null} [onToggleByFolder]
      * @param {boolean} [tintOn] @param {(() => void) | null} [onToggleTint]
      * @param {string} [group]
@@ -8385,8 +8344,7 @@ function mountVaultGraph(root, data, deps) {
     sig.push(state.markDay || "", state.hoverDay || "", heat.cell);
     // github#86 -- while a switch runs the colours move under a steady count
     if (standIns.length) sig.push("s" + lastCascade.frames);
-    // github#145 -- the joined signature is its own binding; sig was an array of parts and
-    // github#145 -- then, one line later, the string it joins to
+    // github#145 -- the joined signature is its own binding
     var sigKey = sig.join(",");
     if (sigKey === heatSig) return;
     heatSig = sigKey;
@@ -8669,7 +8627,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [to0]
    * @property {number} [pFrom]
    * @property {number} [pTo]
-   * @property {number} [winEnd0]  github#145 -- the visible window's end when the drag began
+   * @property {number} [winEnd0]  github#145 -- the window end at drag start
    */
   /** @type {BrushDrag | null} */
   var brushDrag = null;
@@ -9155,7 +9113,7 @@ function mountVaultGraph(root, data, deps) {
       });
       yrHost.addEventListener("pointerover", function (ev) { hoverYear(yrOf(ev)); });
       yrHost.addEventListener("pointerout", function (ev) {
-        // github#145 -- relatedTarget is EventTarget; contains() takes a Node
+        // github#145 -- EventTarget; contains() takes a Node
         var to = /** @type {Node | null} */ (ev.relatedTarget);
         if (!to || !yrHost.contains(to)) hoverYear(null);
       });
@@ -9210,8 +9168,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {boolean} [dblclick]
    * @property {boolean} [rightclick]
    * @property {boolean} [hover]
-   * @property {boolean | number[]} [drag]   github#145 -- true, or the [dx, dy] to travel;
-   *                                         scripts/demo.mjs branches on Array.isArray
+   * @property {boolean | number[]} [drag]   github#145 -- true, or the [dx, dy]
    * @property {boolean} [touchmode]
    * @property {string} [live]       "outer" or "inner": hand the page one more note on that ring
    * @property {number} [wheel]
@@ -9268,8 +9225,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [gap]
    * @property {string} [demoLabel]
    * @property {string} [id]
-   * @property {() => DemoRect} [getBoundingClientRect]   github#145 -- demoWhere reads four
-   *                                         fields off this, and a DOMRect satisfies them
+   * @property {() => DemoRect} [getBoundingClientRect]   github#145 -- not a DOMRect
    * @property {(opts?: unknown) => void} [scrollIntoView]
    * @property {(name: string) => string | null} [getAttribute]
    * @property {(sel: string) => Element | null} [querySelector]
