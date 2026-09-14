@@ -3952,15 +3952,13 @@ check("no working group is handed a grey by where it sorts", async (p) => {
     });
     return out;
   })()`);
-  const bad = r.filter((d) => d.greyed.length);
   return {
-    ok: !bad.length,
+    ok: r.every((d) => !d.greyed.length),
     detail: r.map((d) => `${d.dim} ${d.working}/${d.groups} working` +
                          (d.greyed.length ? ` -- ${d.greyed.length} greyed by position (` +
                            d.greyed.slice(0, 4).join(", ") + (d.greyed.length > 4 ? ", ..." : "") + ")"
                                           : " -- none greyed")).join("; ")
   };
-// github#118
 }, { on: "all" });
 
 // github#50
