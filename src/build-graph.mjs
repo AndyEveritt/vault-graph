@@ -356,8 +356,10 @@ for (let i = 0; i < notes.length; i++) {
         // github#141
         const dest = canonicalDest(notes[i].id, target);
         const key = ghostKey(dest);
-        if (!ghosts.has(key)) ghosts.set(key, { dest, sources: [] });
-        ghosts.get(key).sources.push(i);
+        let slot = ghosts.get(key);
+        if (!slot) { slot = { dest, sources: [] }; ghosts.set(key, slot); }
+        else if (dest < slot.dest) slot.dest = dest;
+        slot.sources.push(i);
       }
       continue;
     }

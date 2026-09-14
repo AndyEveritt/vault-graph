@@ -193,6 +193,18 @@ try {
   eq(real, plain.nodes.map((n) => n.id), "--ghosts adds nodes and reorders nothing");
   eq(ghosted.stats.unresolved, plain.stats.unresolved, "--ghosts does not change the unresolved count");
 
+  console.log("check-link-resolution: a ghost's spelling does not depend on who is read first");
+  const cased = join(work, "cased");
+  mkdirSync(join(cased, ".obsidian"), { recursive: true });
+  writeFileSync(join(cased, ".obsidian", "app.json"), "{}", "utf8");
+  mkdirSync(join(cased, "M"), { recursive: true });
+  writeFileSync(join(cased, "M", "Zed.md"), "[[zzz/New]]\n", "utf8");
+  writeFileSync(join(cased, "M", "Abe.md"), "[[ZZZ/New]]\n", "utf8");
+  const cs = build(cased, join(work, "cased.html"), ["--ghosts"]);
+  eq(cs.nodes.filter((n) => n.ghost).map((n) => n.id), ["ghost:ZZZ/New"],
+     "two spellings of one destination make one ghost, under the smaller spelling either way");
+  eq(cs.nodes.find((n) => n.ghost).deg, 2, "and both sources hang off it");
+
   console.log("check-link-resolution: a same-named file elsewhere never rescues a qualified miss");
   const strict = join(work, "strict");
   mkdirSync(join(strict, ".obsidian"), { recursive: true });

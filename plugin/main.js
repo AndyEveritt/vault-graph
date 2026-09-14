@@ -422,6 +422,7 @@ async function buildData(app, opts, version) {
       const key = ghostKey(dest);
       let slot = ghosts.get(key);
       if (!slot) { slot = { dest: dest, sources: [] }; ghosts.set(key, slot); }
+      else if (dest < slot.dest) slot.dest = dest;
       slot.sources.push([i, n]);
     }
   }

@@ -1,6 +1,5 @@
 // github#141
 
-// github#141
 const SCHEME = /^(?:[a-z][a-z0-9+.-]*:\/\/|\/\/|(?:mailto|tel|data|javascript):)/i;
 
 /** @param {string} raw @returns {boolean} */
