@@ -50,17 +50,34 @@ slots, the six-degree minimum wedge, the fifty-two-week heatmap window. Each has
 measurement behind it, and the recurring failure mode in this repo is reasoning about the
 code instead of measuring it.
 
-Four commands, and all four are gates rather than suggestions:
+Fifteen commands, and every one of them is a gate rather than a suggestion. They all run
+from `.githooks/pre-push`, in this order, on a push to `develop` or `main` — a feature-branch
+push runs none of them, so a green branch push is not evidence of anything:
 
 ```bash
-npm run lint                    # tsc --noEmit on the engine, then typescript-eslint on our own code; every finding is held at zero
-node scripts/smoke.mjs          # the invariant suite: four fixtures, each check on the ones its assertion is about
-node scripts/check-scope.mjs    # the page cannot style, or be styled by, its host
-node scripts/check-network.mjs  # nothing shipped can make a network request
-node scripts/check-notice.mjs   # the Sigma notice opens a fresh main.js and a fresh exported page
-node scripts/check-comments.mjs # comments are pointers; the count of prose lines only goes down
-node scripts/check-data-escape.mjs # a note's frontmatter cannot close the exported data script
+node scripts/check-pii.mjs              # this repo is public; no skip flag, ever
+node scripts/check-scope.mjs            # the page cannot style, or be styled by, its host
+node scripts/check-network.mjs          # nothing shipped can make a network request
+node scripts/check-notice.mjs           # the Sigma notice opens a fresh main.js and a fresh exported page
+node scripts/check-comments.mjs         # comments are pointers; the count of prose lines only goes down
+node scripts/check-generator-determinism.mjs   # a fixture vault does not depend on the day it was generated
+node scripts/check-build-order-determinism.mjs # nor on the order the filesystem enumerated it
+node scripts/check-data-escape.mjs      # a note's frontmatter cannot close the exported data script
+node scripts/update-note-selftest.mjs   # the update note's grammar and decision table (design/0016)
+node scripts/smoke-runner-selftest.mjs  # a check that threw is scored as a failure (github#146)
+node scripts/check-link-resolution.mjs  # both producers agree where a link points (github#141)
+node scripts/code-map.mjs --check       # the generated map and index still match the source
+node scripts/gallery-nav.mjs --check    # the gallery's "New in" strip still matches the feature pages
+npm run lint                            # tsc --noEmit on the engine, then typescript-eslint on our own code; every finding is held at zero
+node scripts/smoke.mjs                  # the invariant suite: four fixtures, each check on the ones its assertion is about
 ```
+
+**Only the last one has a skip flag.** `SKIP_SMOKE=1 git push` skips the suite; the fourteen
+above it do not have one and are not meant to — most of them are cheap, and what they prevent
+is damage to somebody else's software, somebody else's licence, or somebody else's name.
+
+While iterating, `node scripts/smoke.mjs --only <substring>` is the loop. The full suite
+belongs to the push that merges.
 
 Three more are manual, because each launches a real browser or a real Obsidian and takes a
 minute or two. Run the first if you touch the view's lifecycle — `onOpen`, `currentView`,
