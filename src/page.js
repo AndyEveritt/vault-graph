@@ -433,9 +433,11 @@ function mountVaultGraph(root, data, deps) {
       slots:    SLOT_VARS.map(css),
       neutrals: ["--n1", "--n2", "--n3"].map(css),
       // github#77
-      pal: { l: readPalette("l"), d: readPalette("d") }
+      pal: { l: readPalette("l"), d: readPalette("d") },
+      // github#145 -- filled on the next line, but it belongs in the literal: built beside it,
+      // github#145 -- THEME was a Theme missing a required property for exactly one statement
+      byKey: dict()
     };
-    THEME.byKey = dict();
     THEME.slots.forEach(function (hex, i) { THEME.byKey["g" + (i + 1)] = hex; });
     clearPreviewCache();
     // github#79
@@ -559,7 +561,10 @@ function mountVaultGraph(root, data, deps) {
     var out = dict();
     if (!raw || typeof raw !== "object") return out;
     Object.keys(raw).forEach(function (g) {
-      if (typeof raw[g] === "boolean") out[g] = raw[g];
+      // github#145 -- read it into a local so the typeof narrows the value, not just tests it;
+      // github#145 -- cleanSlotMap() above does the same, and this one had drifted from it
+      var v = raw[g];
+      if (typeof v === "boolean") out[g] = v;
     });
     return out;
   }
@@ -623,7 +628,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {string | null} hovered                         node id
    * @property {string | null} markDay                         heatmap cell key
    * @property {string | null} hoverDay
-   * @property {number | null} hoverYear
+   * @property {string | null} hoverYear   github#145 -- a year as the chip's data-yr spells it
    * @property {string} query
    * @property {number | null} until                           timeline rank, or null for all
    * @property {number | null} from                            ms, UTC midnight (heatParse)
@@ -1213,7 +1218,11 @@ function mountVaultGraph(root, data, deps) {
    * @returns {T}
    */
   function inDim(dim, fn) {
-    if (dim === state.dim || DIMS.indexOf(dim) < 0) return fn();
+    // github#145 -- DIMS is ("folder" | "tag")[] and `dim` is deliberately a wide string --
+    // github#145 -- __vg.setDim() hands this whatever it was called with, and this line is the
+    // github#145 -- validation. some() asks the membership question without a cast; indexOf()
+    // github#145 -- could not, because an array's own element type narrows its argument.
+    if (dim === state.dim || !DIMS.some(function (d) { return d === dim; })) return fn();
     var sDim = state.dim, sCounts = counts, sFolderCount = folderCount,
         sColor = groupColor, sSlot = groupSlot, sAuto = groupAutoSlot,
         sShade = subShade, sSubSlot = subSlot, sTint = unlinkedTintColors,
@@ -2685,6 +2694,7 @@ function mountVaultGraph(root, data, deps) {
     });
 
     var scale = UNIT;
+    /** @type {Record<string, Point>} */
     var out = {};
     graph.forEachNode(function (id) {
       var q = pos[id];
@@ -3880,7 +3890,9 @@ function mountVaultGraph(root, data, deps) {
    */
   /** @typedef {{ ids: string[], a: number[], b: number[], out: Record<string, number> }} WalkPair */
   /**
-   * @param {(() => void) | null} done
+   * github#145 -- done is optional, and always was: the one place that reads it is
+   * `if (done) done();` at the end of the walk, and most callers pass nothing at all.
+   * @param {(() => void) | null} [done]
    * @param {CascadeOpts} [opts]
    */
   function cascade(done, opts) {
@@ -4091,7 +4103,9 @@ function mountVaultGraph(root, data, deps) {
     var tglDir = dict();
     /** @type {Record<string, number>} */
     var tglN = dict();
-    /** @type {Record<string, number>} */
+    // github#145 -- a flag, not a count: the only writes are `= true` and the only read is a
+    // github#145 -- truthiness test at the wedge-move site
+    /** @type {Record<string, boolean>} */
     var tglMv = dict();
     if (opts.colToggle) (function () {
       /** @type {Record<string, number>} */
