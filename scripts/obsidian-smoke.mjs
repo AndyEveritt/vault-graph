@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { attach } from "./cdp.mjs";
+// github#142
+import { pngCaptureJs, pngCarriesGraph, pngCaptureDetail } from "./png-capture.mjs";
 import { leftmostScreen, leftWindow, leftWindowArgs, placeElectronLeft } from "./screen.mjs";
 import { keepFocus } from "./focus.mjs";
 
@@ -934,6 +936,25 @@ try {
     await mouse(c, "mouseMoved", 3, 3, { buttons: 0 });
     return at;
   };
+  // github#142
+  if (selected("png export")) {
+    const n0 = errorsBefore();
+    await E("(function(){ var v = " + VIEW + "; var b = v.contentEl.querySelector('#vg-reset'); if (b) b.click(); })(); void 0");
+    await camSettle(c);
+    // github#142
+    await sleep(1500);
+    await E("new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); })");
+    const cap = await E(pngCaptureJs({
+      api: VIEW + ".handle.api",
+      button: VIEW + ".contentEl.querySelector('#vg-png')",
+      logo: VIEW + ".contentEl.querySelector('#vg-logo')",
+      stage: VIEW + ".contentEl.querySelector('#vg-graph')",
+    })).catch((e) => ({ clicked: false, why: e.message }));
+    const errs = errorsSince(n0);
+    report(pngCarriesGraph(cap) && errs.length === 0,
+      "the plugin's Save PNG carries the graph after the disc has been idle",
+      pngCaptureDetail(cap) + (cap.why ? " -- " + cap.why : "") + "; " + errs.length + " errors");
+  }
   if (selected("trail")) {
     const n0 = errorsBefore();
     await clickNote();

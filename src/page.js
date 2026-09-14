@@ -7859,6 +7859,8 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function savePng() {
+    // github#142
+    renderer.render();
     var canvases = renderer.getCanvases();
     var src = canvases.nodes;
     var out = DOC.createElement("canvas");

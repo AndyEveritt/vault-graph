@@ -2614,6 +2614,58 @@ build's own header comment) and byte 101,719 of the page, each inside its banner
 the pre-push hook next to the network check, with no skip flag, and `releasing.md` says why a
 release cannot go out without it.
 
+## A saved PNG contains the graph, in both hosts
+
+The two WebGL layers are created with `preserveDrawingBuffer: false`
+(`src/engine/renderer.ts`), which means the browser is free to empty their drawing buffers at
+the compositing pass that follows a draw. `savePng()` used to composite those canvases without
+drawing them first, so on a settled disc — the only state anyone is in when they reach for the
+button — it copied two empty buffers and saved the background fill plus the logo, with no error
+anywhere (github#142).
+
+**The law: the draw and the copy happen in the same task.** `renderer.render()` is synchronous
+and so is `savePng()` from its first line to `a.click()`, so one call at the top of it is
+enough; scheduling a frame is not, because the scheduled frame lands after the copy and the
+copy is the thing that needed the pixels. It goes at the top rather than next to the composite
+loop because `render()` resizes, and the composite canvas is sized from the layers.
+
+Not the fix: `preserveDrawingBuffer: true`. It charges every frame of every session for a
+button pressed occasionally, and the issue ruled it out before the work started.
+
+```bash
+node scripts/smoke.mjs --only "idle PNG export"      # the exported page
+node scripts/obsidian-smoke.mjs --only "png export"  # the plugin, in a real Obsidian
+```
+
+`scripts/png-capture.mjs` holds the one measurement both harnesses drive, because the button is
+one function serving both hosts. It settles the disc, waits out a compositing pass, swaps
+`HTMLAnchorElement.prototype.click` for the length of one click — the anchor `savePng()` builds
+is never appended, so nothing propagates off it and no listener can see it — and clicks the real
+`#vg-png`. Two numbers come back, and **file size is neither of them**: an empty export is a
+real PNG of a real background and weighs a plausible 29–76 kB. The layers are counted inside
+`savePng()`'s own task, the only place their buffers are still true; the saved file is judged by
+how many of its pixels differ from its own background fill *outside the logo's square*, because
+the composite is filled opaque before anything lands on it and so is 100% non-transparent either
+way.
+
+| | page, 2256x1123 | plugin, 1268x690 |
+|---|---|---|
+| edge layer painted px, before → after | 0 → **512,858** | 0 → **210,125** |
+| node layer painted px, before → after | 0 → **57,846** | 0 → **24,511** |
+| saved px off background, outside the logo | 0 → **469,542** | 0 → **199,278** |
+| logo px, before → after | 917 → 959 | 339 → 363 |
+| data URL | 76 kB → 2,042 kB | 29 kB → 813 kB |
+
+The logo column is the control: it is the part that was always there, and it barely moves.
+`PNG_GRAPH_PX_MIN` is 2,000 — three orders of magnitude under what a real export clears and
+well over what a blank one can reach, so the floor is not a number anything is tuned to.
+
+The extra render costs one frame on a button pressed occasionally, which is the same frame
+the page draws continuously while the camera moves; a click mid-cascade cancels the pending
+frame and draws it immediately rather than dropping it. `render()` also emits `afterRender`,
+so `placeLogo()` has run before `savePng()` reads the logo's position — the export now
+composites the logo where this frame put it rather than where the last one did.
+
 ## A torn-down mount holds nothing outside its root
 
 `mountVaultGraph`'s handle has a `destroy()`, and the plugin's `teardown()` calls it. After
