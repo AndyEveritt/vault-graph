@@ -114,6 +114,13 @@ function upgrade(url) {
   });
 }
 
+// github#146 -- one line for a captured error, shared by firstError() and the smoke runner's
+// per-check audit, so the two never describe the same error differently.
+export function errorText(e) {
+  return e.kind + ": " + String(e.text).split(String.fromCharCode(10))[0] +
+         (e.line != null ? " (line " + (e.line + 1) + ")" : "");
+}
+
 export async function attach(port, match = "") {
   const targets = await json(port, "/json/list");
   const pages = targets.filter((t) => t.type === "page");
@@ -201,12 +208,7 @@ export async function attach(port, match = "") {
     send,
     on: (fn) => listeners.push(fn),
     get errors() { return errors.slice(); },
-    firstError() {
-      if (!errors.length) return null;
-      const e = errors[0];
-      return e.kind + ": " + String(e.text).split(String.fromCharCode(10))[0] +
-             (e.line != null ? " (line " + (e.line + 1) + ")" : "");
-    },
+    firstError() { return errors.length ? errorText(errors[0]) : null; },
     get lost() { return dead; },
     close: () => ws.close(),
 

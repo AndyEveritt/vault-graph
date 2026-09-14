@@ -1,5 +1,7 @@
 
 import { attach, json } from "./cdp.mjs";
+// github#146
+import { makeErrorLog, runChecks } from "./smoke-runner.mjs";
 // github#142
 import { pngCaptureJs, pngCarriesGraph, pngCaptureDetail } from "./png-capture.mjs";
 import { buildPayloadVault, PAYLOAD, NOTE_COUNT } from "./check-data-escape.mjs";
@@ -5877,14 +5879,10 @@ async function runOne(vault, work) {
     }
     // github#104
     if (!BROWSER) { try { BROWSER = (await json(PORT, "/json/version")).Browser; } catch { void 0; } }
-    const errors = [];
-    await page.send("Runtime.enable").catch(() => {});
-    page.on((msg) => {
-      if (msg.method === "Runtime.exceptionThrown") {
-        const d = msg.params?.exceptionDetails;
-        errors.push(d?.exception?.description || d?.text || "exception");
-      }
-    });
+    // github#146 -- cdp.mjs already captures exceptions and console errors; this is the list
+    // the checks see, and may edit.
+    const errorLog = makeErrorLog(page);
+    const errors = errorLog.errors;
 
     let at = "";
     for (const wait = Date.now() + 8000; ;) {
@@ -5936,79 +5934,21 @@ async function runOne(vault, work) {
     const nativeClock = await page.j("__vg.timeScale").catch(() => 1.25);
 
     // github#113
-    const stillBusy = async () => {
-      const why = await page.j("__vg.demo.busyWhy()").catch(() => null);
-      return why ? Object.keys(why).filter((k) => why[k]) : [];
-    };
-
-    // github#113
     await settle(page, 20000);
 
-    let failed = 0;
-    const timings = [];
-    for (const c of mine) {
-      if (page.lost) {
-        log(`\n  !! CDP connection lost (${page.lost}) -- ` +
-                    `${mine.length - timings.length} check(s) not run`);
-        if (chromeGone) log(`     chrome process: ${chromeGone}`);
-        if (chromeSaid.length) {
-          log("     chrome said:");
-          for (const l of chromeSaid.slice(-12)) log("       " + l);
-        }
-        failed += mine.length - timings.length;
-        break;
-      }
-      try {
-        await page.eval("1");
-      } catch (e) {
-        const last = timings.length ? timings[timings.length - 1].name : "(before the first check)";
-        log(`\n  !! the page stopped answering after "${last}" -- ${e.message}`);
-        if (chromeGone) log(`     chrome process: ${chromeGone}`);
-        if (chromeSaid.length) {
-          log("     chrome said:");
-          for (const l of chromeSaid.slice(-12)) log("       " + l);
-        }
-        log(`     ${mine.length - timings.length} check(s) not run`);
-        failed += mine.length - timings.length;
-        break;
-      }
-      let r;
-      const t0 = Date.now();
-      // github#113
-      const fast = c.clock !== "real";
-      if (fast) {
-        await page.send("Emulation.setEmulatedMedia",
-                        { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }).catch(() => {});
-        await page.eval(`__vg.timeScale = ${FAST_CLOCK}; void 0`).catch(() => {});
-      }
-      try { r = await c.fn(page, ctx); }
-      catch (e) { r = { ok: false, detail: "threw: " + e.message }; }
-      // github#113, github#112
-      const left = await stillBusy();
-      if (left.length) {
-        const tb = Date.now();
-        const done = await settle(page, 20000);
-        r = { ok: false,
-              detail: `${r.detail || ""} | left the page busy: ${left.join(", ")} -- ` +
-                      (done ? `settled in ${((Date.now() - tb) / 1000).toFixed(1)}s`
-                            : "STILL busy after 20s") };
-      }
-      if (fast) {
-        await page.eval(`__vg.timeScale = ${nativeClock}; void 0`).catch(() => {});
-        await page.send("Emulation.setEmulatedMedia", { features: [] }).catch(() => {});
-      }
-      const ms = Date.now() - t0;
-      timings.push({ name: c.name, ms });
-      if (!r.ok) failed++;
-      const secs = ms >= 1000 ? ` ${(ms / 1000).toFixed(1)}s` : "";
-      log(`${r.ok ? "  ok  " : " FAIL "} ${c.name}${secs}\n         ${r.detail}`);
-    }
+    // github#146 -- the loop, and the error audit around it, live in scripts/smoke-runner.mjs
+    // so scripts/smoke-runner-selftest.mjs can drive them without a browser.
+    const { failed, ran, timings } = await runChecks({
+      checks: mine, page, ctx, log, settle, errorLog,
+      chromeState: () => ({ gone: chromeGone, said: chromeSaid }),
+      fastClock: FAST_CLOCK, nativeClock
+    });
 
     const total = timings.reduce((a, t) => a + t.ms, 0);
     const slow = timings.slice().sort((a, b) => b.ms - a.ms).slice(0, 5);
-    log(`\n${mine.length - failed}/${mine.length} passed in ${(total / 1000).toFixed(0)}s`);
+    log(`\n${ran - failed}/${ran} passed in ${(total / 1000).toFixed(0)}s`);
     log("slowest: " + slow.map((t) => `${t.name} ${(t.ms / 1000).toFixed(1)}s`).join(", "));
-    return { failed, ran: mine.length, lines, timings };
+    return { failed, ran, lines, timings };
   } finally {
     try { if (page) await page.send("Browser.close"); } catch { }
     if (page) page.close();
