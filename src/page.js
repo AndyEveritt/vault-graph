@@ -2771,6 +2771,43 @@ function mountVaultGraph(root, data, deps) {
     if (!roomNow) {
       bandOf("i").room = pick(pool.i); bandOf("o").room = pick(pool.o);
     }
+    // github#160 -- ROW 0'S EDGE SITS ON THE RING, NOT ITS CENTRE. Rows are laid from
+    // github#160 -- `base`, so the outer band's first row had its centre on rOuter and its
+    // github#160 -- dot crossed the ring by a whole radius: 60px at rest, which read as fine,
+    // github#160 -- and 215px with a dominant folder hidden, where the ring visibly walked
+    // github#160 -- 155px inward. The whole band is shifted out by the largest dot row 0 can
+    // github#160 -- draw, worked out in UNIT space from the same terms dotPx() uses -- the
+    // github#160 -- pitch ramp, its DOT_MAX_SPREAD ceiling, the band's room over its pitch
+    // github#160 -- capped at DOT_ROOM_MAX -- so the layout stays a function of the data and
+    // github#160 -- never of the renderer or the window. Cell room and the edge cap can only
+    // github#160 -- make a dot smaller than this, so the edge lands on the ring or inside it.
+    // github#160 -- Outer band only: the inner band's row 0 is allowed HUB_ROW0_FRAC of the
+    // github#160 -- hub on purpose (github#35). The last row's dot must still clear maxR,
+    // github#160 -- so the shift is clamped to the slack the pitch left there -- the band
+    // github#160 -- has a full pitch of it at rest, and the github#157 ceiling leaves some.
+    var insetO = 0;
+    var roomO = roomNow ? roomNow.o : bandOf("o").room;
+    if (plan.sp > 0 && plan.rows && plan.rows.o > 0 && roomO > 1) {
+      var pitO = UNIT * plan.sp;
+      var hiO = DOT_OF_PITCH * Math.min(pitO, UNIT * DOT_MAX_SPREAD);
+      var fO = Math.min(roomO * 0.92 / pitO, DOT_ROOM_MAX);
+      insetO = hiO * fO / UNIT;
+      var slackO = (plan.maxR - plan.rOuter) - (plan.rows.o - 1) * plan.sp - 2 * insetO;
+      if (slackO < 0) insetO = Math.max(0, insetO + slackO);
+      if (insetO > 0) {
+        plan.cells.forEach(function (c) {
+          if (c.inner) return;
+          c.list.forEach(function (id) {
+            var q = out[id];
+            if (!q) return;
+            var rq = Math.hypot(q.x, q.y);
+            if (!(rq > 1e-9)) return;
+            var kq = (rq + insetO * UNIT) / rq;
+            q.x *= kq; q.y *= kq;
+          });
+        });
+      }
+    }
     if (trace) {
       tracePut({ what: "passEnd", roomOut_i: bandOf("i").room, roomOut_o: bandOf("o").room,
                  measured: !roomNow });

@@ -420,6 +420,37 @@ what is left. Measured live 21 / locked 21 / unclamped 23, with the tag vault's 
 branch of *the hub stays the same share of the disc as it is filtered* unchanged in both
 directions.
 
+### Row 0's edge sits on the ring, not its centre — github#160
+
+Rows are laid from `base`, so the outer band's first row had its **centre** on `rOuter` and its
+dot crossed the ring by a whole radius. At rest that is 60px on a 2021px ring and reads as
+honoured; with `projects` hidden on the dominant-folder vault the row-0 dot is 215px, and the
+wedge-debug ring — drawn at the measured dot-edge extreme — visibly walked 155px inward. Neither
+github#157 nor github#159 caused it; the sparse-state dot growth made it visible.
+
+**The outer band is shifted out by the largest dot row 0 can draw**, worked out in UNIT space
+from the same terms `dotPx()` uses — the pitch ramp `DOT_OF_PITCH · min(pitch, UNIT ·
+DOT_MAX_SPREAD)` times the band's `room · 0.92 / pitch` capped at `DOT_ROOM_MAX` — so the layout
+stays a function of the data and never of the renderer or the window. Cell room and the edge cap
+can only make a dot *smaller* than that, so the edge lands on the ring or inside it. The last
+row's dot must still clear `maxR`, so the shift is clamped to the slack the pitch left there;
+the band has a full pitch of it at rest and the github#157 ceiling leaves some.
+
+**Outer band only.** The inner band's row 0 is allowed `HUB_ROW0_FRAC` of the hub on purpose
+(github#35) and is untouched: edges 715 … 1345 against a 772 hub, before and after.
+
+Measured on the dominant-folder vault, dot edges in graph px, `rOuter 2021`, `maxR 3301`:
+
+| state | row centres | dot edges before | dot edges after | max dot |
+|---|---|---|---|---|
+| at rest, 765 | 2021…3141 → 2081…3201 | 1961 … 3173 | **2021** … 3233 | 60 |
+| `projects` off, 27 | 2021…2847 → 2235…3060 | 1806 … 3010 | **2020** … 3225 | 215 |
+
+The estimate matched the drawn radius to the pixel in both states. **Every resting layout moves
+by the resting row-0 dot radius**, so all four golden snapshots were re-recorded deliberately —
+the change is the point, not a side effect. *the resting disc is on the lattice* is unaffected: a
+uniform radial shift keeps every row gap.
+
 ### A dot held under a stale endpoint cap, released on the landing frame — github#159
 
 Hiding `projects` on the dominant-folder vault, the dots changed size **on the single frame the
