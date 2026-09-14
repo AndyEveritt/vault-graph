@@ -4340,3 +4340,67 @@ drops -- so a live rebuild that deleted one pinned note silently cost every pin.
 check, which reads what the **host** ended up holding rather than what the page believes it stored:
 `["2"]` before, `["\u0000vault-graph:pins:2","C.md"]` after. Both writes go through `persistPins()`,
 and `savePinned` has exactly one call site so a third one cannot quietly appear.
+## The JavaScript's own contracts are compiler-checked, and the gate proves it (github#145)
+
+**`npm run lint` holds `src/page.js` and `plugin/main.js` at ZERO compiler diagnostics with
+`checkJs` on, and rejects a probe that assigns `42` to a `VaultData`-annotated binding.**
+
+```bash
+node scripts/check-js-contracts.mjs      # or npm run lint, which calls it
+```
+
+Two `tsc` runs against `tsconfig.contracts.json`, about 1.3s together. The first is the real
+check. The second is the reason this is a check and not a setting: it writes a copy of
+`src/page.js` with `var DATA = data` replaced by `/** @type {VaultData} */ var DATA = 42` and
+**fails if that copy comes back clean**.
+
+**Why the second run exists.** Before github#145, `tsconfig.json` set `checkJs: false` -- it is
+typescript-eslint's program, and the compiler's own check ran over `src/engine/**/*.ts` alone.
+Every annotation in 13k lines of JavaScript was a comment nothing read, and the exact mutation
+above drew **zero errors and zero warnings** from the whole gate. That is a green gate worth
+nothing, and it stays green forever unless something asserts a known defect *is* caught. So the
+probe runs every time.
+
+**Numbers, measured 2026-09-14 on the tree at `45d28f5`** (the github#81 review's figures were
+taken on `deca048` and do not match this code): the same program with `checkJs: true` and **no
+added strictness** reported **138 diagnostics -- 136 page, two plugin -- over 105 lines**. All
+138 are fixed at their source. The bar is zero.
+
+**Zero, not a baseline.** github#145 allows a baseline *if the work is phased*, tracked **by
+identity and never by total** -- a count lets one new error silently replace one old one. It was
+not phased, so there is no ledger: zero cannot drift. The check still prints every diagnostic
+with its file, position, code and message, so a failure names itself.
+
+### What may not be done to make this pass
+
+**A diagnostic is fixed where it is caused.** A cast that widens, an `any`, a `@ts-ignore`, or
+an exclusion over a file leaves the gate exactly as untrustworthy as github#145 found it, and
+the probe cannot tell the difference -- it only proves the compiler is reading *something*.
+A narrow cast at a site that genuinely knows more than the accessor does is fine and is the
+file's own documented convention (`$()` returns `HTMLElement` and tells a caller wanting an
+input's `.value` to say so at its own site); widening a return type so a wrong call type-checks
+is not.
+
+**A measured constant still changes `invariants.md` in the same commit.** This section does not
+exempt anything.
+
+### The three ways it was verified to have teeth
+
+Tried against the finished check, each one made it fail:
+
+| Weakening | What catches it |
+|---|---|
+| `checkJs` back to `false` in `tsconfig.contracts.json` | the probe is no longer rejected |
+| `plugin/main.js` dropped from the `include` | `--listFiles` says it is not in the program |
+| the probe's anchor renamed away in `src/page.js` | a hard failure, never a skip -- a probe testing nothing is the failure this prevents |
+
+The fourth, dropping `src/page.js` from the `include`, does **not** fail, and correctly: it
+stays in the program as `plugin/main.js`'s import and stays checked. That was measured too, by
+reintroducing a real defect with the file out of the include and watching 22 diagnostics arrive.
+`tsconfig.json` names it explicitly anyway, so the program is stated rather than inherited.
+
+### Not covered
+
+`strictNullChecks` over the JavaScript -- github#145 calls it a separate, later, measured step,
+and github#55's ratchet owns it. `src/build-graph.mjs` and `scripts/**` are in no type program
+today; widening the program is its own measurement.
