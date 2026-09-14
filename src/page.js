@@ -233,17 +233,6 @@
 function mountVaultGraph(root, data, deps) {
   "use strict";
 
-  /**
-   * A prototype-less dictionary, typed. Object.create(null) is `any` to the type program
-   * and a cast at the call site is read as the expression inside it, so this is the ONE
-   * place that any is laundered -- through unknown, once -- and every dictionary in this
-   * file declares its own shape where it is made: `@type {Record<string, number>}` on the
-   * var, `= dict()` after it. Same object as Object.create(null) gave (no prototype, so a
-   * folder named "constructor" or "toString" is just a key); nothing about behaviour
-   * changed. github#60.
-   * @template T
-   * @returns {Record<string, T>}
-   */
   // github#62
   /** @param {() => void} fn @returns {unknown} */
   function attempt(fn) {
@@ -255,6 +244,25 @@ function mountVaultGraph(root, data, deps) {
     for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) return true;
     return false;
   }
+  /**
+   * A prototype-less dictionary, typed. Object.create(null) is `any` to the type program
+   * and a cast at the call site is read as the expression inside it, so this is the ONE
+   * place that any is laundered -- through unknown, once -- and every dictionary in this
+   * file declares its own shape where it is made: `@type {Record<string, number>}` on the
+   * var, `= dict()` after it. Same object as Object.create(null) gave (no prototype, so a
+   * folder named "constructor" or "toString" is just a key); nothing about behaviour
+   * changed. github#60.
+   *
+   * THIS BLOCK SAT ABOVE attempt(), NOT ABOVE dict(), until github#145. attempt() and
+   * hasKeys() were inserted between the comment and the function it documents, so `T` was
+   * declared on attempt() -- which has no use for it -- and dict()'s own `Record<string, T>`
+   * named a type parameter that did not exist. The lint never said so (checkJs was off); the
+   * compiler said `Cannot find name 'T'` the moment it was turned on. Every `= dict()` in
+   * this file inferred Record<string, any> from it, which is exactly the laundering the
+   * comment above promises happens only once.
+   * @template T
+   * @returns {Record<string, T>}
+   */
   function dict() {
     /** @type {unknown} */
     var o = Object.create(null);
