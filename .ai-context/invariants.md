@@ -3349,6 +3349,12 @@ and `[[FutureB/New]]`:
 | ghost nodes | 1 (`ghost:New`, w2) | 2 (`ghost:FutureA/New`, `ghost:FutureB/New`, w1 each) |
 | orphans | 1 | 0 |
 
+One more divergence the comparison turned up and this change closes: `WIKILINK` treated a **bare**
+`^` as a fragment separator, so `[[A/Target^abc]]` was mined as `A/Target` and resolved. Obsidian
+does not — a block ref is `#^blk`, and a lone caret is part of the filename, which the cache
+confirms by leaving `A/Target^abc` unresolved. Only `#` separates a fragment now, in both regexes;
+zero occurrences in any fixture.
+
 The lookup order is now `<source folder>/<dest>` exact, then vault-relative exact, then the
 ambiguous basename/alias index — and the first two read a **separate** `byPath` map, so a
 destination that names a path can never silently resolve to an unrelated basename. An explicit
@@ -3356,6 +3362,11 @@ destination that names a path can never silently resolve to an unrelated basenam
 with nothing else by that name, and so does the exporter. External URLs are dropped at the miner,
 which is required rather than tidy — widening `MDLINK` to accept a fragment would otherwise start
 mining `[x](https://example.com/thing.md)`, which Obsidian's cache does not treat as a link at all.
+**Only a Markdown link is tested for that, and the test requires `://` or a known scheme.** The
+first version of it was `^[a-z][a-z0-9+.-]*:` applied to both syntaxes, which reads `[[Debt: The
+First 5000 Years]]` as a URI and drops it: 20 links on the demo vault and 155 on the 10k
+disappeared before the before/after comparison below caught it. A wikilink is never an external
+URL in Obsidian, so it is not tested at all.
 
 `src/links.mjs` is the shared pure helper both adapters key a ghost by (the precedent is
 `src/dates.mjs`), so a ghost id is `ghost:<canonical full destination>` with the basename kept as
@@ -3363,11 +3374,22 @@ the display *label* only, in the exporter and in `plugin/main.js` alike. A **bar
 stays one destination rather than being pinned to its source folder, because that is how Obsidian
 keys it: create `New.md` anywhere and every `[[New]]` in the vault resolves to it.
 
-Blast radius, measured before the change: 0 duplicate basenames, 0 Markdown links, 0 qualified
-wikilinks and 0 relative wikilinks across all three fixtures (`demo-vault` 1407 notes,
-`test-vault` 10006, `shape-vault` 954), and ghosts are off by default in both adapters. So none of
-this moves a golden snapshot — which is also why the fixtures cannot serve as its regression
-evidence, and it has a check of its own.
+**Blast radius: none, and it is measured rather than argued.** The exporter at the previous commit
+and the exporter here were both run over all four fixtures, with `--ghosts` off and on, and their
+node ids, labels, degrees, edge lists, `unresolved` and orphan counts compared:
+
+| | nodes | links | unresolved | orphans |
+|---|---|---|---|---|
+| `demo-vault` (1403) | identical | 4787 | 491 | 33 |
+| `test-vault` (10002) | identical | 38154 | 3841 | 129 |
+| `shape-vault` (954) | identical | 3158 | 53 | 139 |
+| `tag-vault` (891) | identical | 3142 | 0 | 67 |
+
+Identical on every one, `--ghosts` included. That is expected from what the fixtures contain — 0
+duplicate basenames, 0 Markdown links, 0 qualified wikilinks, 0 relative wikilinks, 0 bare carets —
+and it is exactly why they cannot serve as this change's regression evidence, so it has a check of
+its own. Run that comparison again before changing `src/links.mjs`: it is what turned the colon
+bug above from a shipped regression into a caught one.
 
 ```bash
 node scripts/check-link-resolution.mjs
@@ -3381,9 +3403,18 @@ Markdown link, an external URL, a fenced and an inline-code link, the two-ghost 
 `--ghosts` both off and on, the same canonical ghost referenced from two different folders, and a
 qualified miss that a same-named file elsewhere must **not** rescue.
 
-One divergence is deliberate and not chased here: the probe left `[[Nickname]]` unresolved in
-Obsidian's `resolvedLinks` while the exporter resolves it through its alias index. Adopting the
-cache's answer would delete real edges, so the exporter keeps its aliases.
+Verified across both adapters on one miniature vault, with `--ghosts` on and the plugin setting
+on: the exporter and a real Obsidian mount agree on **every node id and every edge weight**, ghost
+ids included (`ghost:B/Missing`, `ghost:FutureA/New`, `ghost:FutureB/New`, `ghost:New`,
+`ghost:A/Target^abc`), `A/Target -- B/Source` at 6 and `B/Source -- B/Target` at 5 in both. The
+plugin's `vault-graph:rebuild` reproduces the identical node set, and `__vg.select`,
+`__vg.togglePin` and `__vg.isPinned` all work against the new ids — a ghost's card opens under its
+basename and, as before, carries no "Open in Obsidian" anchor.
+
+Exactly one divergence remains, and it is deliberate rather than unexamined: the probe left
+`[[Nickname]]` unresolved in Obsidian's `resolvedLinks` while the exporter resolves it through its
+alias index, so the plugin grows a `ghost:Nickname` the exporter does not. Adopting the cache's
+answer would delete real edges, so the exporter keeps its aliases.
 
 ## A folder can be named after anything on `Object.prototype`
 

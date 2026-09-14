@@ -53,6 +53,9 @@ const NOTES = {
     "wiki-ghost-a [[FutureA/New]]",
     "wiki-ghost-b [[FutureB/New]]",
     "wiki-ghost-bare [[New]]",
+    "wiki-caret-is-a-name [[A/Target^abc]]",
+    "wiki-block-ref [[A/Target#^abc]]",
+    "wiki-colon-is-not-a-scheme [[Debt: The First 5000 Years]]",
     "code-fence-is-not-a-link",
     "```",
     "[[A/Target]]",
@@ -115,6 +118,9 @@ eq(cleanTarget("A/Target.md#^blk"), "A/Target", "a block fragment comes off too"
 eq(cleanTarget("../A/Has%20Space.md"), "../A/Has Space", "an encoded space decodes");
 eq(cleanTarget("A/100%25.md"), "A/100%", "an encoded percent decodes without corrupting the name");
 eq(cleanTarget("A/broken%zz.md"), "A/broken%zz", "an undecodable escape is left alone");
+eq(cleanTarget("A/ca^ret.md"), "A/ca^ret", "a caret is part of a filename, not a fragment");
+eq(cleanTarget("A/hash%23mark.md"), "A/hash#mark", "an encoded hash survives the fragment split");
+eq(canonicalDest("B/Source.md", ".."), "..", "a destination that normalises away keeps its written form");
 eq(canonicalDest("B/Source.md", "./Target"), "B/Target", "./ resolves against the source folder");
 eq(canonicalDest("C/D/Other.md", "../../A/Target"), "A/Target", "../../ walks up from the source folder");
 eq(canonicalDest("B/Source.md", "A/Target"), "A/Target", "a qualified destination is left vault-relative");
@@ -122,8 +128,10 @@ eq(canonicalDest("RootNote.md", "./Target"), "Target", "./ from a vault-root not
 eq(ghostId(canonicalDest("B/Source.md", "FutureA/New")), "ghost:FutureA/New", "a ghost id is the full destination");
 eq(ghostLabel("FutureA/New"), "New", "a ghost label is the basename only");
 eq([isExternalTarget("https://example.com/a.md"), isExternalTarget("//cdn/a.md"),
-    isExternalTarget("A/Target.md"), isExternalTarget("./A.md")],
-   [true, true, false, false], "external destinations are told apart from vault ones");
+    isExternalTarget("mailto:a@b.c"), isExternalTarget("A/Target.md"), isExternalTarget("./A.md"),
+    isExternalTarget("Debt: The First 5000 Years"), isExternalTarget("Cheatsheet: Caddy.md")],
+   [true, true, true, false, false, false, false],
+   "a URL is external; a note whose name carries a colon is not");
 
 /* --------------------------------------------------------- the whole build -- */
 
@@ -143,7 +151,7 @@ try {
 
   eq(pairs(plain), {
     "A/Has Space.md -- B/Source.md": 1,
-    "A/Target.md -- B/Source.md": 5,
+    "A/Target.md -- B/Source.md": 6,
     "A/Target.md -- C/D/Other.md": 1,
     "A/Unique.md -- B/Source.md": 1,
     "B/Source.md -- B/Target.md": 4,
@@ -154,15 +162,18 @@ try {
 
   eq(byId["B/Target.md"].deg, 1, "the same-folder Target keeps its own degree");
   eq(byId["A/Target.md"].deg, 2, "the other-folder Target is reached from two sources");
-  eq(plain.stats.unresolved, 5, "unresolved counts occurrences: ./Missing, New, FutureB/New and FutureA/New twice");
+  eq(plain.stats.unresolved, 7,
+     "unresolved counts occurrences: ./Missing, New, FutureB/New, A/Target^abc, the colon name, " +
+     "and FutureA/New twice");
 
   console.log("check-link-resolution: ghost identity, ghosts on");
   const ghosted = build(vault, join(work, "ghosts.html"), ["--ghosts"]);
   eq(ghosted.nodes.filter((n) => n.ghost).map((n) => n.id).sort(),
-     ["ghost:B/Missing", "ghost:FutureA/New", "ghost:FutureB/New", "ghost:New"],
+     ["ghost:A/Target^abc", "ghost:B/Missing", "ghost:Debt: The First 5000 Years",
+      "ghost:FutureA/New", "ghost:FutureB/New", "ghost:New"],
      "two same-named ghosts stay two nodes, each under its full destination");
   eq(ghosted.nodes.filter((n) => n.ghost).map((n) => n.label).sort(),
-     ["Missing", "New", "New", "New"],
+     ["Debt: The First 5000 Years", "Missing", "New", "New", "New", "Target^abc"],
      "a ghost label is still the basename");
 
   const gp = pairs(ghosted);
@@ -170,6 +181,10 @@ try {
   eq(gp["C/D/Other.md -- ghost:FutureA/New"], 1, "the same canonical destination aggregates across folders");
   eq(gp["B/Source.md -- ghost:FutureB/New"], 1, "FutureB/New is a separate neighbourhood");
   eq(gp["B/Source.md -- ghost:New"], 1, "a bare unresolved name stays one destination, as Obsidian keys it");
+  eq(gp["B/Source.md -- ghost:A/Target^abc"], 1, "a bare caret is part of the name, not a block fragment");
+  eq(gp["B/Source.md -- ghost:Debt: The First 5000 Years"], 1,
+     "a note name that opens like a URI scheme is still mined, not dropped as external");
+  eq(gp["A/Target.md -- B/Source.md"], 6, "the #^ block ref does reach A/Target, unlike the bare caret");
   eq(gp["B/Source.md -- ghost:B/Missing"], 1, "an unresolved relative path never falls back to a basename");
   eq(ghosted.nodes.find((n) => n.id === "ghost:FutureA/New").deg, 2,
      "the shared ghost carries both of its sources");

@@ -1,6 +1,7 @@
 // github#141
 
-const SCHEME = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+// github#141
+const SCHEME = /^(?:[a-z][a-z0-9+.-]*:\/\/|\/\/|(?:mailto|tel|data|javascript):)/i;
 
 /** @param {string} raw @returns {boolean} */
 export function isExternalTarget(raw) {
@@ -10,7 +11,7 @@ export function isExternalTarget(raw) {
 /** @param {string} raw @returns {string} */
 function stripFragment(raw) {
   const s = String(raw);
-  const at = s.search(/[#^]/);
+  const at = s.indexOf("#");
   return at < 0 ? s : s.slice(0, at);
 }
 
@@ -19,7 +20,7 @@ export function cleanTarget(raw) {
   const path = stripFragment(raw).trim();
   let decoded = path;
   try { decoded = decodeURIComponent(path); } catch { decoded = path; }
-  return decoded.replace(/\\/g, "/").replace(/\.md$/i, "").trim();
+  return tidy(decoded);
 }
 
 /** @param {string} dest @returns {boolean} */
@@ -29,8 +30,9 @@ export function isRelativeDest(dest) {
 
 /** @param {string} path @returns {string} */
 function dirOf(path) {
-  const at = String(path).replace(/\\/g, "/").lastIndexOf("/");
-  return at < 0 ? "" : path.slice(0, at);
+  const p = String(path).replace(/\\/g, "/");
+  const at = p.lastIndexOf("/");
+  return at < 0 ? "" : p.slice(0, at);
 }
 
 /** @param {string} path @returns {string} */
@@ -56,7 +58,7 @@ function tidy(dest) {
  * @returns {string}
  */
 export function resolveAgainst(sourcePath, dest) {
-  const dir = dirOf(String(sourcePath).replace(/\\/g, "/"));
+  const dir = dirOf(sourcePath);
   return normalizeSegments((dir ? dir + "/" : "") + tidy(dest));
 }
 
@@ -68,7 +70,8 @@ export function resolveAgainst(sourcePath, dest) {
  */
 export function canonicalDest(sourcePath, dest) {
   const d = tidy(dest);
-  return isRelativeDest(d) ? resolveAgainst(sourcePath, d) : normalizeSegments(d);
+  const out = isRelativeDest(d) ? resolveAgainst(sourcePath, d) : normalizeSegments(d);
+  return out || d;
 }
 
 /** @param {string} canonical @returns {string} */

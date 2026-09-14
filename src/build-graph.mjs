@@ -187,30 +187,31 @@ const NAV_LINE = new RegExp(
 );
 const stripDailyNav = (s) => (STRIP_NAV ? s.replace(NAV_LINE, "") : s);
 
-const WIKILINK = /!?\[\[([^[\]|#^]+)(?:[#^][^[\]|]*)?(?:\|[^[\]]*)?\]\]/g;
+// github#141
+const WIKILINK = /!?\[\[([^[\]|#]+)(?:#[^[\]|]*)?(?:\|[^[\]]*)?\]\]/g;
 // github#141
 const MDLINK = /\[[^\]]*\]\(([^)\s#]+\.md)(?:#[^)\s]*)?(?:\s[^)]*)?\)/g;
 
 function mineLinks(body, fm) {
   const out = [];
   // github#141
-  const push = (raw) => {
-    if (isExternalTarget(raw)) return;
+  const push = (raw, url) => {
+    if (url && isExternalTarget(raw)) return;
     const dest = cleanTarget(raw);
     if (dest) out.push(dest);
   };
-  const scan = (text, re) => {
+  const scan = (text, re, url) => {
     let m; re.lastIndex = 0;
-    while ((m = re.exec(text))) push(m[1]);
+    while ((m = re.exec(text))) push(m[1], url);
   };
 
   const clean = stripDailyNav(stripCode(body));
-  scan(clean, WIKILINK);
-  scan(clean, MDLINK);
+  scan(clean, WIKILINK, false);
+  scan(clean, MDLINK, true);
 
   for (const v of Object.values(fm)) {
     for (const s of (Array.isArray(v) ? v : [v])) {
-      if (typeof s === "string" && s.includes("[[")) scan(s, WIKILINK);
+      if (typeof s === "string" && s.includes("[[")) scan(s, WIKILINK, false);
     }
   }
   return out;
@@ -323,15 +324,17 @@ const ghosts = new Map();
 let unresolved = 0;
 
 // github#141
+const exact = (p) => {
+  const k = p.toLowerCase();
+  return k && byPath.has(k) ? byPath.get(k) : -1;
+};
+
+// github#141
 const resolve = (dest, sourceId) => {
-  const exact = (p) => {
-    const k = p.toLowerCase();
-    return k && byPath.has(k) ? byPath.get(k) : -1;
-  };
   const here = exact(resolveAgainst(sourceId, dest));
   if (here >= 0) return here;
   if (isRelativeDest(dest)) return -1;
-  const there = exact(canonicalDest("", dest));
+  const there = exact(canonicalDest(sourceId, dest));
   if (there >= 0) return there;
   if (dest.includes("/")) return -1;
   const k = dest.toLowerCase().trim();
