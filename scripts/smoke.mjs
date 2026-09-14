@@ -5767,8 +5767,7 @@ check("word counts land by path, which is the only thing a live rebuild keeps", 
 check("an idle PNG export carries the graph, not just the background and the logo", async (p) => {
   await camReset(p);
   await settle(p);
-  // github#142 -- a drawing buffer is only empty once a compositing pass has run since the last
-  // github#142 -- draw, which is exactly where a user is when they reach for the button.
+  // github#142
   await sleep(1200);
   await p.eval(`new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); })`);
   const r = await p.eval(pngCaptureJs({

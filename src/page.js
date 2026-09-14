@@ -7859,14 +7859,7 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function savePng() {
-    // github#142 -- the two WebGL layers are created with preserveDrawingBuffer: false
-    // github#142 -- (src/engine/renderer.ts), so a settled disc's buffers are emptied by the
-    // github#142 -- compositing pass that follows the last draw and a click handler that only
-    // github#142 -- copies gets the background and the logo. Draw them again here: render() is
-    // github#142 -- synchronous and savePng() is synchronous throughout, so the copy below
-    // github#142 -- happens in the same task as the draw, which is the whole requirement --
-    // github#142 -- scheduling a frame would land after the buffers are gone again. It goes
-    // github#142 -- first because render() resizes, and `out` is sized from the layers.
+    // github#142
     renderer.render();
     var canvases = renderer.getCanvases();
     var src = canvases.nodes;
