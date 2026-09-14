@@ -31,4 +31,4 @@ commit.
 | | |
 |---|---|
 | **Introduced in** | `predates versioning — undocumented until this gallery` |
-| **Last re-recorded** | `2.7.0 — 2026-09-12` — 14.5 s at 1000x1000, encoded at 1000 px (2.73 MB) |
+| **Last re-recorded** | `2.8.0 — 2026-09-14` — 14.5 s at 1000x1000, encoded at 1000 px (3.05 MB) |

@@ -30,7 +30,7 @@ published tag breaks every link to it.
 
 ---
 
-## 2.8.0 — "Recent" — 2026-09-14
+## 2.8.0 — "Recent" — 2026-09-15
 
 **The calendar band becomes something you point at the disc** — ask it what you touched today, in the last week, or since you last had the graph open.
 
