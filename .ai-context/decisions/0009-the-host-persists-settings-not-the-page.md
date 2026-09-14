@@ -88,8 +88,8 @@ reaching for a store. A partial list of what joined `folderColors` / `onFolderCo
 grouping keeps its own pins), `folderShown`, `panEnabled`, `compactAxis`, `unlinkedByFolder`,
 `unlinkedTintByFolder`, `countBars`, `bandOpen`, `sheetOpen`, `dim`, `fitCap`, `pinned` /
 `onPinned` (`decisions/0014`), plus `openSettings` and `win` — the last being the plugin
-handing the page its own `contentEl.win`, so a popout renders in the window it is actually in
-(github#142).
+handing the page `this.contentEl.win`, this view's own window rather than whichever one has
+focus now (github#140).
 
 "The plugin passes only the first" is the sentence to read as of its date, not as of now: the
 plugin passes almost all of them and withholds `settingsUI`, which is the one that matters and
