@@ -5879,8 +5879,7 @@ async function runOne(vault, work) {
     }
     // github#104
     if (!BROWSER) { try { BROWSER = (await json(PORT, "/json/version")).Browser; } catch { void 0; } }
-    // github#146 -- cdp.mjs already captures exceptions and console errors; this is the list
-    // the checks see, and may edit.
+    // github#146 -- the list the checks see, and may edit
     const errorLog = makeErrorLog(page);
     const errors = errorLog.errors;
 
@@ -5936,8 +5935,7 @@ async function runOne(vault, work) {
     // github#113
     await settle(page, 20000);
 
-    // github#146 -- the loop, and the error audit around it, live in scripts/smoke-runner.mjs
-    // so scripts/smoke-runner-selftest.mjs can drive them without a browser.
+    // github#146
     const { failed, ran, timings } = await runChecks({
       checks: mine, page, ctx, log, settle, errorLog,
       chromeState: () => ({ gone: chromeGone, said: chromeSaid }),

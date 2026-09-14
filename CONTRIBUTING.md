@@ -105,6 +105,7 @@ and bullets, the written version, the canvas height and the camera back from a r
 node scripts/build-plugin.mjs
 node scripts/update-note-check.mjs                # the demo fixture; --keep leaves Obsidian open
 node scripts/update-note-selftest.mjs             # the decision table and the note grammar, no Obsidian (the hook runs it too)
+node scripts/smoke-runner-selftest.mjs           # the smoke runner's own scoring and error audit, no Chrome (the hook runs it too)
 ```
 
 One more if you touch the renderer (`src/engine/`): the suite asserts numbers, and none of

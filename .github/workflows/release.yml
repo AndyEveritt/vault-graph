@@ -211,6 +211,8 @@ jobs:
         run: node scripts/check-comments.mjs
       - name: The update note's grammar and decision table
         run: node scripts/update-note-selftest.mjs
+      - name: The smoke runner scores a check that threw
+        run: node scripts/smoke-runner-selftest.mjs
       - name: The generated code map and index are current
         run: node scripts/code-map.mjs --check
 

@@ -4068,6 +4068,55 @@ other's contention, which is the one thing the old sharding could not promise. S
 per run: demo walk 116 s then 10k walk 105 s in one lane, the five other jobs (78 + 61 + 17 +
 19 s and the intro) in the other. `--jobs 1` is the quiet run, one Chrome per fixture.
 
+**A check that returns after the page threw has failed too.** github#146: the console-error
+assertion was an *initial* test, and every later check was scored only by the `ok` it returned —
+so an interaction could satisfy a numeric invariant, throw asynchronously, and still be counted a
+pass, and nothing read the accumulated list before the profile directory was deleted. Verified by
+running the loop with controlled callbacks: the second appended an error and returned a passing
+numeric result, and the runner printed **2/2 passed** while holding it. That is a runner defect,
+and it says nothing about whether a production interaction throws today.
+
+The runner (`scripts/smoke-runner.mjs`) now keeps a **high-water mark** into the error list.
+A check's window opens at the mark and closes after its settle, **one animation frame and one
+round-trip** — so it holds what the interaction threw on its way out, not just what the callback
+saw — and anything in it fails that check, whatever its own assertion said:
+`42 notes | threw during this check: exception: TypeError: … (line 42)`. Errors captured before
+the first check (page load) fall into the **first** check's window rather than a line of their
+own: one mechanism, no double count against `page loads with no console errors`, and still
+audited in the three jobs where that check does not run. A **final audit**, once per job with a
+500 ms grace, catches what arrives after the last check.
+
+**Two sources, and only two.** `cdp.mjs` was already capturing both for `firstError()` —
+`Runtime.exceptionThrown`, which covers thrown exceptions and unhandled promise rejections alike,
+and `Runtime.consoleAPICalled` with type `"error"` — so the runner reads that list instead of
+listening a second time, and the suite sees console errors for free. `Log.entryAdded` is captured
+by neither, deliberately: 404s, CSP reports and deprecation notices are Chrome's business and not
+this page's invariants, and auditing them would be the broad filter the ticket warns against,
+pointing the other way.
+
+**One allowlist, and it is the one that was already there.** `a folder named after an
+Object.prototype member still lays out` splices back the window it provoked across its
+hostile-vault navigations. A check that leaves the list *shorter* than the mark has removed
+something the runner never audited, and which entries survived is unknowable from outside — so
+the mark drops to zero and the whole list is audited rather than the remainder trusted.
+
+**What this does not do.** Nothing catches an error the page has not thrown yet: a timer left
+running further out than the final grace throws into nobody's window, and no finite wait would
+change that. And successive checks still share one page — the **error list's** boundary is
+deterministic now, the **page state's** is not, which stays open. The year-hover discrepancy
+(32 highlighted against 30 notes, passing when rerun alone) remains a hypothesis about that
+shared state; nothing here diagnoses or fixes it.
+
+Measured 2026-09-14. `scripts/smoke-runner-selftest.mjs` holds **32 regressions: 9 fail with the
+audit removed and nothing else changed, 0 with it** — among them the two the ticket names, a
+later callback that records an error while its numeric assertion passes, and a late error at test
+completion. Against a real page on the demo fixture: a timer throwing at **+5 ms**, an unhandled
+rejection and a `console.error` each fail their own check by name, and a throw at **+300 ms**
+lands in the final audit instead of vanishing. The frame costs **13 ms per check** (104 ms over
+8 check runs, 9,455 against 9,351), so about **7 s on a full suite** — ~3.3 s across 255 check
+runs plus 3.5 s of final grace over seven jobs. No threshold, golden snapshot or check name
+moved.
+
 **A check that returns while the page is still walking has failed.** The runner settles the
 page once on arrival (the opening camera tween, or the intro without `?rest`), then after
 every check asks `__vg.demo.busyWhy()`; anything still busy is waited out — so one leak never

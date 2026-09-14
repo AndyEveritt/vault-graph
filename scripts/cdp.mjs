@@ -114,8 +114,7 @@ function upgrade(url) {
   });
 }
 
-// github#146 -- one line for a captured error, shared by firstError() and the smoke runner's
-// per-check audit, so the two never describe the same error differently.
+// github#146 -- one line for a captured error
 export function errorText(e) {
   return e.kind + ": " + String(e.text).split(String.fromCharCode(10))[0] +
          (e.line != null ? " (line " + (e.line + 1) + ")" : "");

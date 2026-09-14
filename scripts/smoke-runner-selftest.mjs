@@ -1,13 +1,5 @@
 #!/usr/bin/env node
-// github#146
-//
-// The harness regressions for scripts/smoke-runner.mjs: the runner's own scoring, and the error
-// audit around every check. No Chrome -- the page is a stand-in that answers the four calls the
-// loop makes of it, so these run in milliseconds and the hook can afford them on every push.
-//
-// The two the ticket names are "a later check throws while its own assertion passes" and "an
-// error arrives after the last check". Both fail without the audit in smoke-runner.mjs; the rest
-// are here so the audit cannot be bought by breaking something the runner already did.
+// github#146 -- the smoke runner's own scoring, with no Chrome
 
 import { makeErrorLog, runChecks, summarise } from "./smoke-runner.mjs";
 
@@ -18,25 +10,19 @@ function check(name, ok, detail) {
   if (!ok) failed++;
 }
 
-/**
- * A page that answers what the loop asks of it and nothing else.
- * `busy` is the queue stillBusy() reads: each entry is one check's answer.
- */
+// github#146 -- a page that answers only what the loop asks
 function fakePage(opts = {}) {
   const busy = (opts.busy || []).slice();
   const p = {
     lost: opts.lost || null,
     sent: [],
     dead: opts.dead || false,
-    // what cdp.mjs captures, in its own shape; makeErrorLog() reads this and nothing else
     captured: (opts.captured || []).slice(),
     get errors() { return p.captured.slice(); },
     async send(method, params) { p.sent.push(method); void params; },
     async eval(expr) {
       if (p.dead) throw new Error("Inspector.detached");
-      // quiet() asks the page for a turn, and waits out the grace it was given. A stand-in that
-      // resolved synchronously would let an error still in flight arrive after its own window
-      // had closed, which is the thing these tests are about.
+      // github#146 -- honour the grace, so a window can close too early
       const grace = /setTimeout\(r, (\d+)\)/.exec(String(expr));
       if (grace) { await new Promise((r) => setTimeout(r, Number(grace[1]))); return undefined; }
       return expr === "1" ? 1 : undefined;
@@ -48,17 +34,15 @@ function fakePage(opts = {}) {
       }
       return null;
     },
-    on() { /* the error log is wired separately in these tests */ }
+    on() {}
   };
   return p;
 }
 
-// the real settle() polls the page, so it yields to the event loop; a stand-in that
-// resolves synchronously would let a genuinely late error arrive after the audit.
+// github#146 -- the real settle() yields, so this one must too
 const settle = async () => { await new Promise((r) => setTimeout(r, 0)); return true; };
 const quietLog = () => { const lines = []; const log = (m) => lines.push(String(m)); log.lines = lines; return log; };
 
-/** Run the loop over `checks` with a fresh error array, and hand back everything observable. */
 async function run(checks, opts = {}) {
   const page = fakePage(opts);
   const errorLog = makeErrorLog(page);
@@ -78,9 +62,7 @@ const pass = (name) => ({ name, fn: async () => ({ ok: true, detail: "fine" }) }
 
 console.log("the audit around every check");
 
-// The defect github#146 reports, in the shape the review measured it: two checks, the second
-// appends an error to the list and still returns a passing numeric result. Before the audit the
-// runner printed 2/2 and returned failed: 0 while holding the error.
+// github#146 -- the defect, in the shape the review measured it
 {
   const r = await run([
     pass("reads an empty error list"),
@@ -97,8 +79,7 @@ console.log("the audit around every check");
   check("...and the check before it is untouched", r.text.includes("  ok   reads an empty error list"));
 }
 
-// The other regression the ticket names: an error that arrives as the last check returns belongs
-// to no check's window at all, and used to leave with the profile directory.
+// github#146 -- an error that belongs to no check's window
 {
   const r = await run([
     pass("one"),
@@ -116,7 +97,7 @@ console.log("the audit around every check");
   check("...and it is counted in the denominator", r.ran === 3, "ran " + r.ran);
 }
 
-// ...while an error the interaction throws on its own way out is the check's, not the job's.
+// github#146
 {
   const r = await run([
     pass("one"),
@@ -130,9 +111,7 @@ console.log("the audit around every check");
   check("...and not to the innocent check after it", r.text.includes("  ok   three"));
 }
 
-// An error already in the list when the loop starts is the page load's. It falls into the first
-// check's window rather than a line of its own -- so it is reported once in the job that runs
-// "page loads with no console errors", and still reported in the three jobs that do not.
+// github#146 -- a load-time error falls into the first window
 {
   const r = await run([pass("whatever runs first here")], { errors: ["load-time boom"] });
   check("an error captured before the first check fails that check",
@@ -140,9 +119,7 @@ console.log("the audit around every check");
         "failed " + r.failed);
 }
 
-// The only allowlist in the suite: a check that provokes errors on purpose truncates its own
-// window before returning. That is what "a folder named after an Object.prototype member still
-// lays out" does around its hostile-vault navigations.
+// github#146 -- the one allowlist: a check forgiving its own window
 {
   const r = await run([
     pass("one"),
@@ -159,9 +136,7 @@ console.log("the audit around every check");
         r.failed === 0 && r.text.includes("  ok   forgives its own window"), "failed " + r.failed);
 }
 
-// ...but a splice may not carry the mark past something the runner has not audited. A check that
-// leaves the list shorter than the mark has removed something unaudited, and which entries
-// survived is unknowable from the outside -- so the runner audits the whole list instead.
+// github#146
 {
   const r = await run([
     { name: "one", fn: async (p, ctx) => { ctx.errors.push("a"); ctx.errors.push("b"); return { ok: true, detail: "d" }; } },
@@ -223,8 +198,7 @@ console.log("what the runner already did, unchanged");
 console.log("the error log");
 
 {
-  // what cdp.mjs hands over, in its shape -- an exception, an unhandled rejection with no
-  // exception object, and a console.error
+  // github#146 -- what cdp.mjs hands over, in its shape
   const page = fakePage({ captured: [
     { kind: "exception", text: "Error: nope\n  at x", line: 11 },
     { kind: "exception", text: "Uncaught (in promise) Error: no" },

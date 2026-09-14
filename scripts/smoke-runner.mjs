@@ -1,40 +1,18 @@
-// github#146
-//
-// The per-check loop of scripts/smoke.mjs, and the error audit around it.
-//
-// This lives in its own module for one reason: the loop is what github#146 is about, and a loop
-// tangled into runOne() can only be exercised by launching Chrome. scripts/smoke-runner-selftest.mjs
-// drives everything here with a fake page, which is how the two regressions the ticket asks for
-// are written at all. Same arrangement as plugin/update-note.mjs + scripts/update-note-selftest.mjs.
+// github#146 -- the smoke loop, and the error audit around every check
 
 import { errorText } from "./cdp.mjs";
 
 /**
- * At most `n` error lines, with a count of what was left out.
  * @param {string[]} errs
  * @param {number} [n]
+ * @returns {string}
  */
 export function summarise(errs, n = 3) {
   const shown = errs.slice(0, n).join(" | ");
   return errs.length > n ? `${shown} (+${errs.length - n} more)` : shown;
 }
 
-/**
- * The list of errors the checks see, kept in step with what the connection captured.
- *
- * cdp.mjs already collects both kinds a page can produce -- `Runtime.exceptionThrown`, which
- * covers thrown exceptions and unhandled promise rejections alike, and `Runtime.consoleAPICalled`
- * with type "error". Nothing here listens a second time; `sync()` copies whatever arrived since
- * it last looked into a list the checks own and may edit.
- *
- * `Log.entryAdded` is captured by neither, deliberately: it carries network 404s, CSP reports and
- * deprecation notices, which are Chrome's business and not this page's invariants. Auditing them
- * would be the broad filter github#146 warns against, pointing the other way.
- *
- * The two lists are separate on purpose. A check may splice its own window out of `errors` to
- * forgive errors it provoked, and `seen` counts into the connection's untouched list, so a splice
- * can never make the runner re-report what it already audited.
- */
+// github#146 -- the checks' own list, mirroring cdp.mjs's capture
 export function makeErrorLog(page) {
   /** @type {string[]} */
   const errors = [];
@@ -49,19 +27,7 @@ export function makeErrorLog(page) {
   };
 }
 
-/**
- * Wait until the page has run what the check left behind, then flush what it reported.
- *
- * Two things have to happen before a window can close. The page has to get a turn -- an animation
- * frame and then a task, which is where a handler scheduled by a click or a drag actually runs --
- * and the connection has to deliver what that turn produced. CDP events and command responses
- * share one ordered connection, so an exception the renderer has already reported arrives before
- * the response to a round-trip issued after it.
- *
- * That is the whole guarantee, and its edge is worth being plain about: this sees what the page
- * has thrown by the time it returns. A timer a check leaves running further out than `graceMs`
- * throws into nobody's window, and no finite wait would change that.
- */
+// github#146 -- the page's turn, then the connection's
 async function quiet(page, graceMs = 0) {
   try {
     await page.eval(
@@ -72,35 +38,19 @@ async function quiet(page, graceMs = 0) {
   } catch { return false; }
 }
 
-/** One round-trip, to order the connection's events ahead of the reply. */
+// github#146 -- one round-trip, to order events ahead of the reply
 async function drain(page) {
   try { await page.eval("1"); return true; } catch { return false; }
 }
 
 /**
- * Run `checks` against an attached page, scoring each one, and fail any check that left a new
- * error behind.
- *
- * The runner keeps a high-water mark into `ctx.errors`: a check's window opens at the mark and
- * closes after its settle, an animation frame and a round-trip, so the window covers the
- * asynchronous tail of the interaction and not just the callback's own stack. Errors captured
- * before the first check -- page load -- fall into the FIRST check's window rather than a
- * synthetic line of their own: one mechanism, no double count against the "page loads with no
- * console errors" check, and still audited in the three jobs where that check does not run.
- *
- * A check may forgive its own window by truncating the list back to where it found it, which is
- * what the hostile-vault check does around navigations it deliberately provokes. That is the only
- * allowlist in the suite. A check that leaves the list SHORTER than the mark has removed
- * something the runner never audited, and which entries survived is unknowable from out here --
- * so the mark drops to zero and the whole list is audited rather than the remainder trusted.
- *
+ * github#146, github#112, github#113
  * @returns {Promise<{ failed: number, ran: number, timings: {name: string, ms: number}[] }>}
  */
 export async function runChecks(opts) {
   const { checks, page, ctx, log, settle, errorLog, chromeState, fastClock, nativeClock } = opts;
   const errors = ctx.errors;
-  // github#146 -- the last window is the one with nothing after it to catch a straggler, so it is
-  // the only one that pays for a grace period. Once per job, not once per check.
+  // github#146 -- only the last window pays for a grace
   const finalGraceMs = opts.finalGraceMs === undefined ? 500 : opts.finalGraceMs;
 
   const chromeTail = () => {
@@ -167,11 +117,10 @@ export async function runChecks(opts) {
       await page.eval(`__vg.timeScale = ${nativeClock}; void 0`).catch(() => {});
       await page.send("Emulation.setEmulatedMedia", { features: [] }).catch(() => {});
     }
-    // github#146 -- the window closes here: the page gets its turn, the connection is flushed,
-    // and only then is the list read. What an interaction threw on its way out belongs to the
-    // check that caused it, not to the innocent one after it.
+    // github#146 -- the window closes after the interaction's tail
     await quiet(page);
     sync();
+    // github#146 -- a splice below the mark hid something unaudited
     if (errors.length < mark) mark = 0;
     const fresh = errors.slice(mark);
     if (fresh.length) {
@@ -186,8 +135,7 @@ export async function runChecks(opts) {
     log(`${r.ok ? "  ok  " : " FAIL "} ${c.name}${secs}\n         ${r.detail}`);
   }
 
-  // github#146 -- the final audit, before the browser closes. An error that arrives as the last
-  // check returns belongs to nobody's window, and used to go out with the profile directory.
+  // github#146 -- the final audit, before the browser closes
   if (alive && !page.lost) {
     await settle(page, 20000);
     await quiet(page, finalGraceMs);

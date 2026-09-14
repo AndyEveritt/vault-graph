@@ -300,6 +300,23 @@ EOF
   exit 1
 fi
 
+# THE SMOKE RUNNER'S OWN SCORING NEXT, same bar -- a fake page, no Chrome, ~100 ms.
+# github#146: the runner used to count a check by the ok it returned and nothing else, so an
+# interaction could satisfy a numeric invariant, throw asynchronously, and still be scored a
+# pass -- which made every check after the first worth less than its green suggested. These
+# regressions hold the audit around each check and the final one before the browser closes.
+echo "pre-push: checking the smoke runner scores a check that threw..."
+if ! node "$root/scripts/smoke-runner-selftest.mjs" </dev/null; then
+  cat >&2 <<'EOF'
+
+pre-push: the smoke-runner selftest failed -- push blocked.
+
+Read the FAIL lines above. scripts/smoke-runner.mjs and scripts/smoke-runner-selftest.mjs must
+agree; .ai-context/invariants.md has the rule. There is no skip flag for this check.
+EOF
+  exit 1
+fi
+
 # LINK RESOLUTION NEXT, same bar -- a handful of subprocess builds of a few notes, no Chrome,
 # about a second. github#141: the exporter's resolver lost the source note a link was written in,
 # so a relative link landed on whichever same-named note was indexed first, a heading link was
