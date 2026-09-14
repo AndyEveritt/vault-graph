@@ -1038,7 +1038,8 @@ function mountVaultGraph(root, data, deps) {
     buildSubOrder();
   });
 
-  var SLOT_COUNT = 12;
+  // github#118, design/0004 -- the rotation is the ten hues; the greys stay pickable
+  var HUE_SLOTS = 10;
   /** @type {Record<string, string>} */
   var groupColor = dict();
   /** @type {Record<string, string>} */
@@ -1124,7 +1125,8 @@ function mountVaultGraph(root, data, deps) {
         return;
       }
 
-      var key = "g" + ((auto++ % SLOT_COUNT) + 1);
+      // github#118
+      var key = "g" + ((auto++ % HUE_SLOTS) + 1);
       var use = picked || key;
       groupColor[g] = THEME.byKey[use];
       groupSlot[g] = use;
