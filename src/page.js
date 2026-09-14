@@ -2292,13 +2292,18 @@ function mountVaultGraph(root, data, deps) {
       // github#157 -- that the ceil bought, because `room`, and so the dot, is a function
       // github#157 -- of rw and not of the pitch. The rows always fit: rw = ceil(T / s)
       // github#157 -- puts (rw - 1) * s <= T, and they are laid from `base`, not centred.
-      var pit = T / rw;
+      // github#157 -- One row is exempt: there is no radial pitch on screen to be off square,
+      // github#157 -- and the number is only a scale for the dot. Unscaled units throughout,
+      // github#157 -- so a band that fills squarely returns the float it always did rather
+      // github#157 -- than one scaled and unscaled again.
+      var pit = thick / rw;
       var q = rw * s / T;
       if (rw > 1 && q * q > CELL_FILL_MAX) {
+        var square = s / scale;
         pit *= q * q / CELL_FILL_MAX;
-        if (pit > s) pit = s;
+        if (pit > square) pit = square;
       }
-      return { sp: pit / scale, rows: rw };
+      return { sp: pit, rows: rw };
     };
 
     var thickI = geomLock ? (geomLock.rOuter - geomLock.r0) * INNER_FILL : 0;
@@ -2324,6 +2329,12 @@ function mountVaultGraph(root, data, deps) {
       SP_O = so.sp; outerRows = so.rows;
       outer.forEach(function (c) { c.rows = c.wsum > 0.0001 ? outerRows : 0; });
       maxR = rOuter + outerRows * SP_O;
+      // github#157 -- rows * pitch OVERSHOOTS the ring once CELL_FILL_MAX leaves margin
+      // github#157 -- inside it, and this radius is not bookkeeping: fitRatio() frames the
+      // github#157 -- disc by it, and the hub's share is measured against it, so an inflated
+      // github#157 -- one zooms out and drifts. Only the overshoot is taken back -- a band
+      // github#157 -- that has emptied still reports the smaller radius it always did.
+      if (maxR > geomLock.maxR) maxR = geomLock.maxR;
     } else {
       outer.forEach(function (c) {
         c.rows = rowsNeeded(usableRef(c, rOuter), c.wsum, rOuter, SP_O);

@@ -396,8 +396,8 @@ median outer dot in that state goes 168 → 164. The rows always fit, with no cl
 
 | band, state (dominant-folder) | q² | before | after |
 |---|---|---|---|
-| outer, 27 of 765 shown | 1.935 | **1.76** | **1.38** |
-| inner, 101 of 189 shown | 1.633 | 1.51 | 1.40 |
+| outer, 27 of 765 shown | 1.935 | **1.76** | **1.36** |
+| inner, 101 of 189 shown | 1.633 | 1.51 | 1.39 |
 | inner, 189 at rest | 1.364 | 1.24 | 1.24 |
 | outer, 765 at rest | 1.092 | 1.05 | 1.05 |
 
@@ -408,6 +408,17 @@ so a ceiling under 1.364 relayouts the resting disc on three of the four and eve
 it. At the other end, 1.75 would sit exactly on the bound the check asserts, and a construction
 that cannot violate a check is a check with no teeth. At 1.5 no resting layout moves — all four
 goldens pass unchanged — and the worst cell over the sampled states is 1.40.
+
+**One radius has to be taken back with it.** `maxR` was `rOuter + outerRows * SP_O`, which is
+the ring's locked outer edge exactly while the band is filled exactly — and overshoots it the
+moment `CELL_FILL_MAX` leaves margin inside the ring (measured: 23 against a locked 21, in the
+state above). That radius is not bookkeeping: `fitRatio()` frames the disc by it, and the hub's
+share is measured against it, so an inflated one zooms the camera out and drifts the share. Only
+the **overshoot** is taken back — `if (maxR > geomLock.maxR)` — because a band that has *emptied*
+legitimately reports a smaller radius than the lock, and that is what lets the camera zoom into
+what is left. Measured live 21 / locked 21 / unclamped 23, with the tag vault's `NOT ASSERTED`
+branch of *the hub stays the same share of the disc as it is filtered* unchanged in both
+directions.
 
 **A blind spot this fix walks into, and does not cause.** `debugDump().bands` splits the two
 rings at the **biggest radial gap**. That is right whenever a band's own pitch is smaller than
