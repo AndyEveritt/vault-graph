@@ -1232,6 +1232,54 @@ const newestDay = (p) => p.j(`(function(){
                 : null;
 })()`);
 
+check("the 7-day chip spans seven days on every weekday, Today included", async (p) => {
+  // github#70. It was week-to-date first, and week-to-date collapses: on a Monday its window
+  // IS today, so both chips counted the same notes and cast the same halo -- one day in
+  // seven, and the first thing a reviewer hit. The window is now rolling, which is a claim
+  // about all seven weekdays at once, so the check walks all seven rather than whichever one
+  // the suite happens to run on. Reference days are injected for the usual reason (see the
+  // section header): a check keyed to the real clock tests one weekday and rots by morning.
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const r = await p.j(`(function(){
+    var DAY = 86400000, WD = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], bad = [], span = {};
+    // Seven consecutive reference days ending at the newest day this vault holds, so every
+    // weekday is covered whatever weekday that newest day happens to be.
+    for (var k = 6; k >= 0; k--) {
+      var at = ${ref.ms} - k * DAY;
+      var wd = WD[(new Date(at).getUTCDay() + 6) % 7];
+      var w = __vg.recentWindow("week", at), t = __vg.recentWindow("today", at);
+      if (!w || !t) { bad.push(wd + ": no window"); continue; }
+      var lo = Date.UTC(+w.lo.slice(0,4), +w.lo.slice(5,7)-1, +w.lo.slice(8,10));
+      var hi = Date.UTC(+w.hi.slice(0,4), +w.hi.slice(5,7)-1, +w.hi.slice(8,10));
+      var days = Math.round((hi - lo) / DAY) + 1;
+      span[wd] = days;
+      if (days !== 7) bad.push(wd + ": " + days + " day" + (days === 1 ? "" : "s"));
+      // Today must sit inside it on every one of the seven, which is what makes the pair a
+      // narrowing rather than two chips that sometimes agree.
+      if (!(t.lo >= w.lo && t.hi <= w.hi)) bad.push(wd + ": Today " + t.lo + " outside " + w.lo + ".." + w.hi);
+    }
+    // And on the real data, at the one reference the fixture can speak to: a strict superset.
+    __vg.setRecent("today", ${ref.ms});
+    var day = {}, nDay = 0;
+    __vg.graph.forEachNode(function(i){ if (__vg.isHighlighted(i)) { day[i] = true; nDay++; } });
+    __vg.setRecent("week", ${ref.ms});
+    var nWeek = 0, missing = 0;
+    __vg.graph.forEachNode(function(i){
+      if (!__vg.isHighlighted(i)) { if (day[i]) missing++; return; }
+      nWeek++;
+    });
+    __vg.setRecent(null);
+    return { bad: bad, span: span, nDay: nDay, nWeek: nWeek, missing: missing };
+  })()`);
+  await settle(p);
+  const spans = Object.keys(r.span).map((d) => `${d} ${r.span[d]}`).join(", ");
+  return { ok: r.bad.length === 0 && r.missing === 0 && r.nWeek >= r.nDay,
+           detail: `${spans}; Today ${r.nDay} of the 7-day chip's ${r.nWeek}` +
+                   (r.missing ? `, ${r.missing} of Today's notes NOT in it` : "") +
+                   (r.bad.length ? `  <- ${r.bad.join("; ")}` : "") };
+}, { on: "all" });
+
 check("a recent chip haloes but never pushes", async (p) => {
   const ref = await newestDay(p);
   if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };

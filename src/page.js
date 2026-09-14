@@ -3230,8 +3230,15 @@ function mountVaultGraph(root, data, deps) {
     var v = state.heatSource === "touched" ? "touched" : "added";
     if (kind === "today") return { lo: hi, hi: hi, label: v + " today" };
     if (kind === "week") {
-      var lo = heatKey(heatMonday(ref));
-      return { lo: lo, hi: hi, label: v + " since Monday " + lo };
+      // github#70 -- a ROLLING 7 days, not the calendar week to date. Week-to-date was the
+      // first shape and it collapses: on a Monday its window IS today, so the two chips
+      // count the same notes, cast the same halo and read as one control duplicated. That
+      // is not a rare edge -- it is one day in seven, and it was the first thing a reviewer
+      // hit. It also made the chip weakest exactly when a week's work is most worth asking
+      // about: Monday morning, the answer is always "just today". Rolling back six days
+      // keeps the chip a strict superset of Today on every day of the week.
+      var lo = heatKey(ref - 6 * DAY_MS);
+      return { lo: lo, hi: hi, label: v + " in the last 7 days, since " + lo };
     }
     if (kind === "open" && lastOpen !== null) {
       var lk = heatKey(lastOpen);
@@ -8689,7 +8696,12 @@ function mountVaultGraph(root, data, deps) {
     // never built rather than built and disabled, which would read as a broken feature.
     var kinds = [
       { kind: "today", label: "Today" },
-      { kind: "week", label: "This week" }
+      // "Last 7", not "This week": the window is a rolling seven days (see recentWindow), and
+      // a label naming the calendar week would describe a window this chip no longer has. The
+      // unit is left to the tooltip, which names the span and its first day -- the row it sits
+      // in is a calendar, so the reader is already counting in days, and the count slot beside
+      // every chip makes a long label the one thing this row cannot afford.
+      { kind: "week", label: "Last 7" }
     ];
     if (lastOpen !== null) kinds.push({ kind: "open", label: "Since last open" });
 

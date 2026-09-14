@@ -933,7 +933,7 @@ deleted `mark today` checks were the only cover for.
 
 ## A recent chip haloes and dims, but never pushes (github#70)
 
-The chips above the band — Today, This week, Since last open — light the notes whose date
+The chips above the band — Today, Last 7, Since last open — light the notes whose date
 falls in their window and mix everything else toward `--dim`. **Which date is the segment's**,
 through `heatDateOf`, so a chip lights exactly the notes the band's own tiles counted over the
 same span. Both halves ride the existing highlight ramp; neither moves anything, for the
@@ -955,14 +955,32 @@ goes `#d95926 → #2a2a28 → #d95926`.
 
 Re-measured 2026-09-14 against the four fixtures the suite now carries — the tag-organised
 vault arrived with `github#86` after this work was written — each again on its own newest
-counted day, default `created`: demo **96 haloed / 0 pushed / 0 moved**, 10k **2 / 0 / 0**,
-dominant-folder **10 / 0 / 0**, tag **1 / 0 / 0**. The counts move with every weekly fixture
-regeneration and the shape of the claim does not: whatever a window lights, it pushes nothing.
-Every lens check declares `on: "all"`, so all four shapes carry all of them.
+counted day, default `created`, with the middle chip rolling seven days: demo **113 haloed / 0
+pushed / 0 moved**, 10k **2 / 0 / 0**, dominant-folder **14 / 0 / 0**, tag **7 / 0 / 0**. The
+counts move with every weekly fixture regeneration and the shape of the claim does not:
+whatever a window lights, it pushes nothing. Every lens check declares `on: "all"`, so all
+four shapes carry all of them.
+
+### The 7-day chip spans seven days on every weekday (github#70)
+
+```bash
+node scripts/smoke.mjs --only "7-day chip"
+```
+
+The middle chip was **week-to-date** first, and week-to-date collapses on a Monday: its window
+is that single day, so it counted exactly what *Today* counted and the two chips were one
+control rendered twice. One day in seven, and the first thing a reviewer of a built page hit.
+It rolls back six days now, which is a claim about **all seven weekdays**, so the check walks
+seven consecutive injected reference days ending at the vault's own newest counted day rather
+than whichever weekday the suite happens to run on: each window must measure **7 days** and
+must **contain Today's**. Measured 2026-09-14, all four fixtures **7 on every weekday**, with
+Today a strict subset: demo **37 of 113**, 10k **2 of 2**, dominant-folder **2 of 14**, tag
+**1 of 7**. The 10k's 2-of-2 is that fixture having nothing in the six days before its newest
+— the subset still holds, which is the assertion.
 
 **No check here may key on the real clock, and this is not a style preference.** Measured
 2026-09-08: the newest `touched` day is 2026-09-05 on the demo and dominant-folder fixtures
-and 2026-08-28 on the 10k, so *Today* and *This week* light **0 notes on all three** — a
+and 2026-08-28 on the 10k, so *Today* and the 7-day chip light **0 notes on all three** — a
 check written against `new Date()` passes by asserting nothing, and does so more thoroughly
 every day as the two ageing fixtures regenerate forward and the pinned 10k does not. This is
 the same trap the 10k's pinned `--end` exists to avoid. `__vg.setRecent(kind, refMs)` and
@@ -986,7 +1004,7 @@ each found by measuring rather than by looking:
 |---|---|---|
 | the label swapped its text | `Notes added` 76px → `Notes touched` 90px, shoving everything right of it by **14px** | the label is a static word and the choice is a two-position segment; both positions are always rendered, so the control has one width |
 | the pressed position was bolder | **1px**, as the bold moved between `Added` and `Touched` | both positions carry the same weight; the accent fill is what says which is on |
-| a chip's count grew a digit | `This week 0` 75px → `This week 115` 85px, **10px** | the count slot is reserved at `--vg-count-ch`, set from the note count at mount, with tabular figures: 3ch / 4ch / 5ch on the three fixtures |
+| a chip's count grew a digit | `This week 0` 75px → `This week 115` 85px, **10px** (measured while that chip was still labelled *This week*; it is *Last 7* since the window went rolling, and the check re-measures rather than trusting this number) | the count slot is reserved at `--vg-count-ch`, set from the note count at mount, with tabular figures: 3ch / 4ch / 5ch on the three fixtures |
 | the heat key lost swatches | **17px**, on the dominant-folder fixture only | `heatDrawKey` always sizes the canvas for `HEAT_KEY_ANCHORS` (5 — four cuts plus nMax) and centres however many survived the dedup |
 
 The third was not introduced here and is the interesting one: the key has always shrunk when

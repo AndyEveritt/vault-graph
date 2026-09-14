@@ -78,9 +78,24 @@ throughout, and a reader who is told can decide, where a reader who is shown les
 
 ### The recent chips
 
-Three buttons beside the label: **Today**, **This week**, **Since last open**. Each haloes
+Three buttons beside the label: **Today**, **Last 7**, **Since last open**. Each haloes
 the notes whose `touched` falls in its window and dims the rest -- 0 moved, 0 pushed,
 measured on all four fixtures, the same result and for the same reason as a picked day.
+
+**The middle chip is a rolling seven days, and it was the calendar week first.** Week-to-date
+collapses on a Monday: its window is that one day, so both chips count the same notes, cast
+the same halo, and read as one control rendered twice. That is one day in seven -- not an edge
+-- and it is what the first reviewer of the built page hit. It also fails hardest where the
+question matters most: on a Monday morning "what did I touch this week" can only ever answer
+"whatever I touched in the last few minutes". Rolling back six days makes the chip a strict
+superset of Today on every weekday, so the pair is always a narrowing rather than two controls
+that sometimes agree. `smoke.mjs`'s *the 7-day chip spans seven days on every weekday* walks
+all seven reference days rather than whichever one the suite runs on.
+
+The label says **Last 7** and not *Last 7 days*: the unit is left to the tooltip, which names
+the span and its first day. The row is a calendar, so the reader is already counting in days,
+and every chip carries a reserved count slot beside it -- a longer label is the one thing this
+row cannot spend width on (see *the band's control row does not move*).
 
 They read **whichever date the segment names**. One date governs the whole row.
 
@@ -91,7 +106,7 @@ not silent — which put that word on screen twice, once as a segment position a
 heading beside it. The heading was a symptom. With one date governing the row the honesty
 requirement is met by the segment alone: the band, the chips, the picked day and the tooltip
 all read `heatDateOf`, and there is no second date to disclose. *What did I touch this week*
-is two visible clicks — **Touched**, then **This week** — rather than a default nobody can
+is two visible clicks — **Touched**, then **Last 7** — rather than a default nobody can
 see the alternative to.
 
 A chip that matches nothing shows **0** and disables itself rather than disappearing --
