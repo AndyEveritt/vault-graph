@@ -1218,13 +1218,6 @@ check("a marked heatmap day recolours its notes", async (p) => {
 /*
  * github#70 -- the recent lens.
  *
- * EVERY ONE OF THESE INJECTS ITS OWN REFERENCE DAY, and none may be rewritten to use the
- * real clock. No fixture has a note touched today: the newest touched day was 2026-09-05 on
- * the demo and dominant-folder shapes and 2026-08-28 on the 10k, all measured 2026-09-08,
- * and the two ageing fixtures push that date forward every weekly regeneration while the
- * pinned 10k never does. A check keyed to `new Date()` therefore reads zero on all three and
- * passes by measuring nothing -- the same trap the pinned 10k --end exists to avoid. The
- * reference is the newest `touched` day the graph actually holds.
  */
 const newestDay = (p) => p.j(`(function(){
   // The date the band is currently counting, through the page's own accessor -- the chips
@@ -1237,12 +1230,7 @@ const newestDay = (p) => p.j(`(function(){
 })()`);
 
 check("the 7-day chip spans seven days on every weekday, Today included", async (p) => {
-  // github#70. It was week-to-date first, and week-to-date collapses: on a Monday its window
-  // IS today, so both chips counted the same notes and cast the same halo -- one day in
-  // seven, and the first thing a reviewer hit. The window is now rolling, which is a claim
-  // about all seven weekdays at once, so the check walks all seven rather than whichever one
-  // the suite happens to run on. Reference days are injected for the usual reason (see the
-  // section header): a check keyed to the real clock tests one weekday and rots by morning.
+  // github#70
   const ref = await newestDay(p);
   if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
   const r = await p.j(`(function(){
@@ -1298,8 +1286,7 @@ check("a recent chip haloes but never pushes", async (p) => {
     __vg.setRecent(null);
     return { lit: lit, moved: moved, pushed: rep.pushedCount, lo: win.lo, hi: win.hi };
   })()`);
-  // github#113 -- arming and clearing a chip inside one eval leaves the highlight ramp
-  // walking, and a check hands the page back at rest or the next one measures a moving disc.
+  // github#70, github#113
   await settle(p);
   return { ok: r.lit > 0 && r.pushed === 0 && r.moved === 0,
            detail: `${r.lo}..${r.hi}: ${r.lit} haloed, ${r.pushed} pushed, ${r.moved} moved` };
@@ -1318,9 +1305,7 @@ check("a recent chip dims what it did not match, and gives it back", async (p) =
     return out;
   })()`);
   if (!pick) {
-    // The dominant-folder fixture carries ONE touched day for all 954 notes, so any window
-    // either matches everything or nothing and there is no non-match left to dim. That is a
-    // property of the vault, not a defect, and asserting on it would assert nothing.
+    // github#70
     return { ok: true, detail: "NOT ASSERTED: every visible note matched this window, so " +
                                "this vault has no non-match to dim" };
   }
@@ -1338,10 +1323,7 @@ check("a recent chip dims what it did not match, and gives it back", async (p) =
 }, { on: "all" });
 
 check("a lit note stays lit while a dimension switch draws it as a stand-in", async (p) => {
-  // github#70 x github#86. A switch draws the leaving disc with copies: a stand-in is a
-  // second dot for a note the lens has an opinion about, under an id the lens has never
-  // seen. Read by its own id it is a non-match, so the note would be haloed on one disc and
-  // dimmed on the other, mid-switch, for as long as the cross lasts.
+  // github#70, github#86
   await clearRange(p);
   await settle(p);
   await camSettle(p);
@@ -1382,7 +1364,7 @@ check("a lit note stays lit while a dimension switch draws it as a stand-in", as
   await p.j(`(function(){ __vg.setDim("folder"); __vg.setRecent(null); return true; })()`);
   await settle(p);
   await camSettle(p);
-  // litStandIns > 0 is what stops this passing by measuring an empty set.
+  // github#70
   return { ok: disagreed === 0 && litStandIns > 0 && samples > 3,
            detail: `${armed.lit} lit before the switch; ${samples} samples, ` +
                    `${standInFrames} stand-in frames of which ${litStandIns} lit, ` +
@@ -1421,9 +1403,7 @@ check("the band counts the date it names", async (p) => {
     return { a: a, t: t, wrong: wrong, checked: checked, moved: moved,
              back: __vg.state.heatSource };
   })()`);
-  // Exactly one of the two positions is pressed at any moment, and it is the one whose word
-  // matches the date the tally actually used -- the control cannot show a state the band is
-  // not in, which is the whole point of putting both positions on screen.
+  // github#70
   const ok = r.a.label.word === "Added" && r.t.label.word === "Touched" &&
              r.a.label.positions === 2 && r.a.label.pressed === 1 && r.t.label.pressed === 1 &&
              r.a.src === "created" && r.t.src === "touched" && r.back === "created" &&
@@ -1494,11 +1474,7 @@ check("a bulk day is named rather than hidden", async (p) => {
 }, { on: "all" });
 
 check("the band's control row does not move when its state changes", async (p) => {
-  // github#70. Every control in the row was fidgeting: the label swapped "Notes added" for
-  // "Notes touched" and grew 76px -> 90px, shoving everything to its right by 14, and a chip
-  // going 0 -> 115 widened and shoved its neighbours again. Worst measured shift across the
-  // five states was 19px. A control that walks away from the pointer between clicks is a
-  // defect the suite cannot see, so it is pinned here by number.
+  // github#70
   const ref = await newestDay(p);
   if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
   const r = await p.j(`(function(){
@@ -1542,12 +1518,7 @@ check("the band's control row does not move when its state changes", async (p) =
 }, { on: "all" });
 
 check("every control in the band's row is the same height", async (p) => {
-  // github#70. Measured at 1440x900 before this: the Added/Touched segment 22.5px, the chips
-  // 27.9, the compact toggle 22.0, the date inputs 22.3, All dates 27.9 -- six controls, four
-  // heights, sitting on one line and reading as five widgets that happened to meet there. The
-  // row declares ONE height now (`--vg-hrow-h` on .hrow) and every control takes it, which is
-  // a claim no other check in here covers: the fidget check pins `left` and `width` and would
-  // pass with every height in the row different.
+  // github#70
   const r = await p.j(`(function(){
     var sel = { segment: "#vg-heatsrc", today: '#vg-recent [data-kind="today"]',
                 week: '#vg-recent [data-kind="week"]', compact: "#vg-compact",
@@ -1581,8 +1552,7 @@ check("the exported page offers no since-last-open chip", async (p) => {
       return { kind: x.getAttribute("data-kind"), n: (x.querySelector(".n")||{}).textContent,
                off: !!x.disabled }; });
   })()`);
-  // The standalone deliberately passes no lastOpen (src/shell.html): a snapshot cannot know
-  // when it was last open, so the chip is absent rather than present and always zero.
+  // github#70
   const ok = r.map((c) => c.kind).join(",") === "today,week";
   return { ok, detail: `chips: ${r.map((c) => `${c.kind}=${c.n}${c.off ? " (off)" : ""}`).join(", ")}` };
 }, { on: "all" });
@@ -6278,10 +6248,7 @@ check("a live rebuild lands on the layout a fresh relayout gives", async (p) => 
 }, { on: WALK, clock: "real" });
 
 check("a live rebuild re-arms the chip, so a note that arrives inside its window is lit", async (p) => {
-  // github#70 x github#72. The lens answers "what did I touch", and the live rebuild is what
-  // makes a note touched WHILE THE VIEW IS OPEN reach the disc at all -- so the one event the
-  // chips most have to survive is the one that re-mints their ids. Armed against a fixed day
-  // rather than the clock, like every other chip check here.
+  // github#70, github#72
   await settle(p);
   await p.eval(LIVE_JS);
   const ref = await newestDay(p);
@@ -6306,7 +6273,7 @@ check("a live rebuild re-arms the chip, so a note that arrives inside its window
     return { applied: !!res.applied, reason: res.reason, before: before, lit: lit,
              probe: probe, probeLit: probe !== null && __vg.isHighlighted(probe) };
   })()`);
-  // Put the vault back for whatever runs next, and hand the page over at rest and unfiltered.
+  // github#70
   await p.j(`(function(){
     __vg.setRecent(null);
     var d = window.__live.clone();

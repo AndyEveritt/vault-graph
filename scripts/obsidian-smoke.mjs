@@ -622,11 +622,7 @@ try {
   }
 
   if (selected("since last open")) {
-    // github#70, decisions/0009. The HOST owns this clock, so no page check can reach it and
-    // it was a hand-run step until now: the page is handed the stamp from the PREVIOUS open,
-    // never this instant, or the chip would name a window that closed the moment it opened.
-    // The stamp is written at open as well as at close because a quit that kills Obsidian
-    // never fires onClose, and a chip that silently stops moving is the worst of the three.
+    // github#70, decisions/0009
     const read = "(async function(){ var raw = await app.vault.adapter.read(app.vault.configDir +" +
                  " '/plugins/" + PLUGIN_ID + "/data.json'); return JSON.parse(raw).lastSeen || null; })()";
     const chips = "(function(){ var box = " + VIEW + ".contentEl.querySelector('#vg-recent');" +
@@ -641,8 +637,7 @@ try {
     const dep1 = await E(VIEW + ".lastSeenPrev || null");
     const kinds1 = await E(chips);
     const atOpen = await E(read);
-    // Refresh rebuilds the view in place, and re-passing "now" would turn "since last open"
-    // into "since the last rebuild" -- the dep must survive a rebuild unchanged.
+    // github#70
     await E("(function(){ var b = " + VIEW + ".contentEl.querySelector('#vg-refresh'); if (b) b.click(); })(); void 0");
     await sleep(1500);
     const dep2 = await E(VIEW + ".lastSeenPrev || null");
