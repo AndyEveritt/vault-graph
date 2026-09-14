@@ -1,5 +1,7 @@
 
 import { attach, json } from "./cdp.mjs";
+// github#142
+import { pngCaptureJs, pngCarriesGraph, pngCaptureDetail } from "./png-capture.mjs";
 import { buildPayloadVault, PAYLOAD, NOTE_COUNT } from "./check-data-escape.mjs";
 import { findChrome } from "./chrome.mjs";
 import { leftmostScreen, leftWindowPos } from "./screen.mjs";
@@ -5760,6 +5762,22 @@ check("word counts land by path, which is the only thing a live rebuild keeps", 
       `one (${r.landed}), the note at that index kept ${r.bystander}; a deleted path returns false`
     : `index and id never diverged -- this check cannot see the defect it exists for` };
 }, { on: WALK, clock: "real" });
+
+// github#142
+check("an idle PNG export carries the graph, not just the background and the logo", async (p) => {
+  await camReset(p);
+  await settle(p);
+  // github#142 -- a drawing buffer is only empty once a compositing pass has run since the last
+  // github#142 -- draw, which is exactly where a user is when they reach for the button.
+  await sleep(1200);
+  await p.eval(`new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); })`);
+  const r = await p.eval(pngCaptureJs({
+    api: "__vg", button: "document.querySelector('#vg-png')",
+    logo: "document.querySelector('#vg-logo')", stage: "document.querySelector('#vg-graph')",
+  }));
+  return { ok: pngCarriesGraph(r), detail: pngCaptureDetail(r) };
+});
+
 
 async function settle(p, ms = 6000) {
   const deadline = Date.now() + ms;
