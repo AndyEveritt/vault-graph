@@ -5881,7 +5881,6 @@ async function runOne(vault, work) {
     if (!BROWSER) { try { BROWSER = (await json(PORT, "/json/version")).Browser; } catch { void 0; } }
     // github#146 -- the list the checks see, and may edit
     const errorLog = makeErrorLog(page);
-    const errors = errorLog.errors;
 
     let at = "";
     for (const wait = Date.now() + 8000; ;) {
@@ -5927,7 +5926,7 @@ async function runOne(vault, work) {
         "backgrounding the off-screen window; the launch flags above are what prevent it."
       );
     }
-    const ctx = { errors };
+    const ctx = { get errors() { return errorLog.errors; } };
 
     // github#113
     const nativeClock = await page.j("__vg.timeScale").catch(() => 1.25);
@@ -5937,7 +5936,7 @@ async function runOne(vault, work) {
 
     // github#146
     const { failed, ran, timings } = await runChecks({
-      checks: mine, page, ctx, log, settle, errorLog,
+      checks: mine, page, ctx, log, settle,
       chromeState: () => ({ gone: chromeGone, said: chromeSaid }),
       fastClock: FAST_CLOCK, nativeClock
     });

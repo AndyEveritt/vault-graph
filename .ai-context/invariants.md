@@ -4086,6 +4086,13 @@ own: one mechanism, no double count against `page loads with no console errors`,
 audited in the three jobs where that check does not run. A **final audit**, once per job with a
 500 ms grace, catches what arrives after the last check.
 
+**The list a check reads is live.** `ctx.errors` is a getter: reading it catches it up with what
+the connection has captured, so a check that samples it *while it runs* — which the hostile-vault
+check does, to tell an expected payload failure from a real one — sees what arrived since it
+started. A first attempt refreshed the list only at the window boundaries, and that check went on
+passing while its own per-page error read was permanently empty; caught in review, and held now by
+a regression of its own.
+
 **Two sources, and only two.** `cdp.mjs` was already capturing both for `firstError()` —
 `Runtime.exceptionThrown`, which covers thrown exceptions and unhandled promise rejections alike,
 and `Runtime.consoleAPICalled` with type `"error"` — so the runner reads that list instead of
@@ -4107,7 +4114,7 @@ deterministic now, the **page state's** is not, which stays open. The year-hover
 (32 highlighted against 30 notes, passing when rerun alone) remains a hypothesis about that
 shared state; nothing here diagnoses or fixes it.
 
-Measured 2026-09-14. `scripts/smoke-runner-selftest.mjs` holds **32 regressions: 9 fail with the
+Measured 2026-09-14. `scripts/smoke-runner-selftest.mjs` holds **34 regressions: 9 fail with the
 audit removed and nothing else changed, 0 with it** — among them the two the ticket names, a
 later callback that records an error while its numeric assertion passes, and a late error at test
 completion. Against a real page on the demo fixture: a timer throwing at **+5 ms**, an unhandled

@@ -15,32 +15,29 @@ export function summarise(errs, n = 3) {
 // github#146 -- the checks' own list, mirroring cdp.mjs's capture
 export function makeErrorLog(page) {
   /** @type {string[]} */
-  const errors = [];
+  const list = [];
   let seen = 0;
+  // github#146 -- reading it catches it up, so a check mid-run sees the truth
   return {
-    errors,
-    sync() {
+    get errors() {
       const all = page.errors;
-      for (; seen < all.length; seen++) errors.push(errorText(all[seen]));
-      return errors;
+      for (; seen < all.length; seen++) list.push(errorText(all[seen]));
+      return list;
     }
   };
 }
 
 // github#146 -- the page's turn, then the connection's
 async function quiet(page, graceMs = 0) {
-  try {
-    await page.eval(
-      "new Promise(function(r){ requestAnimationFrame(function(){ setTimeout(r, " +
-      Math.max(0, graceMs | 0) + "); }); })"
-    );
-    return true;
-  } catch { return false; }
+  await page.eval(
+    "new Promise(function(r){ requestAnimationFrame(function(){ setTimeout(r, " +
+    Math.max(0, graceMs | 0) + "); }); })"
+  ).catch(() => {});
 }
 
 // github#146 -- one round-trip, to order events ahead of the reply
 async function drain(page) {
-  try { await page.eval("1"); return true; } catch { return false; }
+  try { await page.eval("1"); return ""; } catch (e) { return e.message || "no reply"; }
 }
 
 /**
@@ -48,8 +45,7 @@ async function drain(page) {
  * @returns {Promise<{ failed: number, ran: number, timings: {name: string, ms: number}[] }>}
  */
 export async function runChecks(opts) {
-  const { checks, page, ctx, log, settle, errorLog, chromeState, fastClock, nativeClock } = opts;
-  const errors = ctx.errors;
+  const { checks, page, ctx, log, settle, chromeState, fastClock, nativeClock } = opts;
   // github#146 -- only the last window pays for a grace
   const finalGraceMs = opts.finalGraceMs === undefined ? 500 : opts.finalGraceMs;
 
@@ -68,8 +64,6 @@ export async function runChecks(opts) {
     return why ? Object.keys(why).filter((k) => why[k]) : [];
   };
 
-  const sync = () => { if (errorLog) errorLog.sync(); };
-
   let failed = 0;
   let mark = 0;
   let alive = true;
@@ -83,9 +77,10 @@ export async function runChecks(opts) {
       alive = false;
       break;
     }
-    if (!(await drain(page))) {
+    const why = await drain(page);
+    if (why) {
       const last = timings.length ? timings[timings.length - 1].name : "(before the first check)";
-      log(`\n  !! the page stopped answering after "${last}"`);
+      log(`\n  !! the page stopped answering after "${last}" -- ${why}`);
       chromeTail();
       log(`     ${checks.length - timings.length} check(s) not run`);
       failed += checks.length - timings.length;
@@ -119,15 +114,14 @@ export async function runChecks(opts) {
     }
     // github#146 -- the window closes after the interaction's tail
     await quiet(page);
-    sync();
     // github#146 -- a splice below the mark hid something unaudited
-    if (errors.length < mark) mark = 0;
-    const fresh = errors.slice(mark);
+    if (ctx.errors.length < mark) mark = 0;
+    const fresh = ctx.errors.slice(mark);
     if (fresh.length) {
       r = { ok: false,
             detail: `${r.detail || ""} | threw during this check: ${summarise(fresh)}` };
     }
-    mark = errors.length;
+    mark = ctx.errors.length;
     const ms = Date.now() - t0;
     timings.push({ name: c.name, ms });
     if (!r.ok) failed++;
@@ -140,9 +134,8 @@ export async function runChecks(opts) {
     await settle(page, 20000);
     await quiet(page, finalGraceMs);
   }
-  sync();
-  if (errors.length < mark) mark = 0;
-  const late = errors.slice(mark);
+  if (ctx.errors.length < mark) mark = 0;
+  const late = ctx.errors.slice(mark);
   if (late.length) {
     failed++;
     log(" FAIL  the page threw after the last check finished\n" +

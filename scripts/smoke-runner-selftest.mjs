@@ -34,7 +34,6 @@ function fakePage(opts = {}) {
       }
       return null;
     },
-    on() {}
   };
   return p;
 }
@@ -46,16 +45,16 @@ const quietLog = () => { const lines = []; const log = (m) => lines.push(String(
 async function run(checks, opts = {}) {
   const page = fakePage(opts);
   const errorLog = makeErrorLog(page);
-  const errors = errorLog.errors;
-  for (const e of opts.errors || []) errors.push(e);
+  const ctx = { get errors() { return errorLog.errors; } };
+  for (const e of opts.errors || []) ctx.errors.push(e);
   const log = quietLog();
   const r = await runChecks({
-    checks, page, ctx: { errors }, log, settle, errorLog,
+    checks, page, ctx, log, settle,
     chromeState: () => ({ gone: opts.gone || null, said: opts.said || [] }),
     fastClock: 0.1, nativeClock: 1.25,
     finalGraceMs: opts.finalGraceMs === undefined ? 0 : opts.finalGraceMs
   });
-  return { ...r, lines: log.lines, text: log.lines.join("\n"), errors, page };
+  return { ...r, lines: log.lines, text: log.lines.join("\n"), errors: ctx.errors, page };
 }
 
 const pass = (name) => ({ name, fn: async () => ({ ok: true, detail: "fine" }) });
@@ -117,6 +116,26 @@ console.log("the audit around every check");
   check("an error captured before the first check fails that check",
         r.failed === 1 && /threw during this check: load-time boom/.test(r.text),
         "failed " + r.failed);
+}
+
+// github#146 -- a check must see what the page threw while IT was running
+{
+  let sawDuringRun = null;
+  const r = await run([
+    { name: "reads the list while it runs",
+      fn: async (p, ctx) => {
+        const before = ctx.errors.length;
+        p.captured.push({ kind: "console", text: "thrown mid-check" });
+        sawDuringRun = ctx.errors.slice(before);
+        ctx.errors.splice(before);
+        return { ok: true, detail: "d" };
+      } }
+  ]);
+  check("a check reading ctx.errors mid-run sees what arrived since it started",
+        sawDuringRun && sawDuringRun.length === 1 && sawDuringRun[0] === "console: thrown mid-check",
+        JSON.stringify(sawDuringRun));
+  check("...and having handled them itself, it is not failed for them",
+        r.failed === 0, "failed " + r.failed);
 }
 
 // github#146 -- the one allowlist: a check forgiving its own window
@@ -191,6 +210,7 @@ console.log("what the runner already did, unchanged");
   const r = await run([pass("one")], { dead: true });
   check("a page that stops answering fails the rest",
         r.failed === 1 && /stopped answering after "\(before the first check\)"/.test(r.text));
+  check("...and says why the round-trip failed", /-- Inspector.detached/.test(r.text));
   check("...and does not then wait out a settle it cannot finish",
         !/nothing accounted for/.test(r.text));
 }
@@ -205,20 +225,16 @@ console.log("the error log");
     { kind: "console", text: "bad Error: worse" }
   ] });
   const errorLog = makeErrorLog(page);
-  check("nothing is captured until it is synced", errorLog.errors.length === 0);
-  errorLog.sync();
   check("an exception is read back with its line",
         errorLog.errors[0] === "exception: Error: nope (line 12)", errorLog.errors[0]);
   check("a stack is cut to its first line", !errorLog.errors[0].includes("at x"));
   check("console.error is read back, and labelled as one",
         errorLog.errors[2] === "console: bad Error: worse", errorLog.errors[2]);
-  errorLog.sync();
-  check("a second sync adds nothing", errorLog.errors.length === 3, errorLog.errors.length + " held");
+  check("a second read adds nothing", errorLog.errors.length === 3, errorLog.errors.length + " held");
   page.captured.push({ kind: "console", text: "later" });
-  errorLog.sync();
-  check("...and a later capture is picked up", errorLog.errors[3] === "console: later");
+  check("...and a later capture is picked up on the next read",
+        errorLog.errors[3] === "console: later", errorLog.errors.length + " held");
   errorLog.errors.splice(0);
-  errorLog.sync();
   check("a check that splices the list does not make it re-report what it audited",
         errorLog.errors.length === 0, errorLog.errors.length + " held");
 }
