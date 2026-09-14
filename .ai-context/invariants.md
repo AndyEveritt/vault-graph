@@ -274,9 +274,55 @@ that does cluster. Realised: **24% of the tail clusters at three leading charact
 clusters**, against the real vault's 20% in 6. The generator prints both figures.
 
 What it now exposes, and what is **not** fixed by github#107: 101 of the 122 groups hold three
-notes or fewer, so the inner ring fills with wedges of one or two dots each. Separately, the
-palette resolves **12 distinct colours across 122 groups**, 22 of which read as grey — measured on
-the real vault too, 12 colours across 76 groups. Both have their own issues.
+notes or fewer, so the inner ring fills with wedges of one or two dots each (github#119).
+Separately, the palette resolved **12 distinct colours across 122 groups**, 22 of which read as
+grey — measured on the real vault too, 12 colours across 76 groups (github#118). Both have their
+own issues; the grey half of the second is fixed below.
+
+### A working group is never handed a grey by where it sorts (github#118)
+
+`buildColors` cycled all twelve slots, and the last two are the greys. So slot 11 and slot 12 went
+to whichever groups sorted eleventh and twelfth, then twenty-first and twenty-second, and so on —
+a group made grey by its position in the sort rather than by anyone choosing it. design/0004 puts
+the greys in the palette to be *picked* ("this folder should recede" is a real thing to want), and
+says in the same breath that grey "stopped being a punishment for being thirteenth"; it had not
+stopped being one for the eleventh.
+
+Invisible while only folder dimensions were looked at, because a folder dimension rarely reaches
+eleven groups. A tag dimension reaches it at once. On `shape-vault`'s tag dimension the rotation
+laps twelve times, so **g11 carried 12 groups and g12 carried 10 — 20 working groups grey by sort
+position**, which with `(untagged)` and `(unlinked)` is the 22 the issue reported.
+
+The rotation is now `HUE_SLOTS = 10`. Both greys stay pickable, `g11` stays `ARCHIVE_SLOT`, an
+archive still never advances the counter, and `groupSlot` / `groupAutoSlot` / pins / persistence
+are untouched. `SLOT_COUNT` had exactly one use and went with it.
+
+| fixture · dimension | groups | distinct colours | greyish |
+|---|---|---|---|
+| `shape-vault` · tag | 122 | 12 → **11** | 22 → **2** |
+| `shape-vault` · folder | 7 | 7 → 7 | 1 → 1 |
+| demo mirror · folder | 18 | 12 → **11** | 3 → **1** |
+| demo mirror · tag | 14 | 12 → **11** | 4 → **2** |
+
+"Greyish" is max(r,g,b) − min(r,g,b) < 26 on the resolved hex, the issue's own measure. The two
+that remain are `(untagged)` and `(unlinked)`, which are meant to be grey. **Distinct colours
+falling by one is the intent, not a regression** — the twelfth colour was a grey nobody picked.
+
+```bash
+node scripts/smoke.mjs --only "handed a grey by where it sorts"      # all four fixtures
+```
+
+It reads both dimensions through `__vg.groupsOf(dim)`, which runs `inDim()` — so it reaches the
+dimension that is not on screen without switching to it, and has no cascade to settle. Verified to
+have teeth: with the rotation put back to twelve it fails on **all four** fixtures — the demo
+mirror at 2 folders and 2 tags, `tag-vault` at 2 tags, and `shape-vault` at **20 tags**.
+
+**The other half of github#118 is deliberately still open**: 122 groups now share ten colours
+rather than twelve. Merging tiny groups does not answer it — spiked, `SMALL_GROUP` 0 → 4 pooling
+the 101 groups of three notes or fewer moved neither number (still 122 groups, 12 distinct, 22
+greyish), because `ringsMerged` / `MERGED` / `smallIds` are layout-only and a merged group keeps
+its place in `order[state.dim]`. design/0004 carries the reasoning and the price of the two
+options that remain.
 
 ### The real cause is the band split, and it is not fixed here
 
@@ -2463,8 +2509,9 @@ large outer-ring dots in a two-note ring (42–74 px) are `DOT_ROOM_MAX` doing w
 
 ## A folder that holds notes keeps its row, its slot and its colour
 
-The twelve automatic colour slots are handed out by POSITION in `order[state.dim]`
-(`buildColors`), so while that list was built only from groups currently holding a member,
+The automatic colour slots are handed out by POSITION in `order[state.dim]`
+(`buildColors`) — **ten of them, the hues, since github#118; the two greys are pickable but
+out of the rotation** — so while that list was built only from groups currently holding a member,
 anything that emptied a group renumbered every group behind it — each one inheriting the
 colour of the one in front. `computeOrder` now seeds the list from where notes are **filed**
 (each node's own `folder`), so every folder that holds a note keeps its row and its slot
