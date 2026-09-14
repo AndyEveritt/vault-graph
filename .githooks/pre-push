@@ -300,6 +300,25 @@ EOF
   exit 1
 fi
 
+# LINK RESOLUTION NEXT, same bar -- a handful of subprocess builds of a few notes, no Chrome,
+# about a second. github#141: the exporter's resolver lost the source note a link was written in,
+# so a relative link landed on whichever same-named note was indexed first, a heading link was
+# never mined at all, and two different ghost destinations collapsed onto one basename. Every case
+# here was pinned against Obsidian's own metadataCache on a disposable vault, so this is what keeps
+# the exporter and the plugin agreeing about where a link points.
+echo "pre-push: checking link destinations resolve against their source..."
+if ! node "$root/scripts/check-link-resolution.mjs" </dev/null; then
+  cat >&2 <<'EOF'
+
+pre-push: the link resolution check failed -- push blocked.
+
+Read the FAIL lines above. src/links.mjs is shared by src/build-graph.mjs and plugin/main.js, so a
+change to it moves edges and ghost identities in BOTH. The expectations were measured against
+Obsidian's own metadataCache -- .ai-context/invariants.md says which. There is no skip flag.
+EOF
+  exit 1
+fi
+
 # THE GENERATED NAVIGATION FILES NEXT, same bar -- a read of the tree, well under a second.
 # .ai-context/code-map.md and code-index.md are written from the source by
 # scripts/code-map.mjs (github#61) and are only worth having while they agree with it; a

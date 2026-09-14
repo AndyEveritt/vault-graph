@@ -19,7 +19,7 @@
  * plugin/main.js's buildData from Obsidian's metadata cache. Nothing checked the two agreed
  * before this typedef; now the plugin's buildData is read against it.
  * @typedef {Object} VaultNode
- * @property {string} id           vault-relative path with "/" separators, or "ghost:<name>"
+ * @property {string} id           vault-relative path with "/" separators, or "ghost:<destination>"
  * @property {string} label        the note's basename
  * @property {string} folder       first path segment; "(vault root)" or "(unresolved)"
  * @property {string[]} dirs       the named folders below it, month folders handled

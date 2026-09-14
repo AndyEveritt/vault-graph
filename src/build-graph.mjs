@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
 // github#6
 import { localDay, resolveCreated, dateTally } from "./dates.mjs";
+// github#141
+import { canonicalDest, cleanTarget, ghostId, ghostKey, ghostLabel, isExternalTarget, isRelativeDest, resolveAgainst } from "./links.mjs";
 import { engineBanner } from "./engine/notice.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -186,16 +188,20 @@ const NAV_LINE = new RegExp(
 const stripDailyNav = (s) => (STRIP_NAV ? s.replace(NAV_LINE, "") : s);
 
 const WIKILINK = /!?\[\[([^[\]|#^]+)(?:[#^][^[\]|]*)?(?:\|[^[\]]*)?\]\]/g;
-const MDLINK = /\[[^\]]*\]\(([^)\s]+\.md)(?:\s[^)]*)?\)/g;
+// github#141
+const MDLINK = /\[[^\]]*\]\(([^)\s#]+\.md)(?:#[^)\s]*)?(?:\s[^)]*)?\)/g;
 
 function mineLinks(body, fm) {
   const out = [];
-  const push = (t) => { t = t.trim(); if (t) out.push(t); };
+  // github#141
+  const push = (raw) => {
+    if (isExternalTarget(raw)) return;
+    const dest = cleanTarget(raw);
+    if (dest) out.push(dest);
+  };
   const scan = (text, re) => {
     let m; re.lastIndex = 0;
-    while ((m = re.exec(text))) {
-      try { push(decodeURIComponent(m[1])); } catch { push(m[1]); }
-    }
+    while ((m = re.exec(text))) push(m[1]);
   };
 
   const clean = stripDailyNav(stripCode(body));
@@ -267,6 +273,8 @@ const files = walk(VAULT).filter((abs) => {
 });
 const notes = [];
 const byKey = new Map();
+// github#141
+const byPath = new Map();
 
 for (const abs of files) {
   const relPath = relative(VAULT, abs);
@@ -299,8 +307,11 @@ for (const abs of files) {
   };
   const idx = notes.push(note) - 1;
 
-  const keys = [name, note.id, note.id.replace(/\.md$/, "")]
-    .concat(fm.aliases ?? [], fm.alias ?? []);
+  // github#141
+  const path = note.id.replace(/\.md$/, "").toLowerCase();
+  if (!byPath.has(path)) byPath.set(path, idx);
+
+  const keys = [name].concat(fm.aliases ?? [], fm.alias ?? []);
   for (const k of keys) {
     const kk = String(k).toLowerCase().trim();
     if (kk && !byKey.has(kk)) byKey.set(kk, idx);
@@ -311,11 +322,20 @@ const edgeWeight = new Map();
 const ghosts = new Map();
 let unresolved = 0;
 
-const resolve = (target) => {
-  const t = target.toLowerCase().trim().replace(/\.md$/, "");
-  if (byKey.has(t)) return byKey.get(t);
-  const base = t.split("/").pop();
-  return byKey.has(base) ? byKey.get(base) : -1;
+// github#141
+const resolve = (dest, sourceId) => {
+  const exact = (p) => {
+    const k = p.toLowerCase();
+    return k && byPath.has(k) ? byPath.get(k) : -1;
+  };
+  const here = exact(resolveAgainst(sourceId, dest));
+  if (here >= 0) return here;
+  if (isRelativeDest(dest)) return -1;
+  const there = exact(canonicalDest("", dest));
+  if (there >= 0) return there;
+  if (dest.includes("/")) return -1;
+  const k = dest.toLowerCase().trim();
+  return byKey.has(k) ? byKey.get(k) : -1;
 };
 
 const addEdge = (i, j) => {
@@ -326,13 +346,15 @@ const addEdge = (i, j) => {
 
 for (let i = 0; i < notes.length; i++) {
   for (const target of notes[i]._links) {
-    const j = resolve(target);
+    const j = resolve(target, notes[i].id);
     if (j < 0) {
       unresolved++;
       if (INCLUDE_GHOSTS) {
-        const key = target.split("/").pop();
-        if (!ghosts.has(key)) ghosts.set(key, []);
-        ghosts.get(key).push(i);
+        // github#141
+        const dest = canonicalDest(notes[i].id, target);
+        const key = ghostKey(dest);
+        if (!ghosts.has(key)) ghosts.set(key, { dest, sources: [] });
+        ghosts.get(key).sources.push(i);
       }
       continue;
     }
@@ -341,9 +363,10 @@ for (let i = 0; i < notes.length; i++) {
 }
 
 if (INCLUDE_GHOSTS) {
-  for (const [name, sources] of ghosts) {
+  // github#141
+  for (const { dest, sources } of ghosts.values()) {
     const g = {
-      id: `ghost:${name}`, label: name, folder: "(unresolved)", sub: "", type: "ghost",
+      id: ghostId(dest), label: ghostLabel(dest), folder: "(unresolved)", sub: "", type: "ghost",
       tags: [], created: "", words: 0, ghost: true,
     };
     const j = notes.push(g) - 1;

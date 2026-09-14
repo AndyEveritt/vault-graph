@@ -6,6 +6,8 @@ import { mountVaultGraph } from "../src/page.js";
 import { GraphStore, Renderer } from "../src/engine/index";
 // github#6
 import { localDay, resolveCreated, dateTally } from "../src/dates.mjs";
+// github#141
+import { canonicalDest, ghostId, ghostKey, ghostLabel } from "../src/links.mjs";
 import PAGE_HTML from "raw:../src/page.html";
 import LOGO_MASK_B64 from "b64:../assets/logo-mask.png";
 // github#83, design/0016
@@ -406,7 +408,8 @@ async function buildData(app, opts, version) {
   /* ---- ghosts: unresolvedLinks, for free --------------------------------- */
   const unresolvedMap = app.metadataCache.unresolvedLinks || {};
   let unresolved = 0;
-  /** @type {Map<string, [number, number][]>} */
+  // github#141
+  /** @type {Map<string, { dest: string, sources: [number, number][] }>} */
   const ghosts = new Map();
   for (const src of Object.keys(unresolvedMap)) {
     const i = index.get(src);
@@ -415,20 +418,21 @@ async function buildData(app, opts, version) {
       const n = unresolvedMap[src][target];
       unresolved += n;
       if (!opts.ghosts) continue;
-      const key = target.split("/").pop();
-      if (!ghosts.has(key)) ghosts.set(key, []);
-      ghosts.get(key).push([i, n]);
+      const dest = canonicalDest(src, target);
+      const key = ghostKey(dest);
+      let slot = ghosts.get(key);
+      if (!slot) { slot = { dest: dest, sources: [] }; ghosts.set(key, slot); }
+      slot.sources.push([i, n]);
     }
   }
   if (opts.ghosts) {
-    for (const entry of ghosts) {
-      const name = entry[0], sources = entry[1];
+    for (const slot of ghosts.values()) {
       const j = nodes.length;
       nodes.push({
-        id: "ghost:" + name, label: name, folder: "(unresolved)", sub: "", dirs: [],
+        id: ghostId(slot.dest), label: ghostLabel(slot.dest), folder: "(unresolved)", sub: "", dirs: [],
         type: "ghost", tags: [], created: "", touched: "", words: 0, ghost: true,
       });
-      for (const pair of sources) addEdge(pair[0], j, pair[1]);
+      for (const pair of slot.sources) addEdge(pair[0], j, pair[1]);
     }
   }
 
