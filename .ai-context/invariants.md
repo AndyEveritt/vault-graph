@@ -371,6 +371,53 @@ quantisation: one row out of five is a 20–25% step, which is why the 10k vault
 inner band never shows it and the small-ring fixtures always do. Rounding up leaves the
 slack *angular* instead, which the dot does use.
 
+**But do not then STRETCH the lattice to fill the band with those rows — github#157.** The
+row count is one decision and the pitch is another, and `solveBand()` used to make the second
+one follow from the first: `sp = T / rw`, rows spread to fill the band exactly. How many notes
+land in a row is decided by `rw` alone, so **the tangential step does not move when the pitch
+does** — which means the whole of the stretch lands on the cell's shape:
+
+```
+ratio = (avail / arcSpan) · q²        q = rw · s / T,  the row-count overshoot
+```
+
+The **square** of the rounding error, not the error. Measured on the dominant-folder vault,
+outer band at 27 of 765 shown: `T 8, s 5.564, T/s 1.438, rw 2, q 1.391, q² 1.935`, rendered
+`step 1127 / pitch 640 = 1.76` against the 1.75 that *the disc's density follows the notes on
+screen* asserts. The same law reads the other three sampled states exactly — `q²` 1.092 /
+1.364 / 1.633 against a rendered 1.05 / 1.24 / 1.51 — the constant 0.91–0.96 discount being
+the arc the wedge gaps take and the step therefore never gets.
+
+So past `CELL_FILL_MAX = 1.5` the pitch is raised back toward the square side `s`, never past
+it, and the band carries the remainder as margin. **It costs the dot nothing the ceil bought**:
+`dotPx` scales by `room / pitch`, and `room` is a function of `rw`, not of the pitch — the
+median outer dot in that state goes 168 → 164. The rows always fit, with no clamp needed:
+`rw = ceil(T / s)` puts `(rw − 1) · s ≤ T`, and rows are laid from `base`, not centred.
+
+| band, state (dominant-folder) | q² | before | after |
+|---|---|---|---|
+| outer, 27 of 765 shown | 1.935 | **1.76** | **1.38** |
+| inner, 101 of 189 shown | 1.633 | 1.51 | 1.40 |
+| inner, 189 at rest | 1.364 | 1.24 | 1.24 |
+| outer, 765 at rest | 1.092 | 1.05 | 1.05 |
+
+**1.5 has a wall at each end, which is why it is not a round number picked for looking like
+one.** The largest stretch any of the four fixtures reaches **at rest** is q² 1.364 — the
+dominant-folder vault's inner ring, 5 rows against 4.28 — then 1.355 (tag) and 1.350 (demo),
+so a ceiling under 1.364 relayouts the resting disc on three of the four and every golden with
+it. At the other end, 1.75 would sit exactly on the bound the check asserts, and a construction
+that cannot violate a check is a check with no teeth. At 1.5 no resting layout moves — all four
+goldens pass unchanged — and the worst cell over the sampled states is 1.40.
+
+**A blind spot this fix walks into, and does not cause.** `debugDump().bands` splits the two
+rings at the **biggest radial gap**. That is right whenever a band's own pitch is smaller than
+the gap between the rings, and wrong when it is not — and raising the outer pitch in that one
+heavily-filtered state takes it to 826px against a 741px inter-ring gap, so the split falls
+*inside* the outer band and the check reads a mixed band (`i113:0.82`) rather than the band
+itself. The numbers in the table above are measured against the solver's own lattice radii
+instead. **The check keeps its teeth for this defect**: revert the fix and the pitch drops back
+under the gap, the split is right again, and it reads 1.76 and fails.
+
 **Two facts that survive, for anyone going further.** Membership is per **group**:
 `c.inner = groupInner[c.g]` and `takeGeom()` stores `bandLock[c.g]`, so a folder cannot span
 both rings and "the best-connected *notes* inner" is not reachable without dismantling the

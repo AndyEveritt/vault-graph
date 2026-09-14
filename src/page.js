@@ -1315,6 +1315,20 @@ function mountVaultGraph(root, data, deps) {
   // github#13
   var DENSITY_MAX = 2.6;
 
+  // github#157 -- how far off square filling a band may push a lattice cell before
+  // github#157 -- solveBand() stops filling it. A ceiling on the STRETCH the fill applies,
+  // github#157 -- not on the rendered cell -- the rendered one comes out lower, because
+  // github#157 -- the gaps between wedges take arc the tangential step never gets.
+  // github#157 -- 1.5 is measured, from a window with a wall at each end. Below it: the
+  // github#157 -- largest stretch any of the four fixtures reaches AT REST is 1.364 (the
+  // github#157 -- dominant-folder vault's inner ring, 5 rows against 4.28), and a ceiling
+  // github#157 -- under that would relayout the resting disc on three of the four.
+  // github#157 -- Above it: at 1.75 the ceiling would sit exactly on the bound that `the
+  // github#157 -- disc's density follows the notes on screen` asserts, which takes that
+  // github#157 -- check's teeth. At 1.5 no resting layout moves, and the worst cell over
+  // github#157 -- the states that check samples is 1.40 against its 1.75.
+  var CELL_FILL_MAX = 1.5;
+
   /**
    * One of the two bands the disc is laid out in.
    * @typedef {Object} Band
@@ -2267,7 +2281,24 @@ function mountVaultGraph(root, data, deps) {
       var rw = Math.ceil(T / s - 0.001);
       if (rw < 1) rw = 1;
       if (rw > 200) rw = 200;
-      return { sp: thick / rw, rows: rw };
+      // github#157 -- having rounded the row count UP, do not then STRETCH the lattice to
+      // github#157 -- fill the band with it. How many notes land in a row is decided by rw
+      // github#157 -- alone, so the tangential step does not move when the pitch does, and
+      // github#157 -- pitching the rows at T/rw turns the ceil's overshoot q = rw*s/T into
+      // github#157 -- a cell aspect of q*q -- the SQUARE of the rounding error. A 27-note
+      // github#157 -- outer band wants 1.44 rows, takes 2, and comes out 1.76 wide against
+      // github#157 -- a bound of 1.75. Spending the band's own slack instead -- rows at
+      // github#157 -- their square pitch s, the remainder left as margin -- costs nothing
+      // github#157 -- that the ceil bought, because `room`, and so the dot, is a function
+      // github#157 -- of rw and not of the pitch. The rows always fit: rw = ceil(T / s)
+      // github#157 -- puts (rw - 1) * s <= T, and they are laid from `base`, not centred.
+      var pit = T / rw;
+      var q = rw * s / T;
+      if (rw > 1 && q * q > CELL_FILL_MAX) {
+        pit *= q * q / CELL_FILL_MAX;
+        if (pit > s) pit = s;
+      }
+      return { sp: pit / scale, rows: rw };
     };
 
     var thickI = geomLock ? (geomLock.rOuter - geomLock.r0) * INNER_FILL : 0;
