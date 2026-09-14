@@ -344,6 +344,33 @@ try {
         "nodes " + lateAfter.nodes + " px against a baseline of " + base.nodes);
   check((await j("window.__glr.notice()")).hidden === true, "and the page goes quiet");
 
+  /* -- 6: a partial restore does not un-say what stands ---------------------- */
+  console.log("\n=== 6: one of three comes back after the wait ===");
+  // github#144 -- its own baseline: scenario 4 replayed the cascade
+  const base6 = await j("window.__glr.paint()");
+  await j("window.__glr.arm()");
+  await j("window.__glr.lose(" + JSON.stringify(LAYERS) + ")");
+  await sleep(STALL_WAIT_MS);
+  const threeStalled = await j("window.__glr.notice()");
+  check(/3 graphics layers were lost and have not come back/.test(threeStalled.text),
+        "three gone and none back reads as three", JSON.stringify(threeStalled.text));
+  await j("window.__glr.restore(" + JSON.stringify(["edges"]) + ")");
+  await waitRestored(["edges"]);
+  await sleep(300);
+  const partial = await j("window.__glr.notice()");
+  check(/2 graphics layers were lost and have not come back/.test(partial.text),
+        "one back is no promise about the other two", JSON.stringify(partial.text));
+  const partialPaint = await j("window.__glr.paint()");
+  check(partialPaint.edges === base6.edges && partialPaint.nodes === 0 &&
+        partialPaint.hoverNodes === 0,
+        "and the layer that came back is the only one drawing", show(partialPaint));
+  await j("window.__glr.restore(" + JSON.stringify(["nodes", "hoverNodes"]) + ")");
+  await waitRestored(LAYERS);
+  await sleep(300);
+  const endPaint = await j("window.__glr.paint()");
+  check((await j("window.__glr.notice()")).hidden === true && endPaint.nodes === base6.nodes,
+        "the last two back clears it", show(endPaint));
+
   /* -- the table ------------------------------------------------------------ */
   console.log("\n| scenario | " + LAYERS.join(" | ") + " |");
   console.log("|---|" + LAYERS.map(() => "---|").join(""));

@@ -5455,22 +5455,18 @@ function mountVaultGraph(root, data, deps) {
 
   /* ------------------------------------------------ github#144, a lost context */
 
-  // github#144 -- host-neutral wording: the tab and the view alike
+  // github#144 -- a driver reset restores in a frame or two
   var GLOST_STALL_MS = 4000;
   var glostGone = dict();
+  var glostStalled = false;
   /** @type {number | null} */
   var glostTimer = null;
 
-  function glostCount() {
-    var n = 0;
-    // github#144 -- dict() has a null prototype, so for..in is safe here
-    for (var k in glostGone) { void k; n++; }
-    return n;
-  }
+  function glostCount() { return Object.keys(glostGone).length; }
 
-  /** @param {boolean} stalled */
-  function glostPaint(stalled) {
-    var el = $("glost"), n = glostCount();
+  // github#144 -- host-neutral wording: the tab and the view alike
+  function glostPaint() {
+    var el = $("glost"), n = glostCount(), stalled = glostStalled;
     if (!n) { el.hidden = true; el.textContent = ""; return; }
     var one = n === 1;
     var what = (one ? "A graphics layer was" : n + " graphics layers were") + " lost";
@@ -5487,23 +5483,32 @@ function mountVaultGraph(root, data, deps) {
   /** @param {string} layer */
   function glostLost(layer) {
     glostGone[layer] = true;
-    glostPaint(false);
+    // github#144 -- a layer going now is news; the wait starts again
+    glostStalled = false;
+    glostPaint();
     glostStopTimer();
     // github#144 -- escalates the wording only; the restore is what clears it
     glostTimer = WIN.setTimeout(function () {
       glostTimer = null;
-      if (glostCount()) glostPaint(true);
+      if (!glostCount()) return;
+      glostStalled = true;
+      glostPaint();
     }, GLOST_STALL_MS);
   }
 
   /** @param {string} layer */
   function glostRestored(layer) {
     delete glostGone[layer];
-    if (!glostCount()) glostStopTimer();
-    glostPaint(false);
+    // github#144 -- one back is no promise about the rest; the wording holds
+    if (!glostCount()) { glostStopTimer(); glostStalled = false; }
+    glostPaint();
   }
 
-  onDestroy.push(function () { glostStopTimer(); glostGone = dict(); });
+  onDestroy.push(function () {
+    glostStopTimer();
+    glostGone = dict();
+    glostStalled = false;
+  });
 
   function makeRenderer() {
     renderer = new RendererCls(graph, $("graph"), {

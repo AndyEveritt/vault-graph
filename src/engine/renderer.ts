@@ -324,6 +324,42 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     return gl;
   }
 
+  private create2D(id: CanvasLayer): CanvasRenderingContext2D {
+    const canvas = this.createCanvas(id);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("vault-graph: could not create a 2D context");
+    return ctx;
+  }
+
+  private resize(force = false): void {
+    const prevW = this.width, prevH = this.height, prevRatio = this.pixelRatio;
+    this.width = this.container.offsetWidth || 1;
+    this.height = this.container.offsetHeight || 1;
+    this.pixelRatio = this.win.devicePixelRatio || 1;
+    if (!force && prevW === this.width && prevH === this.height && prevRatio === this.pixelRatio) return;
+    const w = this.width * this.pixelRatio, h = this.height * this.pixelRatio;
+    for (const el of this.elements.values()) {
+      el.style.width = this.width + "px";
+      el.style.height = this.height + "px";
+      el.width = w;
+      el.height = h;
+    }
+    if (this.pixelRatio !== 1) for (const ctx of Object.values(this.ctx)) ctx.scale(this.pixelRatio, this.pixelRatio);
+    for (const gl of Object.values(this.gl)) gl.viewport(0, 0, w, h);
+  }
+
+  private clear(): void {
+    for (const layer of ["nodes", "edges", "hoverNodes"] as const) {
+      // github#144 -- a call on a lost context is a silent no-op
+      if (this.lost.has(layer)) continue;
+      const gl = this.gl[layer];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    this.ctx.labels.clearRect(0, 0, this.width, this.height);
+    this.ctx.hovers.clearRect(0, 0, this.width, this.height);
+  }
+
   /* --------------------------------------------------- github#144, context loss */
 
   // github#144 -- the state a restored context does not carry over
@@ -364,42 +400,6 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.needToProcess = true;
     this.render();
     this.emit("contextRestored", { layer });
-  }
-
-  private create2D(id: CanvasLayer): CanvasRenderingContext2D {
-    const canvas = this.createCanvas(id);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("vault-graph: could not create a 2D context");
-    return ctx;
-  }
-
-  private resize(force = false): void {
-    const prevW = this.width, prevH = this.height, prevRatio = this.pixelRatio;
-    this.width = this.container.offsetWidth || 1;
-    this.height = this.container.offsetHeight || 1;
-    this.pixelRatio = this.win.devicePixelRatio || 1;
-    if (!force && prevW === this.width && prevH === this.height && prevRatio === this.pixelRatio) return;
-    const w = this.width * this.pixelRatio, h = this.height * this.pixelRatio;
-    for (const el of this.elements.values()) {
-      el.style.width = this.width + "px";
-      el.style.height = this.height + "px";
-      el.width = w;
-      el.height = h;
-    }
-    if (this.pixelRatio !== 1) for (const ctx of Object.values(this.ctx)) ctx.scale(this.pixelRatio, this.pixelRatio);
-    for (const gl of Object.values(this.gl)) gl.viewport(0, 0, w, h);
-  }
-
-  private clear(): void {
-    for (const layer of ["nodes", "edges", "hoverNodes"] as const) {
-      // github#144 -- a call on a lost context is a silent no-op
-      if (this.lost.has(layer)) continue;
-      const gl = this.gl[layer];
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-    }
-    this.ctx.labels.clearRect(0, 0, this.width, this.height);
-    this.ctx.hovers.clearRect(0, 0, this.width, this.height);
   }
 
   /* ------------------------------------------------------------- indexing */
@@ -561,6 +561,9 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
       this.drawHover(ctx, { key: id, ...data, size: this.scaleSize(data.size), x, y }, this.settings);
     }
 
+    // github#144 -- the 2D hovers above still draw; the program work does not
+    if (this.lost.has("hoverNodes")) return;
+
     let circles = 0, halos = 0;
     for (const id of toRender) {
       if (this.nodeData.get(id)?.type === "halo") halos++;
@@ -576,8 +579,6 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
       if (data.type === "halo") this.hoverPrograms.halo.process(halos++, data);
       else this.hoverPrograms.circle.process(circles++, data);
     }
-    // github#144 -- the hover layer's own context can be the lost one
-    if (this.lost.has("hoverNodes")) return;
     const gl = this.gl.hoverNodes;
     gl.clear(gl.COLOR_BUFFER_BIT);
     const params = this.renderParams();

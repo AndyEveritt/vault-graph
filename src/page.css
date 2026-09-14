@@ -834,7 +834,9 @@
 
   /* github#144 -- said out loud, over whatever is left of the disc. Above #vg-tip and the
      camera cluster but under #vg-busy, which is a state this one cannot be in at the same
-     time. pointer-events: none so it never eats a click meant for the graph underneath. */
+     time. pointer-events: none so it never eats a click meant for the graph underneath.
+     Top centre is the empty part of the stage at this width: both control clusters are at
+     the bottom right and #vg-mob is at the top left. */
   .vault-graph #vg-glost {
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     z-index: 8; max-width: min(88%, 420px); pointer-events: none;
@@ -906,6 +908,14 @@
        of the cluster -- where it sits and which way it runs -- is the base rule's, github#82. */
     .vault-graph #vg-mob { z-index: 9; }
     .vault-graph #vg-mob button { opacity: .8; width: 44px; height: 44px; }
+    /* github#144 -- the top row is three control groups at this width and the gap between
+       them is ~170px, which is not a sentence. So the notice takes the full width and the
+       row for as long as a layer is gone: it stays pointer-events: none, so every button
+       under it is still reachable, and a lost context is a broken state that outranks the
+       camera buttons while it lasts. */
+    .vault-graph #vg-glost {
+      left: 12px; right: 12px; transform: none; max-width: none; z-index: 10;
+    }
     /* The band's control row is one line of five things and the stage clips it at this
        width: the second date field and All dates were cut off and unreachable. */
     .vault-graph #vg-heat .hrow { flex-wrap: wrap; row-gap: 6px; }

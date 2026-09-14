@@ -2666,6 +2666,124 @@ frame and draws it immediately rather than dropping it. `render()` also emits `a
 so `placeLogo()` has run before `savePng()` reads the logo's position — the export now
 composites the logo where this frame put it rather than where the last one did.
 
+## A lost WebGL layer comes back, and a blank one is never silent
+
+The three WebGL layers (`edges`, `nodes`, `hoverNodes`) are contexts the browser owns and may
+take back at any time — a driver reset, a GPU switch, a machine waking up, too many contexts on
+one page. Until github#144 `src/engine/renderer.ts` created them and installed no
+`webglcontextlost` or `webglcontextrestored` handler anywhere, so a loss was permanent for the
+life of the mount and the page said nothing about it.
+
+**The law has two halves, and the second is not decoration.** *Prevent the default on the loss,
+rebuild the layer's GPU state on the restore* — a loss event left un-prevented is never followed
+by a restore, so preventing it is what makes recovery possible at all rather than an
+optimisation. And *a layer that is gone is said out loud*: a disc that stops drawing with no
+error and no message is indistinguishable from an empty vault, which is exactly how this defect
+survived being looked at.
+
+What a restored context does and does not carry is the whole of the fix. Per the spec it is the
+**same `WebGL2RenderingContext` object** — measured, `sameContexts` in the harness below, so no
+canvas is replaced and nothing above the engine has a stale handle — with **default state and no
+resources**. So three things are said again on restoration and nothing else is: `blendFunc`, the
+viewport, and that layer's programs, rebuilt through the same `makeNodePrograms` /
+`makeEdgePrograms` the constructor uses. The fresh programs come back at capacity 0 with empty
+arrays, which is why the restore ends in `needToProcess = true` and one `render()` — `process()`
+is what puts the vertex data back, and `render()` is what calls it.
+
+**Loss is per layer, not one flag.** `WEBGL_lose_context` works on one context, and a browser may
+lose one of three; `render()`, `renderHighlightedNodes()` and `clear()` each skip a lost layer, so
+the other two and the three 2D layers carry on drawing. The measured table below is what that
+claim rests on: with `edges` gone, `nodes` and `hoverNodes` draw *exactly* what they drew before,
+to the pixel.
+
+**Nothing the graph holds lives in the GL**, so the camera, the selection, the pins, the query and
+the cascade's clock survive by construction rather than by being copied across a remount. That is
+the reason this is an in-place rebuild and not the "controlled remount path" the issue offered as
+the alternative — a remount would have to preserve all of it deliberately, and would have to be
+threaded through `src/page.js` and `plugin/main.js` as well.
+
+`kill()` loses all three contexts on purpose to hand the GPU memory back, so it drops the two
+listeners first and the loss handler returns early while `killed`: teardown must not ask the
+browser to restore something being thrown away, and must not raise a notice on the way out.
+
+```bash
+node scripts/webgl-recovery-check.mjs                  # generates its own 300-note vault
+node scripts/webgl-recovery-check.mjs --vault ./demo-vault
+node scripts/webgl-recovery-check.mjs --url <a built page>   # e.g. one built from develop
+```
+
+Headless, so it places no window and takes **no screen lock**. It builds a real page, seeds a
+search and a selection so all three layers have work of their own, then loses and restores each
+context in turn. Layers are counted **inside the same task that drew them** — `preserveDrawingBuffer`
+is false, so a later read is empty by design (github#142) — using `png-capture.mjs`'s own
+`drawImage`-and-count-alpha idiom.
+
+**The assertion is against the baseline, not a tuned floor.** A lost layer reads exactly 0 and a
+recovered one reads exactly what it read before, so "draws again" is an equality at rest and a
+90% bound mid-cascade, where the disc has moved a pixel or two under it. Measured on a 527-note
+generated vault at 1400x900, painted px per layer:
+
+| scenario | edges | nodes | hoverNodes |
+|---|---|---|---|
+| baseline | 128,461 | 14,383 | 10,801 |
+| `edges` lost | **0** | 14,383 | 10,801 |
+| `edges` restored | **128,461** | 14,383 | 10,801 |
+| `nodes` lost | 128,461 | **0** | 10,801 |
+| `nodes` restored | 128,461 | **14,383** | 10,801 |
+| `hoverNodes` lost | 128,461 | 14,383 | **0** |
+| `hoverNodes` restored | 128,461 | 14,383 | **10,801** |
+| all three lost | 0 | 0 | 0 |
+| all three restored | 128,461 | 14,383 | 10,801 |
+| all three lost mid-cascade | 0 | 0 | 0 |
+| the cascade then lands | 128,464 | 14,384 | 10,802 |
+| three gone, `edges` back after the wait | 128,464 | 0 | 0 |
+
+**On `develop` the same harness reports 23 of 45 failed**, and the table is the diagnosis rather
+than the verdict: every layer, once lost, stays at 0 for the rest of the page's life, and the
+losses accumulate — by scenario 2.3 all three read 0 because the two lost in 2.1 and 2.2 never
+came back. `defaultPrevented` is `false` on every loss event there, no `webglcontextrestored`
+ever arrives, and `#vg-glost` does not exist. The three checks that pass on both sides are the
+ones that were never at risk: the context object is the same either way (a browser fact, not a
+fix), and the camera and pins were never in the GL.
+
+**The notice is the page's, not the engine's.** The engine's boundary (`src/engine/types.ts`) is a
+measured one and draws no chrome; it emits `contextLost` / `contextRestored` carrying the layer,
+and `src/page.js` renders `#vg-glost` from them — which gives the Obsidian view the same notice
+for free, since it mounts the same page. A pill rather than `#vg-busy`'s full-stage cover,
+because loss is per layer and the disc is often still half drawn and worth seeing.
+`pointer-events: none`, so it never eats a click meant for the graph underneath.
+
+The wording escalates once, after `GLOST_STALL_MS` (4,000 ms): a real driver reset restores within
+a frame or two, so four seconds never flashes the second wording during a normal recovery, and a
+loss with no restore coming should not sit on "restoring..." much longer than that. It names no
+host — this page is the exported tab and the Obsidian view alike, and "reload the tab" is right in
+only one of them.
+
+**A partial restore does not un-say what already stands.** Found in review rather than by the
+harness, and then covered by it: with all three gone and the wait already elapsed, bringing one
+layer back left the other two described as "restoring..." with no timer running, so the page would
+have promised a recovery indefinitely. The escalation is a flag now, cleared only when the last
+layer is back or when a *new* layer goes (which is news, and restarts the wait). Measured, last
+row of the table above: three lost reads `3 graphics layers were lost and have not come back`, and
+after `edges` comes back it reads **`2 graphics layers were lost and have not come back`** while
+`edges` alone draws.
+
+**At phone width the notice takes the whole top row, on purpose.** Below 720px `#vg-cam` and
+`#vg-ov` move to the top right and `#vg-mob` is at the top left, leaving about 170px between them
+— not a sentence. So the pill spans the row and sits above them. It keeps `pointer-events: none`,
+so every button under it is still reachable by touch; a lost context is a broken state, and for as
+long as it lasts the reason outranks the camera buttons.
+
+**Not a check inside `smoke.mjs`, deliberately.** The suite shares one page across 66 checks on
+three fixtures; a *failed* restore would poison every check after it and turn one defect into
+twenty confusing failures. `teardown-check.mjs` and `render-race-check.mjs` sit outside for the
+same kind of reason.
+
+**What this does not establish.** The harness drives `WEBGL_lose_context`, which is a controlled
+simulation: it proves the handlers work and that a lost layer comes back, and says nothing about
+how often monitor power-saving, a driver reset or a GPU switch actually causes this in the field.
+The issue was explicit about that, and no field frequency was measured.
+
 ## A torn-down mount holds nothing outside its root
 
 `mountVaultGraph`'s handle has a `destroy()`, and the plugin's `teardown()` calls it. After
