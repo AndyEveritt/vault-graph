@@ -2114,11 +2114,21 @@ function mountVaultGraph(root, data, deps) {
       });
       /** @type {Record<string, boolean>} */
       var pinnedInner = dict();
+      // github#117 -- the pin does not ask what the seed decided: smallAt is TOTAL/60, so
+      // github#117 -- a small vault seeds a 7-9 note folder OUTER and never pins it
       names.forEach(function (g) {
-        if (assign[g] && (groupNotes[g] || 0) < PIN_BELOW) pinnedInner[g] = true;
+        if ((groupNotes[g] || 0) < PIN_BELOW) { pinnedInner[g] = true; assign[g] = true; }
       });
       var movable = names.filter(function (g) { return !pinnedInner[g]; });
-      if (!movable.length) return;
+      // github#117 -- the pin above can MOVE a group, so land it on both paths out
+      var applyAssign = function () {
+        cells.forEach(function (c) { c.inner = !!assign[c.g]; });
+        inner = cells.filter(function (c) { return c.inner; });
+        outer = cells.filter(function (c) { return !c.inner; });
+        share(inner, "i"); share(outer, "o");
+        cells.forEach(function (c) { c.bandRef = c.band; });
+      };
+      if (!movable.length) { applyAssign(); return; }
 
       /** @param {Cell[]} ins @param {Cell[]} outs @param {number} rv */
       var spanFor = function (ins, outs, rv) {
@@ -2133,10 +2143,20 @@ function mountVaultGraph(root, data, deps) {
           var r = rowsNeeded(usableRef(c, rOut), c.wsum, rOut);
           if (r > oR) oR = r;
         });
+        // github#117 -- area per note over the annulus each band's own rows sweep; the
+        // github#117 -- shared pi cancels. |ln| so it is scale-free and band-symmetric
+        var nI = 0, nO = 0;
+        ins.forEach(function (c) { nI += c.wsum; });
+        outs.forEach(function (c) { nO += c.wsum; });
+        var iHi = (rv + iR * SP) * INNER_SCALE, iLo = rv * INNER_SCALE;
+        var oHi = rOut + oR * SP, oLo = rOut;
+        var rpI = nI > 0.0001 ? Math.max(0, iHi * iHi - iLo * iLo) / nI : 0;
+        var rpO = nO > 0.0001 ? Math.max(0, oHi * oHi - oLo * oLo) / nO : 0;
         return {
           inner: Math.max(0, iR - 1) * SP * INNER_SCALE,
           outer: Math.max(0, oR - 1) * SP,
           iR: iR, oR: oR,
+          room: (rpI > 1e-9 && rpO > 1e-9) ? Math.abs(Math.log(rpI / rpO)) : 0,
           holeShare: (rOut + oR * SP) > 0 ? rv / (rOut + oR * SP) : 1
         };
       };
@@ -2169,6 +2189,8 @@ function mountVaultGraph(root, data, deps) {
         for (var m = 100; m <= 300; m += 5) {
           var rv = R0_BASE * (m / 100), t = spanFor(ins, outs, rv);
           var c2 = Math.abs(t.inner - BAND_RATIO * t.outer) +
+                   // github#117 -- at THIS rv, never a fixed base
+                   ROOM_WEIGHT * t.room +
                    (t.iR > t.oR ? INVERT_WEIGHT * (t.iR - t.oR) : 0) +
                    SIZE_WEIGHT * SP * innerPeak +
                    (t.inner >= t.outer ? 1000 : 0) +
@@ -2178,6 +2200,10 @@ function mountVaultGraph(root, data, deps) {
         return { cost: bc, r0: br };
       };
       var INVERT_WEIGHT = 0.5;
+
+      // github#117 -- room parity against the BAND_RATIO thickness term; 5 is the bottom
+      // github#117 -- of a measured plateau, and does nothing without the ceil in solveBand
+      var ROOM_WEIGHT = 5;
 
       var SIZE_WEIGHT = 5.0;
       /** @param {Record<string, boolean>} a */
@@ -2210,11 +2236,7 @@ function mountVaultGraph(root, data, deps) {
         }
       }
 
-      cells.forEach(function (c) { c.inner = !!assign[c.g]; });
-      inner = cells.filter(function (c) { return c.inner; });
-      outer = cells.filter(function (c) { return !c.inner; });
-      share(inner, "i"); share(outer, "o");
-      cells.forEach(function (c) { c.bandRef = c.band; });
+      applyAssign();
 
       r0 = evaluate(assign).r0;
     })();
@@ -2237,7 +2259,10 @@ function mountVaultGraph(root, data, deps) {
       }
       var T = thick * scale, R = (base + thick / 2) * scale;
       var s = Math.sqrt(arcSpan() * R * T / n);
-      var rw = Math.round(T / s);
+      // github#117 -- ceil, and it is half the room fix, not a tidy-up: rounding DOWN
+      // github#117 -- leaves the slack RADIAL, and dotPx scales by room/pitch so the dot
+      // github#117 -- cannot grow into it. The epsilon keeps an exact integer where it is
+      var rw = Math.ceil(T / s - 0.001);
       if (rw < 1) rw = 1;
       if (rw > 200) rw = 200;
       return { sp: thick / rw, rows: rw };
