@@ -56,6 +56,23 @@
  * @property {VaultEdge[]} edges
  * @property {VaultStats} stats
  * @property {boolean} [dev]         a --dev build of the standalone; nothing else sets it
+ * @property {string} [version]      github#108 -- the plugin/exporter version that built this, shown in the stats line
+ */
+
+// github#72, design/0014
+/**
+ * @typedef {Object} LiveResult
+ * @property {boolean} applied
+ * @property {string} reason
+ * @property {boolean} [queued]
+ * @property {string} [busy]     which of cascade / tween / timeline holds the frame loop
+ * @property {number} [churn]
+ * @property {number} [limit]
+ * @property {number} [added]
+ * @property {number} [removed]
+ * @property {number} [replaced]
+ * @property {number} [moved]
+ * @property {boolean} [cascaded]
  */
 
 /**
@@ -101,11 +118,16 @@
  * @property {Document} [doc]
  * @property {SlotMap} [folderColors]
  * @property {SlotMap} [subfolderColors]
+ * @property {SlotMap} [tagColors]                github#86 -- tag name -> slot key
+ * @property {SlotMap} [subtagColors]             github#86 -- "tag/sub" -> slot key
+ * @property {Record<string, boolean>} [tagShown] github#86 -- tag name -> shown by default
  * @property {Record<string, boolean>} [folderShown]
  * @property {boolean} [panEnabled]
  * @property {boolean} [compactAxis]
  * @property {boolean} [unlinkedByFolder]
  * @property {boolean} [unlinkedTintByFolder]
+ * @property {boolean} [countBars]              github#78, design/0006
+ * @property {"folder" | "tag"} [dim]         github#86, design/0015 -- absent means "folder"
  * @property {boolean} [fitCap]               github#41, design/0011
  * @property {boolean} [sheetOpen]            github#82 -- absent means "decide from the width"
  * @property {boolean} [bandOpen]             github#82
@@ -118,13 +140,18 @@
  * @property {() => void} [openSettings]
  * @property {(map: SlotMap) => void | Promise<void>} [onFolderColors]
  * @property {(map: SlotMap) => void | Promise<void>} [onSubfolderColors]
+ * @property {(map: SlotMap) => void | Promise<void>} [onTagColors]        github#86
+ * @property {(map: SlotMap) => void | Promise<void>} [onSubtagColors]     github#86
+ * @property {(map: Record<string, boolean>) => void | Promise<void>} [onTagShown]  github#86
  * @property {(map: Record<string, boolean>) => void | Promise<void>} [onFolderShown]
  * @property {(v: boolean) => void | Promise<void>} [onPanEnabled]
  * @property {(v: boolean) => void | Promise<void>} [onCompactAxis]
  * @property {(v: boolean) => void | Promise<void>} [onUnlinkedByFolder]
  * @property {(v: boolean) => void | Promise<void>} [onUnlinkedTintByFolder]
+ * @property {(v: "folder" | "tag") => void | Promise<void>} [onDim]   github#86
  * @property {(v: boolean) => void | Promise<void>} [onSheetOpen]
  * @property {(v: boolean) => void | Promise<void>} [onBandOpen]
+ * @property {(v: boolean) => void | Promise<void>} [onCountBars]
  * @property {(ids: string[]) => void | Promise<void>} [onPinned]
  * @property {() => void} [onRefresh]
  */
@@ -156,20 +183,36 @@
  * @typedef {Object} VgApi
  * @property {GraphLike} graph
  * @property {RendererLike | undefined} renderer   set by makeRenderer() before the api exists; a getter, so a host reads the live one
+ * @property {(next: VaultData, opts?: { renames?: Record<string, string> }) => LiveResult} applyData   github#72
+ * @property {() => boolean} interacting   github#120: a drag owns the frame loop; do not build either
+ * @property {(path: string, words: number) => boolean} setWords   github#72: by PATH, never by index
  * @property {() => void} readTheme
  * @property {() => void} placeLogo
  * @property {() => PaletteSlot[]} palette
+ * @property {(key: string) => { light: number, dark: number }} slotContrast
+ * @property {(key: string, name: string) => string} slotTitle
+ * @property {(key: string, suffix: string, group?: string) => string[]} previewLadder
+ * @property {(key: string, group?: string) => string} swatchPreview
+ * @property {() => number[]} previewSizes
  * @property {() => string[]} groupOrder
+ * @property {(dim: string) => { name: string, n: number, slot: string, autoSlot: string, pinned: boolean, shown: boolean, subs: { name: string, n: number, pin: string }[] }[]} groupsOf   github#86
  * @property {(group: string) => number} groupCount
  * @property {(group: string) => string} slotOf
+ * @property {(group: string) => string} colorOf   github#84: the hex the dots and the legend draw, after any theme flip
  * @property {(group: string) => string} autoSlotOf
  * @property {(map: SlotMap) => void} setFolderColors
  * @property {(map: SlotMap) => void} setSubfolderColors
+ * @property {(map: SlotMap) => void} setTagColors
+ * @property {(map: SlotMap) => void} setSubtagColors
  * @property {(map: Record<string, boolean>) => void} setFolderShown
  * @property {(v: boolean) => void} setPanEnabled
  * @property {(v: boolean) => void} setCompactAxis
  * @property {(v: boolean) => void} setUnlinkedByFolder
  * @property {(v: boolean) => void} setUnlinkedTintByFolder
+ * @property {(v: boolean) => void} setCountBars
+ * @property {(v: string) => string} setDim                        github#86
+ * @property {(id: string) => { g: string, sub: string, dirs: string[] }} filingOf
+ * @property {(id: string) => string} noteOf
  * @property {(v: boolean) => void} setFitCap
  * @property {() => void} applyHiddenDefaults
  * @property {() => void} heatBuild
@@ -348,7 +391,31 @@ function mountVaultGraph(root, data, deps) {
    * @property {string[]} slots          the twelve group colours, g1..g12
    * @property {string[]} neutrals
    * @property {Record<string, string>} byKey   "g7" -> its hex
+   * @property {{ l: Palette, d: Palette }} pal  both themes at once, github#77
    */
+
+  /**
+   * @typedef {Object} Palette
+   * @property {boolean} dark
+   * @property {string} surface
+   * @property {string[]} slots
+   * @property {Record<string, string>} byKey
+   */
+
+  var SLOT_VARS = ["--g1", "--g2", "--g3", "--g4", "--g5", "--g6",
+                   "--g7", "--g8", "--g9", "--g10", "--g11", "--g12"];
+
+  // github#77
+  /** @param {string} suffix "l" or "d" @returns {Palette} */
+  function readPalette(suffix) {
+    var slots = SLOT_VARS.map(function (v) { return css(v + "-" + suffix); });
+    /** @type {Record<string, string>} */
+    var byKey = dict();
+    slots.forEach(function (hex, i) { byKey["g" + (i + 1)] = hex; });
+    return { dark: suffix === "d", surface: css("--surface-1-" + suffix),
+             slots: slots, byKey: byKey };
+  }
+
   var THEME = /** @type {Theme} */ ({});
   function readTheme() {
     var surf = css("--surface-1");
@@ -362,13 +429,19 @@ function mountVaultGraph(root, data, deps) {
       surface:     surf,
       hoverBg:     css("--surface-2"),
       hoverBorder: css("--border-strong"),
-      slots:    ["--g1", "--g2", "--g3", "--g4", "--g5", "--g6",
-                 "--g7", "--g8", "--g9", "--g10", "--g11", "--g12"].map(css),
-      neutrals: ["--n1", "--n2", "--n3"].map(css)
+      slots:    SLOT_VARS.map(css),
+      neutrals: ["--n1", "--n2", "--n3"].map(css),
+      // github#77
+      pal: { l: readPalette("l"), d: readPalette("d") }
     };
     THEME.byKey = dict();
     THEME.slots.forEach(function (hex, i) { THEME.byKey["g" + (i + 1)] = hex; });
+    clearPreviewCache();
+    // github#79
+    ovSig = "";
     if (renderer) renderer.setSetting("labelColor", THEME.text);
+    // github#84, design/0004
+    if (renderer) { buildColors(); attempt(buildLegend); }
   }
   readTheme();
 
@@ -383,8 +456,17 @@ function mountVaultGraph(root, data, deps) {
     });
     return out;
   }
-  var folderColors = cleanSlotMap(deps.folderColors);
-  var subfolderColors = cleanSlotMap(deps.subfolderColors);
+  // github#86, design/0015 -- every grouping keeps its OWN colour pins, sub-tint pins and
+  // github#86 -- default-visibility map, under the same three shapes
+  // github#86 -- the settings panel reads the tab you are on
+  /** @type {Record<string, SlotMap>} */
+  var dimColors = { folder: cleanSlotMap(deps.folderColors), tag: cleanSlotMap(deps.tagColors) };
+  /** @type {Record<string, SlotMap>} */
+  var dimSubColors = { folder: cleanSlotMap(deps.subfolderColors), tag: cleanSlotMap(deps.subtagColors) };
+  /** @param {string} [dim] @returns {SlotMap} */
+  function colorsFor(dim) { return dimColors[dim || state.dim] || dimColors.folder; }
+  /** @param {string} [dim] @returns {SlotMap} */
+  function subColorsFor(dim) { return dimSubColors[dim || state.dim] || dimSubColors.folder; }
 
   // github#4
   var panEnabled = deps.panEnabled === false ? false : true;
@@ -420,6 +502,21 @@ function mountVaultGraph(root, data, deps) {
   // github#3
   var unlinkedTintByFolder = deps.unlinkedTintByFolder === true ? true : false;
   var onUnlinkedTintByFolder = typeof deps.onUnlinkedTintByFolder === "function" ? deps.onUnlinkedTintByFolder : null;
+
+  // github#78, design/0006
+  var countBars = deps.countBars === false ? false : true;
+  var onCountBars = typeof deps.onCountBars === "function" ? deps.onCountBars : null;
+  // github#86, design/0015
+  /** @type {("folder" | "tag")[]} */
+  var DIMS = ["folder", "tag"];
+  // github#86, design/0015 -- the dimension the settings panel shows
+  // github#86 -- it follows the disc on a switch, and stays put while open
+  /** @type {"folder" | "tag"} */
+  var settingsDim = "folder";
+  var dimStart = DIMS.indexOf(/** @type {"folder" | "tag"} */ (deps.dim)) >= 0
+    ? /** @type {"folder" | "tag"} */ (deps.dim) : "folder";
+  settingsDim = dimStart;
+  var onDim = typeof deps.onDim === "function" ? deps.onDim : null;
 
   /** @param {string} g */
   function isArchiveGroup(g) { return String(g).charAt(0) === "_"; }
@@ -471,17 +568,42 @@ function mountVaultGraph(root, data, deps) {
     });
     return out;
   }
-  var folderShown = cleanFolderShown(deps.folderShown);
+  /** @type {Record<string, Record<string, boolean>>} */
+  var dimShown = { folder: cleanFolderShown(deps.folderShown), tag: cleanFolderShown(deps.tagShown) };
+  /** @param {string} [dim] @returns {Record<string, boolean>} */
+  function shownFor(dim) { return dimShown[dim || state.dim] || dimShown.folder; }
 
   /** @param {string} g */
   function hiddenByDefault(g) {
-    if (typeof folderShown[g] === "boolean") return !folderShown[g];
+    // github#86, design/0015 -- each dimension has its own map; D-2 shows (untagged) unless
+    // github#86 -- this dimension's map says otherwise
+    var m = shownFor()[g];
+    if (typeof m === "boolean") return !m;
     return isArchiveGroup(g);
   }
   var SETTINGS_UI = !!deps.settingsUI;
   var openHostSettings = typeof deps.openSettings === "function" ? deps.openSettings : null;
   var saveFolderColors = typeof deps.onFolderColors === "function" ? deps.onFolderColors : null;
   var saveSubfolderColors = typeof deps.onSubfolderColors === "function" ? deps.onSubfolderColors : null;
+  var saveTagColors = typeof deps.onTagColors === "function" ? deps.onTagColors : null;
+  var saveSubtagColors = typeof deps.onSubtagColors === "function" ? deps.onSubtagColors : null;
+  var saveTagShown = typeof deps.onTagShown === "function" ? deps.onTagShown : null;
+  // github#86 -- one host callback per map per dimension
+  /** @param {string} dim @param {SlotMap} map */
+  function saveColorsFor(dim, map) {
+    var fn = dim === "tag" ? saveTagColors : saveFolderColors;
+    if (fn) fn(map);
+  }
+  /** @param {string} dim @param {SlotMap} map */
+  function saveSubColorsFor(dim, map) {
+    var fn = dim === "tag" ? saveSubtagColors : saveSubfolderColors;
+    if (fn) fn(map);
+  }
+  /** @param {string} dim @param {Record<string, boolean>} map */
+  function saveShownFor(dim, map) {
+    var fn = dim === "tag" ? saveTagShown : saveFolderShown;
+    if (fn) fn(map);
+  }
   var saveFolderShown = typeof deps.onFolderShown === "function" ? deps.onFolderShown : null;
   var savePinned = typeof deps.onPinned === "function" ? deps.onPinned : null;
 
@@ -491,7 +613,7 @@ function mountVaultGraph(root, data, deps) {
    * Everything the disc is currently showing, and how. One object, mutated in place; the
    * cascade and the legend read it, the UI writes it.
    * @typedef {Object} State
-   * @property {string} dim                                    grouping dimension; "folder"
+   * @property {"folder" | "tag"} dim                          grouping dimension; github#86
    * @property {string} layout
    * @property {Record<string, boolean>} hiddenSub             "folder/sub" -> true
    * @property {Record<string, Record<string, boolean>>} hidden   dim -> { group: true }
@@ -520,7 +642,7 @@ function mountVaultGraph(root, data, deps) {
    */
   /** @type {State} */
   var state = {
-    dim: "folder",
+    dim: dimStart,
     layout: "rings",
     hiddenSub: dict(),
     hidden: dict(),
@@ -549,19 +671,16 @@ function mountVaultGraph(root, data, deps) {
     pinned: []
   };
 
+  // github#72, design/0014
+  /** @type {{ name: string, fn: () => void }[]} */
+  var onData = [];
+  /** @param {string} name @param {() => void} fn */
+  function invalidatesOnData(name, fn) { onData.push({ name: name, fn: fn }); }
+
   /* ------------------------------------------------- graph + base layout */
 
   var graph = new Graph();
 
-  DATA.nodes.forEach(function (n, i) {
-    graph.addNode(String(i), {
-      label: n.label, x: 0, y: 0, size: 4,
-      folder: n.folder, sub: n.sub || "", dirs: n.dirs || [], ntype: n.type || "note",
-      tags: n.tags || [], path: n.id, deg: n.deg,
-      created: n.created || "", touched: n.touched || "",
-      words: n.words || 0, ghost: !!n.ghost
-    });
-  });
   // github#43
   var EDGE_RAMP_START = 2000, EDGE_RAMP_END = 10000, EDGE_FLOOR = 0.10;
   /** @type {Record<string, { o: string, w: number }[]>} */
@@ -576,62 +695,107 @@ function mountVaultGraph(root, data, deps) {
   var edgeAttrsOf = function (w) { return { weight: w, size: EDGE_SIZE }; };
   var EDGE_SHOWN = 0;
   var lazyEdges = false;
-  (function () {
-    /** @type {Record<string, number>} */
-    var seen = dict();
-    /** @type {{ a: string, b: string, w: number, k: string }[]} */
-    var list = [];
-    DATA.edges.forEach(function (e) {
-      var a = String(e.s), b = String(e.t);
-      var k = a < b ? a + "\u0000" + b : b + "\u0000" + a;
-      if (seen[k]) return;
-      seen[k] = 1;
-      EDGE_TOTAL++;
-      list.push({ a: a, b: b, w: e.w, k: k });
-      (adj[a] || (adj[a] = [])).push({ o: b, w: e.w });
-      if (b !== a) (adj[b] || (adj[b] = [])).push({ o: a, w: e.w });
-    });
-    var share = EDGE_TOTAL <= EDGE_RAMP_START ? 1
-      : EDGE_TOTAL >= EDGE_RAMP_END ? EDGE_FLOOR
-      : 1 - (1 - EDGE_FLOOR) * (EDGE_TOTAL - EDGE_RAMP_START) / (EDGE_RAMP_END - EDGE_RAMP_START);
-    EDGE_SHOWN = Math.round(EDGE_TOTAL * share);
-    lazyEdges = EDGE_SHOWN < EDGE_TOTAL;
-    if (lazyEdges) {
-      list.sort(function (p, q) { return q.w - p.w || (p.k < q.k ? -1 : 1); });
-      list.length = EDGE_SHOWN;
-    }
-    list.forEach(function (e) {
-      if (!graph.hasEdge(e.a, e.b)) graph.addUndirectedEdge(e.a, e.b, edgeAttrsOf(e.w));
-    });
-  })();
 
   var NODE_MIN = 2.6, NODE_MAX = 11, NODE_ORPHAN = 6;
-  graph.forEachNode(function (id, a) {
-    graph.setNodeAttribute(id, "size", a.deg === 0
-      ? NODE_ORPHAN
-      : Math.min(NODE_MAX, NODE_MIN + 1.55 * Math.sqrt(a.deg)));
-  });
 
   // github#58
   /** @type {Record<string, number>} */
   var hubRank = dict();
-  (function () {
+  /** @type {Record<string, string[]>} */
+  var subOrder = dict();
+  /** @type {Record<string, number>} */
+  var subCount = dict();
+  // github#72
+  /** @type {Record<string, string>} */
+  var idOfPath = dict();
+  var nextId = 0;
+
+  // github#72, design/0014
+  /**
+   * @param {VaultData} src
+   * @param {((path: string) => string | undefined) | null} keepId
+   */
+  function ingest(src, keepId) {
+    graph.clear();
+    adj = dict();
+    hubRank = dict();
+    subOrder = dict();
+    subCount = dict();
+    idOfPath = dict();
+    EDGE_TOTAL = 0;
+    EDGE_SHOWN = 0;
+    lazyEdges = false;
+
+    /** @type {string[]} */
+    var idAt = [];
+    src.nodes.forEach(function (n, i) {
+      var held = keepId ? keepId(n.id) : undefined;
+      var id = held === undefined ? String(nextId++) : held;
+      idAt[i] = id;
+      idOfPath[n.id] = id;
+      graph.addNode(id, {
+        label: n.label, x: 0, y: 0, size: 4,
+        folder: n.folder, sub: n.sub || "", dirs: n.dirs || [], ntype: n.type || "note",
+        tags: n.tags || [], path: n.id, deg: n.deg,
+        created: n.created || "", touched: n.touched || "",
+        words: n.words || 0, ghost: !!n.ghost
+      });
+    });
+
+    (function () {
+      /** @type {Record<string, number>} */
+      var seen = dict();
+      /** @type {{ a: string, b: string, w: number, k: string }[]} */
+      var list = [];
+      src.edges.forEach(function (e) {
+        var a = idAt[e.s], b = idAt[e.t];
+        if (a === undefined || b === undefined) return;
+        var k = a < b ? a + "\u0000" + b : b + "\u0000" + a;
+        if (seen[k]) return;
+        seen[k] = 1;
+        EDGE_TOTAL++;
+        list.push({ a: a, b: b, w: e.w, k: k });
+        (adj[a] || (adj[a] = [])).push({ o: b, w: e.w });
+        if (b !== a) (adj[b] || (adj[b] = [])).push({ o: a, w: e.w });
+      });
+      var share = EDGE_TOTAL <= EDGE_RAMP_START ? 1
+        : EDGE_TOTAL >= EDGE_RAMP_END ? EDGE_FLOOR
+        : 1 - (1 - EDGE_FLOOR) * (EDGE_TOTAL - EDGE_RAMP_START) / (EDGE_RAMP_END - EDGE_RAMP_START);
+      EDGE_SHOWN = Math.round(EDGE_TOTAL * share);
+      lazyEdges = EDGE_SHOWN < EDGE_TOTAL;
+      if (lazyEdges) {
+        list.sort(function (p, q) { return q.w - p.w || (p.k < q.k ? -1 : 1); });
+        list.length = EDGE_SHOWN;
+      }
+      list.forEach(function (e) {
+        if (!graph.hasEdge(e.a, e.b)) graph.addUndirectedEdge(e.a, e.b, edgeAttrsOf(e.w));
+      });
+    })();
+
+    graph.forEachNode(function (id, a) {
+      graph.setNodeAttribute(id, "size", a.deg === 0
+        ? NODE_ORPHAN
+        : Math.min(NODE_MAX, NODE_MIN + 1.55 * Math.sqrt(a.deg)));
+    });
+
+    // github#58
     graph.nodes().slice().sort(function (a, b) {
       return graph.getNodeAttribute(b, "deg") - graph.getNodeAttribute(a, "deg") ||
              String(graph.getNodeAttribute(a, "label"))
                .localeCompare(String(graph.getNodeAttribute(b, "label")));
     }).forEach(function (id, i) { hubRank[id] = i; });
-  })();
+  }
 
-  /** @type {Record<string, string[]>} */
-  var subOrder = dict();
-  /** @type {Record<string, number>} */
-  var subCount = dict();
-  (function () {
+  ingest(DATA, null);
+
+  // github#86, design/0015 -- per dimension (D-3); called below, after the filing
+  function buildSubOrder() {
+    subOrder = dict();
+    subCount = dict();
     /** @type {Record<string, Record<string, number>>} */
     var tally = dict();
-    graph.forEachNode(function (_id, a) {
-      var f = a.folder, sb = a.sub || "";
+    graph.forEachNode(function (id, a) {
+      var f = fileGroup(id, a), sb = fileSub(id, a);
       if (!tally[f]) tally[f] = dict();
       tally[f][sb] = (tally[f][sb] || 0) + 1;
     });
@@ -641,7 +805,7 @@ function mountVaultGraph(root, data, deps) {
       });
       subOrder[f].forEach(function (sb) { subCount[f + "/" + sb] = tally[f][sb]; });
     });
-  })();
+  }
 
   var UNIT = 160;
 
@@ -651,16 +815,237 @@ function mountVaultGraph(root, data, deps) {
 
   // github#3
   var UNLINKED = "(unlinked)";
+  // github#86, design/0015 -- D-2: the bucket, shown, grey, second to last
+  var UNTAGGED = "(untagged)";
+
+  // github#86, design/0015 -- the filing: where a note sits in this dimension
+  /** @type {Record<string, { g: string, sub: string, dirs: string[] }>} */
+  var tagFiling = dict();
+  // github#86 -- D-4: notes carrying each tag, against those filed under it
+  /** @type {Record<string, number>} */
+  var tagCarried = dict();
+  var tagFilingBuilt = false;
+
+  /** @param {string[]} tags @returns {{ g: string, sub: string, dirs: string[] }} */
+  function fileTags(tags) {
+    // github#86 -- D-1: the first tag listed files the note
+    var t = tags && tags.length ? String(tags[0]) : "";
+    if (!t) return { g: UNTAGGED, sub: "", dirs: [] };
+    // github#86 -- D-3: a/b maps onto folder, subfolder, deeper
+    var seg = t.split("/").filter(Boolean);
+    if (!seg.length) return { g: UNTAGGED, sub: "", dirs: [] };
+    return { g: seg[0], sub: seg[1] || "", dirs: seg.slice(1) };
+  }
+
+  function buildTagFiling() {
+    if (tagFilingBuilt) return;
+    tagFilingBuilt = true;
+    tagFiling = dict();
+    tagCarried = dict();
+    graph.forEachNode(function (id, a) {
+      if (a.dupOf) return;
+      tagFiling[id] = fileTags(a.tags);
+      /** @type {Record<string, boolean>} */
+      var once = dict();
+      (a.tags || []).forEach(function (t) {
+        var g = String(t).split("/").filter(Boolean)[0];
+        if (!g || once[g]) return;
+        once[g] = true;
+        tagCarried[g] = (tagCarried[g] || 0) + 1;
+      });
+    });
+  }
+
+  /** @param {string} id @param {NodeAttrs} [a] @returns {string} */
+  function fileGroup(id, a) {
+    if (state.dim === "folder") return (a || graph.getNodeAttributes(id)).folder;
+    var f = tagFiling[id];
+    return f ? f.g : UNTAGGED;
+  }
+
+  /** @param {string} id @param {NodeAttrs} [a] @returns {string} */
+  function fileSub(id, a) {
+    if (state.dim === "folder") return (a || graph.getNodeAttributes(id)).sub || "";
+    var f = tagFiling[id];
+    return f ? f.sub : "";
+  }
+
+  /** @param {string} id @param {NodeAttrs} [a] @returns {string[]} */
+  function fileDirs(id, a) {
+    if (state.dim === "folder") return (a || graph.getNodeAttributes(id)).dirs || [];
+    var f = tagFiling[id];
+    return f ? f.dirs : [];
+  }
+
+  /**
+   * github#86, design/0015 -- everything a dimension owns that the planner reads
+   * @typedef {Object} LeftDisc
+   * @property {"folder" | "tag"} dim
+   * @property {Record<string, string[]>} subOrder
+   * @property {Record<string, boolean> | null} bandLock
+   * @property {GeomLock | null} geomLock
+   * @property {Record<string, string>} color        id -> the colour it was drawn in there
+   */
 
   /** @type {Record<string, string> | null} */
   var moveFrom = null;
+  // github#86, design/0015 -- a dot in the disc being left keeps its colour
+  /** @type {Record<string, string> | null} */
+  var leftColor = null;
+  // github#86, design/0015 -- a switch draws BOTH discs from its first frame
+  // github#86 -- the left disc fades in place; stand-ins wait dark, seated
+  // github#86 -- at settle the note takes the stand-in's seat, and it goes
+  /** @type {Record<string, boolean>} */
+  var leaving = dict();
+  /** @type {Record<string, string>} */
+  var leftGroup = dict();
+  /** @type {string[]} */
+  var standIns = [];
+  // github#86 -- true while planning in the dimension being left
+  var oldWorld = false;
+  // github#86, design/0015 -- the nav bar mid-switch: the left disc's rows stay,
+  // github#86 -- counts and colours as they were, dropping out as notes fade
+  /** @typedef {{ dim: string, order: string[], counts: Record<string, number>, colors: Record<string, string>, fill: Record<string, string>, swTitle: Record<string, string>, bandLock: Record<string, boolean> | null, subs: Record<string, boolean>, open: Record<string, boolean>, hidden: Record<string, boolean>, basis: number, basisGroup: string }} LegendSwitch */
+  /** @type {LegendSwitch | null} */
+  var legendSwitch = null;
 
   /** @param {string} id @returns {string} */
   function groupOf(id) {
     if (moveFrom) { var mf = moveFrom[id]; if (mf !== undefined) return mf; }
-    if (!adj[id]) return unlinkedByFolder ? graph.getNodeAttribute(id, "folder") : UNLINKED;
-    return graph.getNodeAttribute(id, "folder");
+    // github#86 -- a note fading out of the left disc is still filed there
+    if (leftGroup[id] !== undefined) return leftGroup[id];
+    // github#3, github#86 -- "join their folder" means "join their group"
+    if (!adj[id]) return unlinkedByFolder ? fileGroup(id) : UNLINKED;
+    return fileGroup(id);
   }
+
+  // github#86, design/0015 -- D-9: one dot per tag; a copy is not a note
+  // github#86 -- a NUL cannot occur in a vault path
+  var SAT_SEP = "\u0000";
+  // github#91 -- the persistent copies came out on 2026-09-10
+  // github#91 -- the switch's stand-ins keep the copy machinery
+
+  /**
+   * github#86 -- the early return keeps isPinned's per-node cost a branch
+   * @param {string} id
+   * @returns {string} the note a dot stands for; itself, for a real note
+   */
+  function noteOf(id) {
+    // github#91 -- only a stand-in is a copy now, and only while a switch runs
+    if (!standIns.length) return id;
+    var d = graph.hasNode(id) ? graph.getNodeAttribute(id, "dupOf") : "";
+    return d ? String(d) : id;
+  }
+
+  // github#86, design/0015 -- one stand-in per note of the left disc, dark, seated
+  function addStandIns() {
+    Object.keys(leaving).forEach(function (id) {
+      var a = graph.getNodeAttributes(id);
+      var sid = id + SAT_SEP + "s";
+      if (graph.hasNode(sid)) return;
+      graph.addNode(sid, {
+        label: a.label, x: a.x, y: a.y, size: a.size,
+        folder: a.folder, sub: a.sub, dirs: a.dirs, ntype: a.ntype,
+        tags: a.tags, path: a.path, deg: a.deg,
+        created: a.created, touched: a.touched, words: a.words, ghost: a.ghost,
+        dupOf: id, standIn: id
+      });
+      if (tagFiling[id]) tagFiling[sid] = tagFiling[id];
+      if (adj[id]) adj[sid] = adj[id];
+      hubRank[sid] = hubRank[id];
+      if (tlRank[id] !== undefined) tlRank[sid] = tlRank[id];
+      if (tlMs[id] !== undefined) tlMs[sid] = tlMs[id];
+      alpha[sid] = 0;
+      standIns.push(sid);
+    });
+    // github#86 -- and their notes' links, so the arriving disc has its web
+    // github#86 -- an edge to a note that is not leaving keeps that end
+    /** @param {string} id */
+    var seat = function (id) { return leaving[id] ? id + SAT_SEP + "s" : id; };
+    /** @type {[string, string, EdgeAttrs][]} */
+    var mirror = [];
+    graph.forEachEdge(function (e, attrs, a0, b0) {
+      if (!leaving[a0] && !leaving[b0]) return;
+      mirror.push([seat(a0), seat(b0), attrs]);
+    });
+    mirror.forEach(function (m) {
+      if (!graph.hasEdge(m[0], m[1])) graph.addUndirectedEdge(m[0], m[1], m[2]);
+    });
+  }
+
+  // github#86 -- the note takes its stand-in's seat and presence; it goes
+  function dropStandIns() {
+    if (!standIns.length && !Object.keys(leaving).length) return;
+    standIns.forEach(function (sid) {
+      var id = graph.getNodeAttribute(sid, "standIn");
+      if (graph.hasNode(id)) {
+        graph.mergeNodeAttributes(id, { x: graph.getNodeAttribute(sid, "x"), y: graph.getNodeAttribute(sid, "y") });
+        alpha[id] = alpha[sid] || 0;
+      }
+      if (state.hovered === sid) state.hovered = id;
+      if (state.selected === sid) state.selected = id;
+      graph.dropNode(sid);
+      delete tagFiling[sid]; delete adj[sid]; delete hubRank[sid];
+      delete tlRank[sid]; delete tlMs[sid]; delete alpha[sid];
+    });
+    standIns = [];
+    leaving = dict();
+    leftGroup = dict();
+    lazyAdded = []; lazyShown = null;
+    neighbourCache = null;
+    focusSetCache = { key: undefined, set: null };
+    // github#86 -- the nav bar and heat strip are the arriving disc's alone
+    legendSwitch = null;
+    if (renderer) { attempt(buildLegend); heatSig = ""; attempt(heatBuild); attempt(heatDraw); }
+  }
+
+  // github#86, design/0015 -- what is on the disc now, per group, in both dims:
+  // github#86 -- a leaving note under the group it leaves, the rest where
+  // github#86 -- the dimension on screen files it
+  function liveByGroup() {
+    /** @type {Record<string, number>} */
+    var old = dict();
+    /** @type {Record<string, number>} */
+    var now = dict();
+    graph.forEachNode(function (id) {
+      var w = alpha[id] || 0;
+      if (w <= 0.004) return;
+      if (leaving[id]) old[leftGroup[id]] = (old[leftGroup[id]] || 0) + w;
+      else now[groupOf(id)] = (now[groupOf(id)] || 0) + w;
+    });
+    return { old: old, now: now };
+  }
+
+  // github#86 -- one frame of the switch's nav bar: bars follow the notes,
+  // github#86 -- a row drops out with its last note, in with its first
+  function legendSwitchTick() {
+    var ls = legendSwitch;
+    if (!ls) return;
+    var live = liveByGroup();
+    var nowBasis = barBasis().max;
+    var rows = $("legend").querySelectorAll(".lgr[data-row]");
+    for (var i = 0; i < rows.length; i++) {
+      var row = /** @type {HTMLElement} */ (rows[i]);
+      var g = row.getAttribute("data-row") || "";
+      var isOld = row.hasAttribute("data-old");
+      var v = isOld ? (live.old[g] || 0) : (live.now[g] || 0);
+      var basis = isOld ? ls.basis : nowBasis;
+      var gone = v <= 0.004;
+      if (row.classList.contains("lgr-gone") !== gone) row.classList.toggle("lgr-gone", gone);
+      var b = /** @type {HTMLElement | null} */ (row.querySelector(".lg"));
+      if (b) b.style.setProperty("--vg-share", (basis > 0 ? (v / basis) * 100 : 0).toFixed(3) + "%");
+    }
+  }
+
+  // github#86 -- the filing exists from here; subOrder is its first reader
+  if (state.dim === "tag") buildTagFiling();
+  buildSubOrder();
+  // github#72, github#86 -- a live rebuild refiles every note, so the tally follows it
+  invalidatesOnData("tag filing and sub order", function () {
+    tagFilingBuilt = false;
+    if (state.dim === "tag") buildTagFiling();
+    buildSubOrder();
+  });
 
   var SLOT_COUNT = 12;
   /** @type {Record<string, string>} */
@@ -672,16 +1057,38 @@ function mountVaultGraph(root, data, deps) {
   /** @type {Record<string, string[]>} */
   var order = {};
 
+  // github#3, github#86 -- archives, brackets, groups, (untagged), (unlinked)
+  /** @param {string} s */
+  function groupRank(s) {
+    if (s === UNTAGGED) return 3;
+    if (s === UNLINKED) return 4;
+    var c = s.charAt(0);
+    return c === "_" ? 0 : c === "(" ? 1 : 2;
+  }
+  /** @param {string} a @param {string} b */
+  function byGroupName(a, b) {
+    return groupRank(a) - groupRank(b) || a.localeCompare(b, undefined, { numeric: true });
+  }
+
   /** @returns {Record<string, number>} group -> note count, for the current dim */
   function computeOrder() {
+    // github#97
     /** @type {Record<string, number>} */
-    var count = {};
+    var count = dict();
     /** @type {Record<string, number>} */
     var filed = dict();
     graph.forEachNode(function (id, a) {
-      var g = groupOf(id);
+      // github#86 -- a stand-in is its note, already counted; a leaving note
+      // github#86 -- counts where this dim files it, old groups in the new order
+      // github#86 -- and in the colour rotation, for as long as the switch runs
+      if (a.standIn) return;
+      var g = leaving[id]
+        ? (!adj[id] && !unlinkedByFolder ? UNLINKED : fileGroup(id, a))
+        : groupOf(id);
       count[g] = (count[g] || 0) + 1;
-      if (state.dim === "folder") filed[a.folder] = (filed[a.folder] || 0) + 1;
+      // github#86, github#50 -- what this dimension FILES, on the disc or not
+      var f = fileGroup(id, a);
+      filed[f] = (filed[f] || 0) + 1;
     });
     folderCount = filed;
     // github#50
@@ -690,22 +1097,14 @@ function mountVaultGraph(root, data, deps) {
       if (count[f] === undefined) count[f] = 0;
     });
     if (count[UNLINKED] === undefined) count[UNLINKED] = 0;
-    var names = Object.keys(count).sort(function (a, b) {
-      // github#3
-      /** @param {string} s */
-      var rank = function (s) {
-        if (s === UNLINKED) return 3;
-        var c = s.charAt(0);
-        return c === "_" ? 0 : c === "(" ? 1 : 2;
-      };
-      return rank(a) - rank(b) || a.localeCompare(b, undefined, { numeric: true });
-    });
+    var names = Object.keys(count).sort(byGroupName);
     order[state.dim] = names;
     return count;
   }
 
+  // github#97
   /** @type {Record<string, number>} */
-  var counts = {};
+  var counts = dict();
   // github#50
   /** @type {Record<string, number>} */
   var folderCount = dict();
@@ -715,7 +1114,8 @@ function mountVaultGraph(root, data, deps) {
     var names = order[state.dim] || [];
 
     /** @type {SlotMap} */
-    var byFolder = state.dim === "folder" ? folderColors : dict();
+    // github#86 -- the pins of the dimension on screen
+    var byFolder = colorsFor();
 
     groupSlot = dict();
     groupAutoSlot = dict();
@@ -724,8 +1124,8 @@ function mountVaultGraph(root, data, deps) {
       var k = byFolder[g];
       var picked = (k && THEME.byKey[k]) ? k : "";
 
-      // github#3
-      if (isArchiveGroup(g) || g === UNLINKED) {
+      // github#3, github#86 -- both buckets sit out of the hue rotation
+      if (isArchiveGroup(g) || g === UNLINKED || g === UNTAGGED) {
         var akey = picked || ARCHIVE_SLOT;
         groupColor[g] = THEME.byKey[akey];
         groupSlot[g] = akey;
@@ -750,34 +1150,104 @@ function mountVaultGraph(root, data, deps) {
     });
   }
 
-  /** @param {Record<string, unknown>} map */
-  function applyFolderShown(map) {
-    folderShown = cleanFolderShown(map);
-    return folderShown;
+  // github#77, design/0004
+  var CONTRAST_FLOOR = 3;
+
+  /** @param {string} a @param {string} b @returns {number} */
+  function contrastOf(a, b) {
+    var x = relLum(a), y = relLum(b);
+    var hi = Math.max(x, y), lo = Math.min(x, y);
+    return (hi + 0.05) / (lo + 0.05);
   }
 
-  /** @param {Record<string, unknown>} map */
-  function applyFolderColors(map) {
-    folderColors = cleanSlotMap(map);
+  // github#77
+  /** @param {string} key @returns {{ light: number, dark: number }} */
+  function slotContrast(key) {
+    return {
+      light: contrastOf(THEME.pal.l.byKey[key], THEME.pal.l.surface),
+      dark:  contrastOf(THEME.pal.d.byKey[key], THEME.pal.d.surface)
+    };
+  }
+
+  // github#77
+  /** @param {string} key @param {string} name @returns {string} */
+  function slotTitle(key, name) {
+    var c = slotContrast(key);
+    /** @param {number} v */
+    var say = function (v) {
+      return v.toFixed(2) + (v < CONTRAST_FLOOR ? " (under 3:1)" : "");
+    };
+    return name + " · solid-area contrast: light " + say(c.light) +
+           ", dark " + say(c.dark) + " · a sub-pixel dot reads lower";
+  }
+
+  /** @param {Record<string, unknown>} map @param {string} [dim] */
+  function applyFolderShown(map, dim) {
+    var d = dim === "tag" ? "tag" : "folder";
+    dimShown[d] = cleanFolderShown(map);
+    return dimShown[d];
+  }
+
+  /** @param {Record<string, unknown>} map @param {string} [dim] */
+  function applyFolderColors(map, dim) {
+    var d = dim === "tag" ? "tag" : "folder";
+    dimColors[d] = cleanSlotMap(map);
     buildColors();
     if (renderer) renderer.refresh();
     attempt(placeLogo); attempt(heatBuild); attempt(buildLegend);
-    return folderColors;
+    return dimColors[d];
   }
 
-  /** @param {Record<string, unknown>} map */
-  function applySubfolderColors(map) {
-    subfolderColors = cleanSlotMap(map);
+  /** @param {Record<string, unknown>} map @param {string} [dim] */
+  function applySubfolderColors(map, dim) {
+    var d = dim === "tag" ? "tag" : "folder";
+    dimSubColors[d] = cleanSlotMap(map);
     buildSubShades();
     if (renderer) renderer.refresh();
     attempt(placeLogo); attempt(heatBuild); attempt(buildLegend);
-    return subfolderColors;
+    return dimSubColors[d];
+  }
+
+  // github#86, design/0015 -- a sub-wedge's pinned tint, from this dimension's own map
+  /** @param {string} pk "group/sub" @returns {string} */
+  function subPin(pk) {
+    return subColorsFor()[pk] || "";
+  }
+
+  /**
+   * github#86, design/0015 -- read a dimension that is not on screen
+   * github#86 -- builders run in a swapped world; every global is restored
+   * @template T
+   * @param {string} dim
+   * @param {() => T} fn
+   * @returns {T}
+   */
+  function inDim(dim, fn) {
+    if (dim === state.dim || DIMS.indexOf(dim) < 0) return fn();
+    var sDim = state.dim, sCounts = counts, sFolderCount = folderCount,
+        sColor = groupColor, sSlot = groupSlot, sAuto = groupAutoSlot,
+        sShade = subShade, sSubSlot = subSlot, sTint = unlinkedTintColors,
+        sSubOrder = subOrder, sSubCount = subCount;
+    state.dim = /** @type {"folder" | "tag"} */ (dim);
+    try {
+      if (dim === "tag") buildTagFiling();
+      computeOrder();
+      buildColors();
+      buildSubOrder();
+      return fn();
+    } finally {
+      state.dim = /** @type {"folder" | "tag"} */ (sDim);
+      counts = sCounts; folderCount = sFolderCount;
+      groupColor = sColor; groupSlot = sSlot; groupAutoSlot = sAuto;
+      subShade = sShade; subSlot = sSubSlot; unlinkedTintColors = sTint;
+      subOrder = sSubOrder; subCount = sSubCount;
+    }
   }
 
   /** @param {string} g */
   function groupHasPinnedSub(g) {
     return (subOrder[g] || []).some(function (sb) {
-      return !!subfolderColors[g + "/" + sb];
+      return !!subPin(g + "/" + sb);
     });
   }
 
@@ -842,6 +1312,8 @@ function mountVaultGraph(root, data, deps) {
   var INNER_FILL = 0.8;
   var GAP_BAND = { i: 0.5, o: 1 };
   var CLEAR_OF_ROOM = 0.12;
+  // github#107 -- ROOM_PCTL, the pick() quantile
+  var ROOM_PCTL = 0.5;
 
   var MIN_SPAN = 6 * Math.PI / 180;
   var HL_PUSH = 0.9;
@@ -894,11 +1366,11 @@ function mountVaultGraph(root, data, deps) {
     var l = hex2lab(hex);
     return ((Math.atan2(l[2], l[1]) * 180 / Math.PI) % 360 + 360) % 360;
   }
-  /** @param {string} basecol */
-  function hueBudget(basecol) {
+  // github#77
+  /** @param {string} basecol @param {string[]} others @returns {number} */
+  function hueBudget(basecol, others) {
     var h = hueOf(basecol), gap = 180;
-    Object.keys(groupColor).forEach(function (g) {
-      var c = groupColor[g];
+    others.forEach(function (c) {
       if (c === basecol) return;
       var lab = hex2lab(c);
       if (Math.hypot(lab[1], lab[2]) < 0.02) return;
@@ -907,6 +1379,46 @@ function mountVaultGraph(root, data, deps) {
       if (d < gap) gap = d;
     });
     return gap * HUE_BUDGET_FRACTION;
+  }
+
+  /** @returns {string[]} */
+  function groupColours() {
+    return Object.keys(groupColor).map(function (g) { return groupColor[g]; });
+  }
+
+  // design/0003, github#77
+  /**
+   * @param {string} basecol @param {number} k @param {boolean} dark @param {number} budget
+   * @returns {string}
+   */
+  function ladderStep(basecol, k, dark, budget) {
+    var lab = hex2lab(basecol);
+    if (Math.hypot(lab[1], lab[2]) < 0.02) return basecol;
+    var Lend = dark ? Math.min(SUB_L_LIMIT, lab[0] + SUB_L_SPAN)
+                    : Math.max(1 - SUB_L_LIMIT, lab[0] - SUB_L_SPAN);
+    var t = k / (SUB_SLOTS - 1);
+    return shade(basecol, (dark ? 1 : -1) * budget * t, (Lend - lab[0]) * t);
+  }
+
+  // github#77
+  /**
+   * @param {string} key @param {string} suffix "l" or "d" @param {string} [group]
+   * @returns {string[]}
+   */
+  function previewLadder(key, suffix, group) {
+    var pal = suffix === "d" ? THEME.pal.d : THEME.pal.l;
+    var basecol = pal && pal.byKey ? pal.byKey[key] : "";
+    if (!basecol) return [];
+    var others = Object.keys(groupSlot).filter(function (g) {
+      return !group || g !== group;
+    }).map(function (g) {
+      return pal.byKey[groupSlot[g]] || "";
+    }).filter(Boolean);
+    var budget = hueBudget(basecol, others.concat([basecol]));
+    /** @type {string[]} */
+    var out = [];
+    for (var k = 1; k < SUB_SLOTS; k++) out.push(ladderStep(basecol, k, pal.dark, budget));
+    return out;
   }
 
   /** @param {string} folder @param {string} sub */
@@ -926,23 +1438,20 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function buildSubShades() {
+    clearPreviewCache();
     subShade = dict();
     subSlot = dict();
+    var others = groupColours();
     Object.keys(subOrder).forEach(function (f) {
       var subs = subOrder[f];
       var basecol = colorOf(f);
       var lab = hex2lab(basecol);
       var grey = Math.hypot(lab[1], lab[2]) < 0.02;
       var haveLadder = subs.length >= 2 && !grey;
-      var sign = THEME.dark ? 1 : -1;
-      var budget = haveLadder ? hueBudget(basecol) : 0;
-      var Lend = haveLadder
-        ? (THEME.dark ? Math.min(SUB_L_LIMIT, lab[0] + SUB_L_SPAN)
-                      : Math.max(1 - SUB_L_LIMIT, lab[0] - SUB_L_SPAN))
-        : 0;
+      var budget = haveLadder ? hueBudget(basecol, others) : 0;
       subs.forEach(function (sb) {
         var pk = f + "/" + sb;
-        var pin = subfolderColors[pk];
+        var pin = subPin(pk);
         if (pin && THEME.byKey[pin]) {
           subShade[pk] = THEME.byKey[pin];
           subSlot[pk] = pin;
@@ -951,8 +1460,7 @@ function mountVaultGraph(root, data, deps) {
         subSlot[pk] = "";
         if (subs.length < 2) return;
         if (grey) { subShade[pk] = basecol; return; }
-        var t = subTintIndex(f, sb) / (SUB_SLOTS - 1);
-        subShade[pk] = shade(basecol, sign * budget * t, (Lend - lab[0]) * t);
+        subShade[pk] = ladderStep(basecol, subTintIndex(f, sb), THEME.dark, budget);
       });
     });
   }
@@ -967,7 +1475,9 @@ function mountVaultGraph(root, data, deps) {
       if (unlinkedTintColors.length >= UNLINKED_TINT_CAP) return;
       if (groupOf(id) !== UNLINKED) return;
       var a = graph.getNodeAttributes(id);
-      var c = subShade[a.folder + "/" + (a.sub || "")] || colorOf(a.folder);
+      // github#86 -- the group it would have been filed under
+      var g = fileGroup(id, a);
+      var c = subShade[g + "/" + fileSub(id, a)] || colorOf(g);
       if (seen[c]) return;
       seen[c] = true;
       unlinkedTintColors.push(c);
@@ -978,10 +1488,16 @@ function mountVaultGraph(root, data, deps) {
   // github#3
   /** @param {string} id @returns {string} */
   function nodeColor(id) {
+    // github#86, design/0015 -- until the erase edge has passed it, a dot is in the old disc
+    if (leftColor && (leaving[id] || (moveFrom && moveFrom[id] !== undefined))) {
+      var lc = leftColor[id];
+      if (lc) return lc;
+    }
     var a = graph.getNodeAttributes(id);
-    if (state.dim !== "folder") return colorOf(groupOf(id));
     if (groupOf(id) === UNLINKED && !unlinkedTintByFolder) return colorOf(UNLINKED);
-    return subShade[a.folder + "/" + (a.sub || "")] || colorOf(a.folder);
+    // github#86 -- D-3: the tint ladder answers to the filing
+    var g = fileGroup(id, a);
+    return subShade[g + "/" + fileSub(id, a)] || colorOf(g);
   }
 
   /** @param {string} group */
@@ -1058,6 +1574,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {BandNum} bandTotal
    * @property {BandNum} bandR
    * @property {BandNum} rows
+   * @property {"folder" | "tag"} dim   the dimension whose plan the rings were taken from; github#86
    */
   /**
    * buildWedgePlan's fourth argument when it is not a bare density: the previous plan's
@@ -1156,7 +1673,8 @@ function mountVaultGraph(root, data, deps) {
   /** @param {number} nGroups @param {string} band */
   function gapFor(nGroups, band) {
     var g = seamAngle(band, 1);
-    return g * nGroups > Math.PI ? Math.PI / Math.max(1, nGroups) : g;
+    var half = arcSpan() / 2;
+    return g * nGroups > half ? half / Math.max(1, nGroups) : g;
   }
 
   var SEAM_CAP = 0.45;
@@ -1166,13 +1684,19 @@ function mountVaultGraph(root, data, deps) {
     return which === "lead" ? c.pLead + sm.gap / 2 : c.pTrail - sm.gap / 2;
   }
 
+  // github#86, design/0015 -- a plan over an ARC of the circle; null is the whole disc
+  /** @type {{ from: number, to: number } | null} */
+  var planArc = null;
+  function arcSpan() { return planArc ? planArc.to - planArc.from : 2 * Math.PI; }
+  function arcFrom() { return planArc ? planArc.from : 0; }
+
   /** @param {number} r @param {number} nBoundaries @param {string} band */
   function seamAt(r, nBoundaries, band) {
     var g = r > 1e-6 ? (SEAM_ROWS * pitchUnits(band)) / r : 0;
     var tot = g * nBoundaries;
-    var cap = 2 * Math.PI * SEAM_CAP;
+    var cap = arcSpan() * SEAM_CAP;
     if (tot > cap) { g *= cap / tot; tot = cap; }
-    return { gap: g, avail: 2 * Math.PI - tot };
+    return { gap: g, avail: arcSpan() - tot };
   }
 
   /**
@@ -1181,7 +1705,7 @@ function mountVaultGraph(root, data, deps) {
    * @param {AllocOpts} opts
    */
   function allocateBand(list, weightOf, opts) {
-    var TWO = 2 * Math.PI;
+    var TWO = arcSpan();
     var tot = 0;
     /** @type {Record<string, { w: number }>} */
     var gw = dict();
@@ -1308,12 +1832,13 @@ function mountVaultGraph(root, data, deps) {
   function buildWedgePlan(onlyVisible, weightOf, rowsOf, spIn) {
     var W = weightOf || function () { return 1; };
     var all = order[state.dim] || [];
-    var nested = state.dim === "folder";
+    // github#86 -- D-3: both dimensions nest, so the split is not gated
     var SEP = "\u0000";
+    // github#97
     /** @type {Record<string, string[]>} */
-    var byCell = {};
+    var byCell = dict();
     /** @type {Record<string, string[]>} */
-    var cellsOf = {};
+    var cellsOf = dict();
     var planTotal = 0;
     /** @type {Record<string, number>} */
     var presMax = dict();
@@ -1354,7 +1879,7 @@ function mountVaultGraph(root, data, deps) {
           var cid = skel.members[ci], cg = skel.memberG[ci];
           if (gone[cid]) {
             liveN[cg] -= 1;
-            liveSub[cg + "/" + (graph.getNodeAttributes(cid).sub || "")] -= 1;
+            liveSub[cg + "/" + fileSub(cid)] -= 1;
             continue;
           }
           members.push(cid); memberG.push(cg);
@@ -1365,6 +1890,8 @@ function mountVaultGraph(root, data, deps) {
         liveG[gm] = (liveG[gm] || 0) + (wm > 1 ? 1 : wm < 0 ? 0 : wm);
       }
     } else graph.forEachNode(function (id) {
+      // github#86 -- the left disc has no stand-ins; the arriving disc no leavers
+      if (oldWorld ? !!graph.getNodeAttribute(id, "standIn") : !!leaving[id]) return;
       if (onlyVisible && !(planKeep || willShow)(id)) return;
       // github#18
       if (isPinned(id)) return;
@@ -1375,7 +1902,7 @@ function mountVaultGraph(root, data, deps) {
       var wv = W(id);
       liveG[g0] = (liveG[g0] || 0) + (wv > 1 ? 1 : wv < 0 ? 0 : wv);
       liveN[g0] = (liveN[g0] || 0) + 1;
-      var sk = g0 + "/" + (graph.getNodeAttributes(id).sub || "");
+      var sk = g0 + "/" + fileSub(id);
       liveSub[sk] = (liveSub[sk] || 0) + 1;
     });
     var bandLive = { i: 0, o: 0 };
@@ -1391,7 +1918,7 @@ function mountVaultGraph(root, data, deps) {
       var base = isInner ? geomLock.r0 : geomLock.rOuter;
       if (!(thick > 0) || !(n > 0.5)) return REF_ROWS;
       var T = thick * scale, R = (base + thick / 2) * scale;
-      var rw = Math.round(T / Math.sqrt(2 * Math.PI * R * T / n));
+      var rw = Math.round(T / Math.sqrt(arcSpan() * R * T / n));
       return rw < 1 ? 1 : rw > 200 ? 200 : rw;
     };
     /** @type {BandNum} */
@@ -1408,7 +1935,7 @@ function mountVaultGraph(root, data, deps) {
         if (!bandDepth[bk]) bandDepth[bk] = depthOfBand(bk === "i");
         var nSubs = (subOrder[g] || []).length;
         var splitPieces = Math.min(nSubs, SUB_SLOTS);
-        splitOf[g] = nested && nSubs > 1 &&
+        splitOf[g] = nSubs > 1 &&
                      (liveN[g] || 0) >= Math.max(NEST_MIN, splitPieces * bandDepth[bk]);
       }
       return splitOf[g];
@@ -1419,9 +1946,10 @@ function mountVaultGraph(root, data, deps) {
       var mId = members[mIdx], mG = memberG[mIdx];
       if (!useCells) {
         var mA = graph.getNodeAttributes(mId);
+        var mSub = fileSub(mId, mA);
         var mBk = bandLock && bandLock[mG] ? "i" : "o";
         var mKey = splitFor(mG)
-          ? mG + SEP + subCellIndex(mG, mA.sub, liveSub[mG + "/" + (mA.sub || "")] || 0, bandDepth[mBk])
+          ? mG + SEP + subCellIndex(mG, mSub, liveSub[mG + "/" + mSub] || 0, bandDepth[mBk])
           : mG;
         if (!byCell[mKey]) {
           byCell[mKey] = [];
@@ -1453,7 +1981,7 @@ function mountVaultGraph(root, data, deps) {
     var cells = [];
     big.forEach(function (g) {
       var ks = cellsOf[g];
-      if (nested && !useCells) {
+      if (!useCells) {
         ks.sort(function (x, y) {
           return (+(x.split(SEP)[1] || 0)) - (+(y.split(SEP)[1] || 0));
         });
@@ -1484,10 +2012,11 @@ function mountVaultGraph(root, data, deps) {
     }
 
     var TOTAL = planTotal;
-    var MIN = MIN_SPAN, TWO = 2 * Math.PI;
+    var MIN = MIN_SPAN, TWO = arcSpan();
     var smallAt = TOTAL * (MIN / TWO);
+    // github#97
     /** @type {Record<string, boolean>} */
-    var groupInner = {};
+    var groupInner = dict();
     cells.forEach(function (c) {
       var small = c.wsum < smallAt;
       if (groupInner[c.g] === undefined) groupInner[c.g] = small;
@@ -1541,7 +2070,7 @@ function mountVaultGraph(root, data, deps) {
       return Math.min(DENSITY_MAX, Math.sqrt(full / now));
     };
     var r0 = geomLock ? geomLock.r0 : Math.max(1.5, HOLE * Math.sqrt(
-      Math.max(1, TOTAL) / (Math.PI * (1 - HOLE * HOLE))));
+      Math.max(1, TOTAL) / ((arcSpan() / 2) * (1 - HOLE * HOLE))));
 
     // github#5
     /** @param {number} span @param {number} n @param {number} st @param {number} [sp] */
@@ -1574,20 +2103,21 @@ function mountVaultGraph(root, data, deps) {
       var names = [];
       cells.forEach(function (c) { if (names.indexOf(c.g) < 0) names.push(c.g); });
       if (names.length < 2) return;
+      // github#97
       /** @type {Record<string, boolean>} */
-      var assign = {};
+      var assign = dict();
       cells.forEach(function (c) { assign[c.g] = !!c.inner; });
 
       var PIN_BELOW = 10;
       /** @type {Record<string, number>} */
-      var groupNotes = {};
+      var groupNotes = dict();
       var totalNotes = 0;
       cells.forEach(function (c) {
         groupNotes[c.g] = (groupNotes[c.g] || 0) + c.list.length;
         totalNotes += c.list.length;
       });
       /** @type {Record<string, boolean>} */
-      var pinnedInner = {};
+      var pinnedInner = dict();
       names.forEach(function (g) {
         if (assign[g] && (groupNotes[g] || 0) < PIN_BELOW) pinnedInner[g] = true;
       });
@@ -1710,7 +2240,7 @@ function mountVaultGraph(root, data, deps) {
         return { sp: sp, rows: rk > 0 ? rk : 1 };
       }
       var T = thick * scale, R = (base + thick / 2) * scale;
-      var s = Math.sqrt(2 * Math.PI * R * T / n);
+      var s = Math.sqrt(arcSpan() * R * T / n);
       var rw = Math.round(T / s);
       if (rw < 1) rw = 1;
       if (rw > 200) rw = 200;
@@ -1901,6 +2431,8 @@ function mountVaultGraph(root, data, deps) {
       /** @type {Record<string, Point>} */
       var hubOut = {};
       hubPlace(hubOut, geomLock ? geomLock.r0 : 1.5, UNIT);
+      // github#79
+      ovCells = null;
       return hubOut;
     }
 
@@ -1920,7 +2452,8 @@ function mountVaultGraph(root, data, deps) {
       live += c.geom;
     });
     var shown = plan.cells.filter(function (c) { return c.geom > 1e-4; });
-    if (!shown.length || !live) return null;
+    // github#79
+    if (!shown.length || !live) { ovCells = null; return null; }
     lastMaxR = plan.maxR || lastMaxR;
     if (plan.sp > 0) bandOf("o").sp = plan.sp;
     if (plan.spInner > 0) bandOf("i").sp = plan.spInner;
@@ -2029,7 +2562,7 @@ function mountVaultGraph(root, data, deps) {
         c.bandKey = isInner ? "i" : "o";
         c.nB = nB;
         if (sBand) {
-          var A0c = sBand.gap * seamsBefore + sBand.avail * fracBefore;
+          var A0c = arcFrom() + sBand.gap * seamsBefore + sBand.avail * fracBefore;
           c.pLead = A0c - sBand.gap;
           c.pTrail = A0c + sBand.avail * frac * open;
         } else {
@@ -2065,10 +2598,10 @@ function mountVaultGraph(root, data, deps) {
             a0 = edgeSweep(c, "lead", sl.r * UNIT);
             a1 = edgeSweep(c, "trail", sl.r * UNIT);
           } else if (rs && rs.frac[cIdx] > 0) {
-            a0 = sm.gap * rs.seams[cIdx] + sm.avail * rs.before[cIdx] - sm.gap / 2;
+            a0 = arcFrom() + sm.gap * rs.seams[cIdx] + sm.avail * rs.before[cIdx] - sm.gap / 2;
             a1 = a0 + sm.avail * rs.frac[cIdx] * open;
           } else {
-            a0 = sm.gap * seamsBefore + sm.avail * fracBefore - sm.gap / 2;
+            a0 = arcFrom() + sm.gap * seamsBefore + sm.avail * fracBefore - sm.gap / 2;
             a1 = a0 + sm.avail * frac * open;
           }
           if (probe && probe.watch === sl.id) {
@@ -2137,7 +2670,8 @@ function mountVaultGraph(root, data, deps) {
         });
         fracBefore += frac * open;
       });
-      Object.keys(firstAt).forEach(function (rk) {
+      // github#86 -- a partial disc has two open ends and no wrap seam
+      if (!planArc) Object.keys(firstAt).forEach(function (rk) {
         var fst = firstAt[rk], lst = lastAt[rk];
         if (!fst || !lst || fst.id === lst.id) return;
         var d = fst.t - lst.t;
@@ -2161,11 +2695,12 @@ function mountVaultGraph(root, data, deps) {
 
     var pool = roomPool;
     // github#35
+    // github#107 -- ROOM_PCTL 0.1 -> 0.5, inner band's pool is more dispersed
     /** @param {number[]} v */
     var pick = function (v) {
       if (!v.length) return undefined;
       v.sort(function (x, y) { return x - y; });
-      return v[Math.floor(v.length * 0.1)];
+      return v[Math.floor(v.length * ROOM_PCTL)];
     };
     if (!roomNow) {
       bandOf("i").room = pick(pool.i); bandOf("o").room = pick(pool.o);
@@ -2183,6 +2718,8 @@ function mountVaultGraph(root, data, deps) {
     hubRow0 = hubRow0Next;
     dotFit = fit;
     if (dbgCells) DBG.cells = dbgCells;
+    // github#79
+    ovCells = shown;
     hubPlace(out, plan.r0, scale);
     return out;
   }
@@ -2258,10 +2795,11 @@ function mountVaultGraph(root, data, deps) {
   }
 
   /** @param {string} id */
-  function isPinned(id) { return state.pinned.indexOf(id) >= 0; }
+  function isPinned(id) { return state.pinned.indexOf(noteOf(id)) >= 0; }
 
   /** @param {string} id @param {number} [at] slot to insert at */
   function pin(id, at) {
+    id = noteOf(id);
     var i = state.pinned.indexOf(id);
     if (i >= 0) state.pinned.splice(i, 1);
     if (at === undefined || at > state.pinned.length) at = state.pinned.length;
@@ -2274,7 +2812,7 @@ function mountVaultGraph(root, data, deps) {
 
   /** @param {string} id */
   function unpin(id) {
-    var i = state.pinned.indexOf(id);
+    var i = state.pinned.indexOf(noteOf(id));
     if (i < 0) return false;
     state.pinned.splice(i, 1);
     return true;
@@ -2491,10 +3029,15 @@ function mountVaultGraph(root, data, deps) {
   var tlMs = dict();
   /** @type {DateSpan | null} */
   var dateSpan = null;
+  // github#72, design/0014
+  invalidatesOnData("timeline", function () { buildTimeline(); });
   function buildTimeline() {
     /** @type {[string, string][]} */
     var dated = [];
-    graph.forEachNode(function (id, a) { if (a.created) dated.push([id, a.created]); });
+    // github#86, design/0007 -- a copy takes its note's rank, not its own
+    graph.forEachNode(function (id, a) {
+      if (!a.dupOf && a.created) dated.push([id, a.created]);
+    });
     dated.sort(function (x, y) { return x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0; });
     tlRank = dict(); tlDate = []; tlDateMs = []; tlMs = dict();
     dated.forEach(function (pair, i) {
@@ -2751,9 +3294,9 @@ function mountVaultGraph(root, data, deps) {
     var g = groupOf(id);
     if (state.highlight[g]) return true;
     if (state.hoverGroup === g) return true;
-    var a = graph.getNodeAttributes(id), d = a.dirs || [];
+    var a = graph.getNodeAttributes(id), d = fileDirs(id, a);
     for (var k = 1; k <= d.length; k++) {
-      var pk = pathKey(a, k);
+      var pk = pathKey(id, k, a);
       if (state.highlightSub[pk]) return true;
       if (state.hoverSub[pk]) return true;
     }
@@ -3102,7 +3645,8 @@ function mountVaultGraph(root, data, deps) {
   function isPushed(id) {
     if (state.highlight[groupOf(id)]) return true;
     var a = graph.getNodeAttributes(id);
-    return !!state.highlightSub[pathKey(a, 1)] && ownsWedge(a.folder, a.sub || "");
+    return !!state.highlightSub[pathKey(id, 1, a)] &&
+           ownsWedge(fileGroup(id, a), fileSub(id, a));
   }
 
   /** @param {string} id */
@@ -3162,6 +3706,12 @@ function mountVaultGraph(root, data, deps) {
   }
 
   var FADE_FRAMES = 12;
+  // github#86, design/0015 -- one lap of the erase edge is at least this many fades long
+  var HAND_SWEEP = 12;
+  // github#86, design/0015 -- the fill edge trails the erase edge by this much
+  var HAND_BLADE_DEG = 20;
+  // github#86, design/0015 -- a dot is fully gone, or fully lit, this far behind its edge
+  var HAND_FADE_DEG = 12;
   var RADIAL_EASE = 0.25;
   var SPREAD_MAX  = 78;
   var SPREAD_PER  = 0.17;
@@ -3173,6 +3723,10 @@ function mountVaultGraph(root, data, deps) {
     return m && +m[2] > 0 ? +m[2] : 1.25;
   })();
   var TIMELINE_MS = 4500;
+  // github#113
+  function reducedMotion() {
+    return !!(WIN.matchMedia && WIN.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
   var CASCADE_MS  = 1600;
   var TWEEN_MS    = 380;
   var NOW = function () { return (window.performance || Date).now(); };
@@ -3339,6 +3893,9 @@ function mountVaultGraph(root, data, deps) {
   var roomNow = null;
   /** @type {Record<string, { f: number, n: number }> | null} */
   var colWalk = null;
+  // github#86, design/0015 -- under the hand a fading dot shrinks to nothing
+  // github#86 -- and an arriving one grows from nothing, as a toggled wedge's
+  var shrinkFade = false;
   /** @type {Record<string, boolean> | null} */
   var splitHold = null;
   /** @type {Record<string, Point> | null} */
@@ -3384,6 +3941,9 @@ function mountVaultGraph(root, data, deps) {
    * @property {Record<string, string>} [movesFrom]   id -> the group it is leaving
    * @property {(id: string) => number} [order]       arrival rank; clockwise when absent
    * @property {number} [spread]                      stagger window, frames
+   * @property {boolean} [cross]                       github#76: swap two discs in one sweep
+   * @property {boolean} [hand]                        github#86: one clock sweep, by angle
+   * @property {LeftDisc} [from]                       github#86: the disc being left
    * @property {number} [totalMs]
    * @property {(pr: number) => void} [onFrame]
    */
@@ -3404,7 +3964,12 @@ function mountVaultGraph(root, data, deps) {
       WIN.clearTimeout(cascadeRun.guard);
       cascadeRun = null;
     }
-    moveFrom = null; splitHold = null;
+    moveFrom = null; splitHold = null; leftColor = null;
+    // github#86 -- only the switch's own cascade draws stand-ins
+    if (!opts.hand && standIns.length) dropStandIns();
+    // github#86 -- the left disc keeps its own colours while it stands
+    if (opts.from && opts.from.color) leftColor = opts.from.color;
+    shrinkFade = !!opts.hand;
 
     fullRing = false;
     graph.forEachNode(function (id) { if (present(id)) fullRing = true; });
@@ -3441,11 +4006,13 @@ function mountVaultGraph(root, data, deps) {
     var moves = [];
     if (opts.movesFrom) {
       moveFrom = opts.movesFrom;
+      // github#86 -- the left disc keeps its own colours while it stands
+      leftColor = opts.from && opts.from.color ? opts.from.color : null;
       Object.keys(opts.movesFrom).forEach(function (id) {
         if (!graph.hasNode(id)) return;
         moves.push(id);
       });
-      if (!moves.length) moveFrom = null;
+      if (!moves.length) { moveFrom = null; leftColor = null; }
     }
     /** @type {Record<string, boolean>} */
     var isMove = dict();
@@ -3507,11 +4074,77 @@ function mountVaultGraph(root, data, deps) {
     var span = Math.max(windowFor(ins.length), windowFor(outs.length))
              + FADE_FRAMES * TIME_SCALE;
     if (moveSpan > span) span = moveSpan;
+    // github#76, github#86 -- departures and arrivals on ONE sweep
+    var crossGap = 0, crossW = 0;
+    if (opts.cross) {
+      crossGap = 2.5 * FADE_FRAMES * TIME_SCALE;
+      crossW = Math.max(1, span - crossGap);
+      [ins, outs].forEach(function (set) {
+        set.forEach(function (id, i) { delay[id] = set.length < 2 ? 0 : crossW * i / (set.length - 1); });
+      });
+    }
     /** @type {Record<string, number>} */
     var arriveAt = dict();
     /** @type {Record<string, number>} */
     var crossAt = dict();
+    // github#86 -- frames per lap of the erase edge; 0 when there is no hand
+    var handLap = 0;
+    // github#86, design/0015 -- a clock hand: one sweep, keyed on angle not rank
+    // github#86 -- one fade, in frames; the hand makes it an angle
+    var fadeLen = FADE_FRAMES * TIME_SCALE;
+    if (opts.hand) {
+      var TWO_PI = 2 * Math.PI;
+      var handW = Math.max(span, HAND_SWEEP * FADE_FRAMES * TIME_SCALE);
+      handLap = handW;
+      // github#86 -- a fixed distance behind the edge, whatever the lap takes
+      fadeLen = Math.max(1, handW * HAND_FADE_DEG / 360);
+      var handF = fadeLen;
+      var blade = HAND_BLADE_DEG * Math.PI / 180;
+      // github#86 -- the fill edge ends a blade after the erase edge, plus a fade
+      span = handW * (1 + blade / TWO_PI) + handF;
+      /** @param {string} id @returns {number} */
+      var bearingNow = function (id) {
+        var a = graph.getNodeAttributes(id);
+        // github#86 -- a dot not on the disc has no bearing; use the one it goes to
+        return (a.x || a.y) ? angleSweep(Math.atan2(a.y, a.x)) : sweepOf[id];
+      };
+      // github#86 -- the inner ring sweeps the other way round, for effect
+      /** @param {number} b @param {boolean} inner */
+      var sweepAt = function (b, inner) { return inner ? (TWO_PI - b) % TWO_PI : b; };
+      /** @param {string} id in the inner ring of the disc being left */
+      var innerOld = function (id) {
+        var bl = opts.from ? opts.from.bandLock : bandLock;
+        return !!(bl && bl[groupOf(id)]);
+      };
+      /** @param {string} id in the inner ring of the disc arriving */
+      var innerNew = function (id) { return !!(bandLock && bandLock[groupOf(id)]); };
+      // github#86, design/0015 -- the simplest sweep: the erase edge takes a dot
+      // github#86 -- at its bearing; the fill edge, a blade behind, lights it
+      /** @param {string} id @returns {number} */
+      var handAt = function (id) { return handW * sweepAt(bearingNow(id), innerOld(id)) / TWO_PI; };
+      /** @param {string} id when the fill edge reaches the seat this dot ends in */
+      var fillAt = function (id) { return handW * (sweepAt(sweepOf[id], innerNew(id)) + blade) / TWO_PI; };
+      outs.forEach(function (id) { delay[id] = handAt(id); });
+      ins.forEach(function (id) { delay[id] = fillAt(id); });
+      moves.forEach(function (id) {
+        delay[id] = handAt(id);
+        crossAt[id] = delay[id] + handF;
+        // github#86 -- lit by the fill edge, never before the note has left
+        arriveAt[id] = Math.max(fillAt(id), crossAt[id]);
+      });
+    }
     if (moves.length) (function () {
+      // github#76, github#86 -- a constant gap, so no-reverse holds by construction
+      if (opts.hand) return;
+      if (opts.cross) {
+        moves.forEach(function (id, i) {
+          var f = moves.length < 2 ? 0 : i / (moves.length - 1);
+          delay[id] = crossW * f;
+          arriveAt[id] = delay[id] + crossGap;
+          crossAt[id] = delay[id] + FADE_FRAMES * TIME_SCALE;
+        });
+        return;
+      }
       var leaveW = span * 0.35;
       var landW = Math.max(1, span * 0.45 - FADE_FRAMES * TIME_SCALE);
       moves.forEach(function (id, i) {
@@ -3565,7 +4198,8 @@ function mountVaultGraph(root, data, deps) {
       });
     })();
 
-    if (moves.length) (function () {
+    // github#76, github#86
+    if (moves.length && !opts.cross && !opts.hand) (function () {
       /** @type {Record<string, string[]>} */
       var byG = dict();
       moves.forEach(function (id) {
@@ -3587,7 +4221,8 @@ function mountVaultGraph(root, data, deps) {
       });
     })();
 
-    if (moves.length) (function () {
+    // github#76, github#86
+    if (moves.length && !opts.cross && !opts.hand) (function () {
       var save = moveFrom;
       moveFrom = null;
       /** @type {Record<string, string[]>} */
@@ -3616,12 +4251,14 @@ function mountVaultGraph(root, data, deps) {
 
     var settle = function () {
       if (!lastCascade.exit) lastCascade.exit = "settle() called from outside the loop";
-      moveFrom = null; splitHold = null;
+      moveFrom = null; splitHold = null; leftColor = null; shrinkFade = false;
       if (cascadeRun) {
         WIN.cancelAnimationFrame(cascadeRun.raf);
         WIN.clearTimeout(cascadeRun.guard);
         cascadeRun = null;
       }
+      // github#78, design/0006 -- see changelog-detail
+      barWalkEnd();
       probeSample("pre-settle");
       moving.forEach(function (id) { alpha[id] = to[id]; });
       heatSig = "";
@@ -3689,8 +4326,19 @@ function mountVaultGraph(root, data, deps) {
       planKeep = save;
       return p;
     };
+    // github#86, design/0015 -- lay out in the dimension the disc is LEAVING
+    /** @template T @param {() => T} fn @returns {T} */
+    var inWorld = function (fn) {
+      var w = opts.from;
+      if (!w) return fn();
+      var sDim = state.dim, sSub = subOrder, sBand = bandLock, sGeom = geomLock, sMove = moveFrom;
+      state.dim = w.dim; subOrder = w.subOrder; bandLock = w.bandLock; geomLock = w.geomLock;
+      moveFrom = null; oldWorld = true;
+      try { return fn(); }
+      finally { state.dim = sDim; subOrder = sSub; bandLock = sBand; geomLock = sGeom; moveFrom = sMove; oldWorld = false; }
+    };
     (function () {
-      var a = staticPlan(function (id) { return wasPresent[id]; });
+      var a = inWorld(function () { return staticPlan(function (id) { return wasPresent[id]; }); });
       /** @param {Plan | null} p0 */
       var cellsOfG = function (p0) {
         /** @type {Record<string, number>} */
@@ -3752,6 +4400,8 @@ function mountVaultGraph(root, data, deps) {
         var keepFit = dotFit, keepCell = cellRoom, keepEdge = edgeCap, keepHub = hubRow0;
         var keepRampI = bandOf("i").ramp, keepRampO = bandOf("o").ramp, keepScale = sizeScale;
         var keepPin = pinnedPlan, keepKeep = planKeep;
+        // github#79
+        var keepOv = ovCells;
         var saved = roomNow, savedCell = cellNow, savedEdge = edgeNow;
         roomNow = null; cellNow = null; edgeNow = null; edgeNow = null;
         var keepTag = trace ? trace.tag : "";
@@ -3772,10 +4422,11 @@ function mountVaultGraph(root, data, deps) {
         bandOf("i").ramp = keepRampI; bandOf("o").ramp = keepRampO; sizeScale = keepScale;
         dotFit = keepFit; cellRoom = keepCell; edgeCap = keepEdge; hubRow0 = keepHub;
         pinnedPlan = keepPin; planKeep = keepKeep;
+        ovCells = keepOv;
         if (keepAlpha) graph.forEachNode(function (id) { alpha[id] = keepAlpha[id]; });
         return got;
       };
-      var rA = roomOf(a, null);
+      var rA = inWorld(function () { return roomOf(a, null); });
       var rB = roomOf(b, function (id) { return willShow(id) ? timeFactor(id) : 0; });
       if (rA) roomSrcB = { i: rA.i || 0, o: rA.o || 0 };
       if (rB) roomDstB = { i: rB.i || 0, o: rB.o || 0 };
@@ -3831,6 +4482,10 @@ function mountVaultGraph(root, data, deps) {
       });
     })();
 
+    // github#86 -- which dots have taken their final seat this cascade
+    /** @type {Record<string, boolean>} */
+    var seated = dict();
+
     var STALL_MS = 400;
     var watchdog = function () {
       if (cascadeRun && NOW() - cascadeRun.tick < STALL_MS) {
@@ -3840,11 +4495,15 @@ function mountVaultGraph(root, data, deps) {
       settle();
     };
     var msPerFrame = (opts.totalMs > 0 ? opts.totalMs : CASCADE_MS * TIME_SCALE) / Math.max(1, span);
-    var MIN_FRAMES = 20;
+    // github#113
+    var reduced = reducedMotion();
+    var MIN_FRAMES = reduced ? 1 : 20;
     var maxAdv = Math.max(1, span) / MIN_FRAMES;
     var frame = 0, tPrev = NOW(), tailFrames = 0;
     // github#67
-    (function () {
+    // github#86, design/0015 -- the hand keys every delay on angle; re-dealing a group's
+    // github#86 -- by radius would light a seat the fill edge has not reached
+    if (!opts.hand) (function () {
       var stretch = Math.max(1, span - FADE_FRAMES * TIME_SCALE);
       /** @param {string} id @param {boolean} out */
       var radiusOf = function (id, out) {
@@ -3874,39 +4533,50 @@ function mountVaultGraph(root, data, deps) {
     })();
     cascadeRun = { raf: 0, tick: NOW(), guard: WIN.setTimeout(watchdog, STALL_MS), sizeCap: sizeCap,
                    skel: moveFrom ? null : freshSkel() };
+    // github#78, design/0006
+    // github#86 -- the switch's nav bar follows the notes (legendSwitchTick)
+    var barWalking = opts.hand && legendSwitch ? false : barWalkStart();
+
     (function step() {
       var tn = NOW();
       var adv = (tn - tPrev) / msPerFrame;
       tPrev = tn;
-      if (adv > maxAdv) adv = maxAdv;
+      if (reduced) adv = Math.max(1, span);
+      else if (adv > maxAdv) adv = maxAdv;
       frame += adv;
       if (cascadeRun) cascadeRun.tick = tn;
       var pr = Math.min(1, frame / Math.max(1, span));
+      // github#86 -- the erase edge, in degrees from 12 o'clock, for the checks
+      if (handLap) { lastCascade.handDeg = 360 * frame / handLap; lastCascade.handLap = handLap; }
       var ease = pr * pr * (3 - 2 * pr);
+      // github#78
+      if (barWalking) barWalkTick(ease);
       var busy = false;
       for (var i = 0; i < moving.length; i++) {
         var id = moving[i];
         if (isMove[id]) {
           if (moveFrom && moveFrom[id] !== undefined && frame >= crossAt[id]) delete moveFrom[id];
           if (frame < arriveAt[id]) {
-            var q1 = (frame - delay[id]) / (FADE_FRAMES * TIME_SCALE);
+            var q1 = (frame - delay[id]) / fadeLen;
             q1 = q1 < 0 ? 0 : q1 > 1 ? 1 : q1;
             alpha[id] = (from[id] === undefined ? 1 : from[id]) * (1 - q1 * q1 * (3 - 2 * q1));
           } else {
-            var q2 = (frame - arriveAt[id]) / (FADE_FRAMES * TIME_SCALE);
+            var q2 = (frame - arriveAt[id]) / fadeLen;
             q2 = q2 < 0 ? 0 : q2 > 1 ? 1 : q2;
             alpha[id] = (to[id] === undefined ? 1 : to[id]) * (q2 * q2 * (3 - 2 * q2));
           }
-          if (frame < arriveAt[id] + FADE_FRAMES * TIME_SCALE) busy = true;
+          if (frame < arriveAt[id] + fadeLen) busy = true;
           continue;
         }
-        var q = (frame - delay[id]) / (FADE_FRAMES * TIME_SCALE);
+        var q = (frame - delay[id]) / fadeLen;
         q = q < 0 ? 0 : q > 1 ? 1 : q;
         alpha[id] = from[id] + (to[id] - from[id]) * (q * q * (3 - 2 * q));
         if (q < 1) busy = true;
       }
 
       if (opts.onFrame) opts.onFrame(pr);
+      // github#86 -- rows drop out and drop in with the notes
+      if (opts.hand && legendSwitch) legendSwitchTick();
 
       /** @param {Cell} c */
       var rowsAt = function (c) {
@@ -3976,21 +4646,46 @@ function mountVaultGraph(root, data, deps) {
       };
       if (cellPair) cellNow = walkPair(cellPair);
       if (edgePair) edgeNow = walkPair(edgePair);
-      // github#19
       /** @type {Plan | null} */
       var plan = null;
-      planSkel = cascadeRun ? cascadeRun.skel : null;
-      try { plan = buildWedgePlan(ovAfter, weightOf, rowsAt, spNow); }
-      finally { planSkel = null; }
-      if (planSkelCheck && cascadeRun && cascadeRun.skel) {
-        var why = planDiff(plan, buildWedgePlan(ovAfter, weightOf, rowsAt, spNow));
-        lastCascade.skelFrames++;
-        if (why) { lastCascade.skelMismatch++; if (!lastCascade.skelFirst) lastCascade.skelFirst = why; }
+      /** @type {Record<string, Point> | null} */
+      var targets = null;
+      if (opts.hand && opts.from) {
+        // github#86, design/0015 -- both discs sit in the same place, one shown, one hidden: the
+        // github#86 -- old disc fades in place; a dot that has left takes its FINAL
+        // github#86 -- seat outright and waits, dark, for the fill edge. No plan.
+        var mf = moveFrom;
+        colWalk = null; cellNow = null; edgeNow = null;
+        if (roomDstB.i > 1) bandOf("i").room = roomDstB.i;
+        if (roomDstB.o > 1) bandOf("o").room = roomDstB.o;
+        /** @type {Record<string, Point>} */
+        var seats = dict();
+        for (var mi = 0; mi < moving.length; mi++) {
+          var mid = moving[mi];
+          if (isMove[mid] && mf && mf[mid] !== undefined) continue;
+          var fq = finalPos[mid];
+          if (!fq) continue;
+          seats[mid] = fq;
+          // github#86 -- taken outright: easing from where it stood would cross
+          if (!seated[mid]) { graph.mergeNodeAttributes(mid, { x: fq.x, y: fq.y }); seated[mid] = true; }
+        }
+        targets = seats;
+      } else {
+        // github#19
+        planSkel = cascadeRun ? cascadeRun.skel : null;
+        try { plan = buildWedgePlan(ovAfter, weightOf, rowsAt, spNow); }
+        finally { planSkel = null; }
+        if (planSkelCheck && cascadeRun && cascadeRun.skel) {
+          var why = planDiff(plan, buildWedgePlan(ovAfter, weightOf, rowsAt, spNow));
+          lastCascade.skelFrames++;
+          if (why) { lastCascade.skelMismatch++; if (!lastCascade.skelFirst) lastCascade.skelFirst = why; }
+        }
+        traceTag("frame");
+        targets = plan ? ringsLayout(plan, true) : null;
+        traceTag("");
       }
-      traceTag("frame");
-      var targets = plan ? ringsLayout(plan, true) : null;
-      traceTag("");
-      var ez = pr < 1 ? RADIAL_EASE
+      var ez = reduced ? 1
+             : pr < 1 ? RADIAL_EASE
                       : Math.min(1, RADIAL_EASE + tailFrames * 0.15);
       var resid = 0;
       if (targets) graph.forEachNode(function (id) {
@@ -4163,13 +4858,16 @@ function mountVaultGraph(root, data, deps) {
     animGuard = WIN.setTimeout(tweenDog, TWEEN_STALL);
 
     var MIN_FRAMES = 20;
+    // github#113
+    var reduced = reducedMotion();
     var p = 0, tPrev = NOW();
     (function step() {
       var tn = NOW();
       lastFrame = tn;
       var adv = (tn - tPrev) / dur;
       tPrev = tn;
-      if (adv > 1 / MIN_FRAMES) adv = 1 / MIN_FRAMES;
+      if (reduced) adv = 1;
+      else if (adv > 1 / MIN_FRAMES) adv = 1 / MIN_FRAMES;
       p = Math.min(1, p + adv);
       var e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
       graph.forEachNode(function (id) {
@@ -4244,33 +4942,33 @@ function mountVaultGraph(root, data, deps) {
     lazyShown = want;
   }
 
-  // github#19
-  /** @param {NodeAttrs} a @param {number} k how many folder levels deep */
-  function pathKey(a, k) {
-    var d = a.dirs;
-    if (!d || !d.length) return a.folder + "/";
-    if (!(k >= 1)) return a.folder + "/" + d.slice(0, k).join("/");
-    var out = a.folder + "/" + d[0];
+  // github#19, github#86 -- keyed on the filing, so one builder answers both
+  /** @param {string} id @param {number} k how many levels deep @param {NodeAttrs} [a] */
+  function pathKey(id, k, a) {
+    var g = fileGroup(id, a), d = fileDirs(id, a);
+    if (!d.length) return g + "/";
+    if (!(k >= 1)) return g + "/" + d.slice(0, k).join("/");
+    var out = g + "/" + d[0];
     for (var i = 1; i < k && i < d.length; i++) out += "/" + d[i];
     return out;
   }
 
   /** @param {string} id */
   function visible(id) {
+    // github#86 -- a leaving note is in the disc being left only
+    if (leaving[id] && !oldWorld) return false;
     var a = graph.getNodeAttributes(id);
     if (isHidden(groupOf(id))) return false;
-    if (state.dim === "folder") {
-      var d = a.dirs || [];
-      if (!d.length) {
-        if (state.hiddenSub[a.folder + "/"]) return false;
-      } else {
-        // github#19
-        var key = a.folder + "/" + d[0];
+    var d = fileDirs(id, a);
+    if (!d.length) {
+      if (state.hiddenSub[fileGroup(id, a) + "/"]) return false;
+    } else {
+      // github#19
+      var key = fileGroup(id, a) + "/" + d[0];
+      if (state.hiddenSub[key]) return false;
+      for (var k = 1; k < d.length; k++) {
+        key += "/" + d[k];
         if (state.hiddenSub[key]) return false;
-        for (var k = 1; k < d.length; k++) {
-          key += "/" + d[k];
-          if (state.hiddenSub[key]) return false;
-        }
       }
     }
     return true;
@@ -4707,6 +5405,25 @@ function mountVaultGraph(root, data, deps) {
   var DOT_ROOM_MAX = DENSITY_MAX;
   var sizeScale = 1;
 
+  // github#77, design/0013
+  var PREVIEW_R_PX = [0.35, 0.65, 1.38, 2.19, 4.06];
+  var PREVIEW_W = 48;
+  var PREVIEW_H = 40;
+  var PREVIEW_ROW_H = PREVIEW_H / SUB_SLOTS;
+  var PREVIEW_CX = (function () {
+    var i, wide = 0;
+    for (i = 0; i < PREVIEW_R_PX.length; i++) wide += 2 * PREVIEW_R_PX[i];
+    var gap = (PREVIEW_W - wide) / (PREVIEW_R_PX.length + 1);
+    /** @type {number[]} */
+    var out = [];
+    var x = gap;
+    for (i = 0; i < PREVIEW_R_PX.length; i++) {
+      out.push(Math.round((x + PREVIEW_R_PX[i]) * 100) / 100);
+      x += 2 * PREVIEW_R_PX[i] + gap;
+    }
+    return out;
+  })();
+
   function measureSizeScale() {
     if (!renderer) return sizeScale;
     var a = renderer.graphToViewport({ x: 0, y: 0 });
@@ -4758,7 +5475,6 @@ function mountVaultGraph(root, data, deps) {
     var isIn = id !== undefined && bandLock && !!bandLock[groupOf(id)];
     var rp = bandOf(isIn ? "i" : "o").ramp;
     var v = rp.m * (size || 4) + rp.b;
-    var scale = 1;
     if (id !== undefined) {
       var room = bandOf(isIn ? "i" : "o").room;
       var mine = cellRoom[id];
@@ -4773,10 +5489,10 @@ function mountVaultGraph(root, data, deps) {
         var f = room / pit;
         if (f > DOT_ROOM_MAX) f = DOT_ROOM_MAX;
         v *= f;
-        scale = f;
       }
     }
-    var lo = (rp.lo || DOT_MIN_PX) * scale;
+    // github#107 -- DOT_MIN_PX now floors below the room scale, not scaled by it
+    var lo = rp.lo || DOT_MIN_PX;
     if (v < lo) v = lo;
     var capU = edgeCap[id];
     if (capU !== undefined && capU > 0) {
@@ -4914,7 +5630,7 @@ function mountVaultGraph(root, data, deps) {
         var r = nodeStyle(id, a);
         if (al < 0.999) {
           r.color = withAlpha(r.color, al);
-          r.size = (r.size || a.size) * (0.45 + 0.55 * al);
+          r.size = (r.size || a.size) * (shrinkFade ? al : 0.45 + 0.55 * al);
           if (al < 0.62) { r.label = ""; r.forceLabel = false; r.highlighted = false; }
         }
         if (colWalk) {
@@ -4962,6 +5678,35 @@ function mountVaultGraph(root, data, deps) {
       }
     });
 
+    // github#120 -- see liveBusy(): the page has to know a drag is on
+    (function () {
+      var captor = renderer.getMouseCaptor && renderer.getMouseCaptor();
+      if (!captor) return;
+      // github#120 -- mirror the captor's own condition, not its events
+      captor.on("mousedown", function (e) {
+        var o = e && e.original;
+        if (o && o.button !== undefined && o.button !== 0) return;
+        dragging = true; dragStartedAt = NOW();
+      });
+      captor.on("mouseup", function () { dragging = false; dragEndedAt = NOW(); });
+      // github#120 -- what actually catches a lost mouseup
+      captor.on("mousemovebody", function (e) {
+        if (!dragging) return;
+        var o = e && e.original;
+        if (o && o.buttons !== undefined && !(o.buttons & 1)) { dragging = false; dragEndedAt = NOW(); }
+      });
+      // github#120 -- belt to that braces, for a release off-canvas
+      var onDocUp = function () {
+        if (!dragging) return;
+        dragging = false; dragEndedAt = NOW();
+      };
+      DOC.addEventListener("mouseup", onDocUp, true);
+      onDestroy.push(function () {
+        DOC.removeEventListener("mouseup", onDocUp, true);
+        dragging = false;
+      });
+    })();
+
     (function () {
       var cam = renderer.getCamera();
       var edgeRaf = 0;
@@ -5000,6 +5745,8 @@ function mountVaultGraph(root, data, deps) {
       if (DBG.on) drawWedgeDebug();
       placeLogo(); refreshSizeScale(); heatDraw(); hlSync();
       placeHubDrop();
+      // github#79
+      ovSync();
     });
 
     renderer.on("enterNode", function (e) {
@@ -5063,6 +5810,12 @@ function mountVaultGraph(root, data, deps) {
   var trail = [];
   var TRAIL_CAP = 30;
   var trailHop = false;
+  // github#72, design/0012, design/0014
+  invalidatesOnData("hop trail", function () {
+    var kept = trail.filter(function (id) { return graph.hasNode(id); });
+    trail.length = 0;
+    trail.push.apply(trail, kept);
+  });
 
   /** @param {string} id */
   function goTo(id) {
@@ -5127,8 +5880,66 @@ function mountVaultGraph(root, data, deps) {
            '<ol>' + parts.join('') + '</ol></nav>';
   }
 
+  // github#72, design/0014
+  invalidatesOnData("selection, hover and pins", function () {
+    if (state.selected && !graph.hasNode(state.selected)) select(null);
+    if (state.hovered && !graph.hasNode(state.hovered)) state.hovered = null;
+    var pins = state.pinned.filter(function (id) { return graph.hasNode(id); });
+    if (pins.length !== state.pinned.length) {
+      state.pinned = pins;
+      if (savePinned) savePinned(pins.slice());
+    }
+  });
+
+  /* ------------------------------------------- github#131, design/0019 -- two readings */
+
+  var reading = "groups";
+  /** @type {Record<string, number>} */
+  var readScroll = { groups: 0, note: 0 };
+
+  /* github#131, design/0019, design/0013 */
+  function cardHome() {
+    var d = $("detail"), note = $("readnote"), canvas = $("canvas");
+    if (!d || !note || !canvas) return;
+    var want = narrow() ? canvas : note;
+    if (d.parentNode !== want) want.appendChild(d);
+  }
+
+  /** @param {string} which */
+  function setReading(which) {
+    var tabs = $("tabs"), tg = $("tabgroups"), tn = $("tabnote");
+    var pg = $("readgroups"), pn = $("readnote"), sb = $("sidebar");
+    if (!tabs || !tg || !tn || !pg || !pn) return;
+    var note = which === "note" && !!state.selected && !narrow();
+    var next = note ? "note" : "groups";
+    if (sb && next !== reading) readScroll[reading] = sb.scrollTop;
+    reading = next;
+    tg.setAttribute("aria-selected", note ? "false" : "true");
+    tn.setAttribute("aria-selected", note ? "true" : "false");
+    tn.disabled = !state.selected || narrow();
+    pg.hidden = note;
+    pn.hidden = !note;
+    if (sb) sb.scrollTop = readScroll[reading] || 0;
+  }
+
+  /* github#131, design/0019 */
+  // github#135 -- a MediaQueryList lives on the window; remove it
+  if (WIN.matchMedia) {
+    var readMq = WIN.matchMedia("(max-width: 720px)");
+    var onReadMq = function () { cardHome(); setReading(reading); afterPanel(); };
+    if (readMq.addEventListener) {
+      readMq.addEventListener("change", onReadMq);
+      onDestroy.push(function () { readMq.removeEventListener("change", onReadMq); });
+    } else if (readMq.addListener) {
+      readMq.addListener(onReadMq);
+      onDestroy.push(function () { readMq.removeListener(onReadMq); });
+    }
+  }
+
   /** @param {string | null} id */
   function select(id) {
+    // github#86 -- clicking any copy selects the NOTE
+    if (id) id = noteOf(id);
     // github#73, design/0013
     // github#82 -- same: only the phone's sheet gets out of the way
     if (id && sheetOpen && narrow()) setSheet(false);
@@ -5138,7 +5949,8 @@ function mountVaultGraph(root, data, deps) {
     state.selected = id;
     syncLazyEdges();
     var d = $("detail");
-    if (!id) { d.hidden = true; renderer.refresh(); return; }
+    // github#131, design/0019
+    if (!id) { d.hidden = true; setReading("groups"); renderer.refresh(); return; }
 
     var a = graph.getNodeAttributes(id);
     var nb = neighboursOf(id).slice().sort(function (p, q) {
@@ -5160,13 +5972,20 @@ function mountVaultGraph(root, data, deps) {
         (a.touched && a.touched !== a.created
           ? '<span title="last touched">&#8635; ' + esc(a.touched) + '</span>' : "") +
       '</div>' +
-      '<div>' + (a.tags || []).slice(0, 8).map(function (t) {
-        return '<span class="chip">#' + esc(t) + '</span>';
+      // github#86 -- D-1: say which tag put the note where it is
+      '<div>' + (a.tags || []).slice(0, 8).map(function (t, ti) {
+        // github#86 -- only while the filing excludes the other tags
+        var files = state.dim === "tag" && ti === 0;
+        return '<span class="chip"' +
+               (files ? ' style="border-style:solid" title="Filed under this tag"' : '') +
+               '>#' + esc(t) + '</span>';
       }).join("") + '</div>' +
       '<div class="chip" style="border-style:dashed">' + esc(a.folder) +
         (a.sub ? ' / ' + esc(a.sub) : '') + ' / ' + esc(a.ntype) + '</div>' +
       '<div class="actions">' +
-        (a.ghost ? "" : '<a class="open" href="obsidian://open?vault=' + vault + '&file=' + file + '">Open in Obsidian</a>') +
+        // github#131
+        (a.ghost ? "" : '<a class="open" title="Open in Obsidian" href="obsidian://open?vault=' +
+                        vault + '&file=' + file + '">Open</a>') +
         '<button class="btn pin" data-pin="' + id + '" aria-pressed="' + isPinned(id) + '" title="' +
           (isPinned(id) ? "Unpin from hub" : "Pin to hub") + '">' + pinSvg(isPinned(id)) +
           ' Pin to hub</button>' +
@@ -5196,6 +6015,9 @@ function mountVaultGraph(root, data, deps) {
     Array.prototype.forEach.call(d.querySelectorAll("[data-tr]"), /** @param {HTMLElement} b */ function (b) {
       b.onclick = function () { trailBackTo(+b.getAttribute("data-tr")); };
     });
+    // github#131, design/0019
+    cardHome();
+    setReading("note");
     renderer.refresh();
   }
 
@@ -5232,6 +6054,53 @@ function mountVaultGraph(root, data, deps) {
     return bandLock && bandLock[g] ? "Inner ring" : "Outer ring";
   }
 
+  /**
+   * github#86 -- D-4: what a tag row has to say instead of a path
+   * @param {string} g
+   */
+  function rowTitle(g) {
+    var base = "Highlight " + g;
+    if (state.dim !== "tag") return base;
+    var carried = tagCarried[g];
+    var filed = folderCount[g] || 0;
+    if (carried === undefined || carried === filed) return base;
+    return base + " -- " + filed + " filed here, " + carried + " carry this tag";
+  }
+
+  // github#77
+  /** @type {Record<string, string>} */
+  var previewCache = dict();
+  function clearPreviewCache() { previewCache = dict(); }
+
+  // github#77, design/0004, design/0003
+  /** @param {string} key @param {string} [group] @returns {string} */
+  function swatchPreviewHTML(key, group) {
+    var ck = group ? "g" + group.length + ":" + group + ":" + key : key;
+    var hit = previewCache[ck];
+    if (hit !== undefined) return hit;
+    var L = previewLadder(key, "l", group), D = previewLadder(key, "d", group);
+    var marks = "", vars = "";
+    for (var r = 0; r < SUB_SLOTS; r++) {
+      var cy = PREVIEW_ROW_H * r + PREVIEW_ROW_H / 2;
+      var cls = r === 0 ? "d" : "t" + r;
+      if (r > 0) {
+        vars += "--k" + r + ":" + (L[r - 1] || "currentColor") + ";" +
+                "--k" + r + "d:" + (D[r - 1] || "currentColor") + ";";
+      }
+      for (var c = 0; c < PREVIEW_R_PX.length; c++) {
+        marks += '<circle class="' + cls + '" cx="' + PREVIEW_CX[c] + '" cy="' + cy +
+                 '" r="' + PREVIEW_R_PX[c] + '"/>';
+      }
+    }
+    var html = '<svg class="prev" width="' + PREVIEW_W + '" height="' + PREVIEW_H +
+           '" viewBox="0 0 ' + PREVIEW_W + ' ' + PREVIEW_H +
+           '" style="' + vars + '" aria-hidden="true" focusable="false">' +
+           '<rect class="gnd" x="0" y="0" width="' + PREVIEW_W +
+           '" height="' + PREVIEW_H + '"/>' + marks + '</svg>';
+    previewCache[ck] = html;
+    return html;
+  }
+
   // github#50
   /** @param {string} g */
   function countText(g) {
@@ -5240,28 +6109,100 @@ function mountVaultGraph(root, data, deps) {
     return !counts[g] && held ? "(" + held + ")" : String(counts[g]);
   }
 
+  // github#78, design/0006
+  /** @type {Record<string, number> | null} */
+  var barShown = null;
+  /** @type {Record<string, number> | null} */
+  var barNow = null;
+  /** @type {Record<string, number> | null} */
+  var barPrev = null;
+
+  // github#78, design/0006
+  /** @returns {{ max: number, group: string }} */
+  function barBasis() {
+    var names = order[state.dim] || [], out = { max: 0, group: "" };
+    for (var i = 0; i < names.length; i++) {
+      var g = names[i];
+      if (!counts[g] || isHidden(g)) continue;
+      if (g === UNLINKED && !unlinkedByFolder) continue;
+      if (counts[g] > out.max) { out.max = counts[g]; out.group = g; }
+    }
+    return out;
+  }
+
+  // github#78, design/0006
+  /** @param {string} g @param {{ max: number, group: string }} basis */
+  function barShare(g, basis) {
+    if (!countBars) return 0;
+    if (!counts[g] || isHidden(g)) return 0;
+    if (g === UNLINKED && !unlinkedByFolder) return 0;
+    if (!basis.max) return 0;
+    return counts[g] / basis.max;
+  }
+
+  // github#78
+  /** @param {number} share */
+  function shareText(share) {
+    var pct = share * 100;
+    return (pct < 0.1 ? "<0.1" : pct.toFixed(1)) + "%";
+  }
+
   // github#46
   /** @type {Point | null} */
   var ptr = null;
+
+  /**
+   * @typedef {Object} RowOpts
+   * @property {string} g
+   * @property {string} cls
+   * @property {boolean} old
+   * @property {string} tw
+   * @property {string} eye
+   * @property {string} lgAttrs
+   * @property {boolean} hl
+   * @property {boolean} vis
+   * @property {string} title
+   * @property {string} swClass
+   * @property {string} swTitle
+   * @property {string} swFill
+   * @property {string} only
+   * @property {string} ctTitle
+   * @property {string} ct
+   */
+  /**
+   * github#86, design/0015 -- ONE row template for every group row the legend draws
+   * github#86 -- a leaving row is inert: no data-g, no handler reaches it
+   * @param {RowOpts} o
+   */
+  function lgrHTML(o) {
+    return '<div class="' + o.cls + '" data-row="' + esc(o.g) + '"' + (o.old ? ' data-old="1"' : '') + '>' +
+      o.tw + o.eye +
+      '<button' + o.lgAttrs + (o.old ? '' : ' data-g="' + esc(o.g) + '"') + ' data-hl="' + (o.hl ? "on" : "off") +
+        '" aria-pressed="' + o.vis + '" title="' + esc(o.title) + '">' +
+      '<span class="' + o.swClass + '" title="' + o.swTitle + '" style="background:' + o.swFill + '"></span>' +
+      '<span class="nm" title="' + esc(o.g) + '">' + esc(o.g) + '</span>' +
+      o.only +
+      '<span class="ct"' + o.ctTitle + '>' + o.ct + '</span></button>' +
+      '</div>';
+  }
 
   function buildLegend() {
     hoverHighlight(null, null);
 
     var names = order[state.dim] || [];
-    $("gcount").textContent = "(" + names.length + ")";
+    syncDimCounts();
 
     /** @type {Record<string, Record<string, number>>} */
     var kids = dict();
-    if (state.dim === "folder") {
-      graph.forEachNode(function (_id, a) {
-        var d = a.dirs || [];
-        for (var i = 0; i < d.length; i++) {
-          var pk = a.folder + "/" + d.slice(0, i).join("/");
-          if (!kids[pk]) kids[pk] = dict();
-          kids[pk][d[i]] = (kids[pk][d[i]] || 0) + 1;
-        }
-      });
-    }
+    // github#86 -- D-3: nesting is per dimension
+    graph.forEachNode(function (id, a) {
+      var d = fileDirs(id, a), g0 = fileGroup(id, a);
+      for (var i = 0; i < d.length; i++) {
+        var pk = g0 + "/" + d.slice(0, i).join("/");
+        if (!kids[pk]) kids[pk] = dict();
+        kids[pk][d[i]] = (kids[pk][d[i]] || 0) + 1;
+      }
+    });
 
     /** @param {string} attrs @param {boolean} on @param {string} what */
     var eyeBtn = function (attrs, on, what) {
@@ -5293,34 +6234,104 @@ function mountVaultGraph(root, data, deps) {
       }).join("");
     };
 
-    setHTML($("legend"), names.map(function (g) {
-      var vis = !isHidden(g);
-      var hasSubs = state.dim === "folder" &&
-                    (groupHasPinnedSub(g) ||
-                     ((subOrder[g] || []).length > 1 && (counts[g] || 0) >= NEST_MIN));
-      var open = hasSubs && !state.collapsed[g];
-      var hl = !!state.highlight[g];
+    // github#78
+    var basis = barBasis();
+    /** @type {Record<string, number>} */
+    var rendered = dict();
+
+    // github#86, design/0015 -- while a switch runs, the rows of the disc being left come
+    // github#86 -- first, inert, with the counts and colours they had; they go
+    // github#86 -- as their notes fade; an arriving row comes with its first
+    var liveNow = legendSwitch ? liveByGroup() : null;
+    /**
+     * @typedef {Object} RowWorld
+     * @property {boolean} inert
+     * @property {Record<string, number>} counts
+     * @property {(g: string) => boolean} hidden
+     * @property {(g: string) => string} color
+     * @property {(g: string) => string} fill
+     * @property {(g: string) => string} swTitle
+     * @property {Record<string, boolean> | null} bandLock
+     * @property {number} basisMax
+     * @property {string} basisGroup
+     * @property {(g: string) => number} share
+     * @property {(g: string) => number | null} live
+     * @property {(g: string) => boolean} subs
+     * @property {(g: string) => boolean} open
+     */
+    /**
+     * github#86, design/0015 -- everything a group row reads, from ONE of two worlds: the
+     * github#86 -- on screen, or the one being left as it stood at the switch
+     * github#86 -- a left row is the row it was, inert, only its gauge moving
+     */
+    /** @type {RowWorld} */
+    var here = {
+      inert: false, counts: counts, hidden: isHidden, color: colorOf, fill: swatchFill,
+      swTitle: function (g) { return swatchTitle(g, bandLock); }, bandLock: bandLock,
+      basisMax: basis.max, basisGroup: basis.group,
+      share: function (g) { return barShare(g, basis); },
+      live: function (g) { return liveNow ? (liveNow.now[g] || 0) : null; },
+      subs: function (g) { return groupHasPinnedSub(g) || ((subOrder[g] || []).length > 1 && (counts[g] || 0) >= NEST_MIN); },
+      open: function (g) { return !state.collapsed[g]; }
+    };
+    /** @type {RowWorld | null} */
+    var left = null;
+    if (legendSwitch) (function () {
+      var ls = legendSwitch;
+      left = {
+        inert: true, counts: ls.counts, hidden: function (g) { return !!ls.hidden[g]; },
+        color: function (g) { return ls.colors[g] || ""; }, fill: function (g) { return ls.fill[g] || ls.colors[g] || ""; },
+        swTitle: function (g) { return ls.swTitle[g] || ""; }, bandLock: ls.bandLock,
+        basisMax: ls.basis, basisGroup: ls.basisGroup,
+        share: function (g) { var lv = liveNow ? (liveNow.old[g] || 0) : (ls.counts[g] || 0); return ls.basis > 0 ? lv / ls.basis : 0; },
+        live: function (g) { return liveNow ? (liveNow.old[g] || 0) : null; },
+        subs: function (g) { return !!ls.subs[g]; }, open: function (g) { return !!ls.open[g]; }
+      };
+    })();
+    /** @param {string} g @param {RowWorld} w */
+    var rowFor = function (g, w) {
+      var vis = !w.hidden(g);
+      var hasSubs = w.subs(g);
+      var open = hasSubs && w.open(g);
+      var hl = !w.inert && !!state.highlight[g];
 
       // github#50
-      var live = !!counts[g];
+      var live = !!w.counts[g];
       var lgrClass = "lgr" + (live ? "" : " lgr-empty");
-      var row = '<div class="' + lgrClass + '">' +
-        twBtn(hasSubs ? 'data-tw="' + esc(g) + '"' : null, open) +
-        (live ? eyeBtn('data-eye="' + esc(g) + '"', vis, g)
-              : '<button class="eye none" disabled aria-hidden="true"></button>') +
-        '<button class="lg" data-g="' + esc(g) + '" data-hl="' + (hl ? "on" : "off") +
-          '" aria-pressed="' + vis + '" title="Highlight ' + esc(g) + '">' +
-        '<span class="sw' + (bandLock && bandLock[g] ? ' sw-in' : '') +
-          '" title="' + swatchTitle(g, bandLock) +
-          '" style="background:' + swatchFill(g) + '"></span>' +
-        '<span class="nm" title="' + esc(g) + '">' + esc(g) + '</span>' +
-        (live ? '<span class="only" data-only="1" title="Show only ' + esc(g) + '">only</span>'
-              : '<span class="only none" aria-hidden="true"></span>') +
-        // github#50
-        '<span class="ct">' + countText(g) + '</span></button>' +
-        '</div>';
 
-      if (open && vis) {
+      // github#78, design/0006
+      var share = w.share(g);
+      if (!w.inert) rendered[g] = share;
+      var shown = !w.inert && cascadeRun && barShown && barShown[g] !== undefined ? barShown[g] : share;
+      var lgAttrs = ' class="lg' + (shown ? " bar" + (share ? "" : " bar-out") : "") +
+        '" style="--vg-share:' + (shown * 100).toFixed(3) + '%;--vg-bar:' + w.color(g) + '"' +
+        (w.inert ? ' tabindex="-1" aria-hidden="true"' : '');
+      var ctTitle = share
+        ? ' title="' + w.counts[g] + (w.counts[g] === 1 ? " note" : " notes") +
+          (g === w.basisGroup
+            ? " · the largest folder shown"
+            : " · " + shareText(share) + " of " + esc(w.basisGroup)) + '"'
+        : '';
+
+      // github#86 -- an arriving row is collapsed until its first note is lit,
+      // github#86 -- a leaving row once its last note has faded
+      var lv = w.live(g);
+      if (lv !== null && !(lv > 0.004)) lgrClass += " lgr-gone";
+      var row = lgrHTML({ g: g, cls: lgrClass, old: w.inert,
+        // github#86 -- a leaving row keeps its twisty, eye and only chip, disabled
+        tw: twBtn(hasSubs ? (w.inert ? 'disabled aria-disabled="true"' : 'data-tw="' + esc(g) + '"') : null, open),
+        eye: live ? eyeBtn(w.inert ? 'disabled aria-disabled="true"' : 'data-eye="' + esc(g) + '"', vis, g)
+                  : '<button class="eye none" disabled aria-hidden="true"></button>',
+        lgAttrs: lgAttrs, hl: hl, vis: vis, title: w.inert ? g : rowTitle(g),
+        swClass: "sw" + (w.bandLock && w.bandLock[g] ? " sw-in" : ""), swTitle: w.swTitle(g),
+        swFill: w.fill(g),
+        only: live ? (w.inert ? '<span class="only" aria-hidden="true">only</span>'
+                             : '<span class="only" data-only="1" title="Show only ' + esc(g) + '">only</span>')
+                   : '<span class="only none" aria-hidden="true"></span>',
+        // github#50, github#78
+        ctTitle: ctTitle, ct: w.inert ? String(w.counts[g]) : countText(g) });
+
+      if (open && vis && !w.inert) {
         var subs = subOrder[g];
         /**
          * @param {string} col @param {string} nm @param {number} ct
@@ -5373,7 +6384,17 @@ function mountVaultGraph(root, data, deps) {
         }
       }
       return row;
-    }).join(""));
+    };
+    var oldRows = left ? legendSwitch.order.map(function (g) {
+      return !legendSwitch.counts[g] || legendSwitch.hidden[g] ? "" : rowFor(g, /** @type {RowWorld} */ (left));
+    }).join("") : "";
+    // github#86 -- the collapse rules exist only while a switch runs
+    $("legend").classList.toggle("lg-switching", !!legendSwitch);
+    setHTML($("legend"), oldRows + names.map(function (g) { return rowFor(g, here); }).join(""));
+
+    // github#78, design/0006
+    if (!barShown) { barPrev = barNow; }
+    barNow = rendered;
 
     /**
      * Every legend element matching a selector. The callback takes an HTMLElement: these are
@@ -5403,9 +6424,9 @@ function mountVaultGraph(root, data, deps) {
       state.hiddenSub = dict();
       var rest = path.slice(g.length + 1);
       var want = rest ? rest.split("/") : [];
-      graph.forEachNode(function (_id, a) {
-        if (a.folder !== g) return;
-        var d = a.dirs || [], i = 0;
+      graph.forEachNode(function (id, a) {
+        if (fileGroup(id, a) !== g) return;
+        var d = fileDirs(id, a), i = 0;
         while (i < want.length && i < d.length && d[i] === want[i]) i++;
         if (i === want.length) return;
         state.hiddenSub[g + "/" + d.slice(0, i + 1).join("/")] = true;
@@ -5588,7 +6609,9 @@ function mountVaultGraph(root, data, deps) {
     state.collapsed = dict();
     (order[state.dim] || []).forEach(function (g) { state.collapsed[g] = true; });
   }
-  var collapsedInit = false;
+  // github#86 -- once per dimension, not once per mount
+  /** @type {Record<string, boolean>} */
+  var dimSeeded = dict();
 
   // github#45
   /**
@@ -5596,6 +6619,50 @@ function mountVaultGraph(root, data, deps) {
    * @param {Record<string, boolean> | null} [bandHint]   group -> inner, to seed the lock with
    * @param {boolean} [keepAlpha]
    */
+  // github#86, decisions/0011 -- the lock derivation on its own, so ringsIn
+  // github#86 -- can take it in the dimension the rings belong to
+  /** @param {Record<string, boolean>} [bandHint] @returns {Plan | null} */
+  function takeGeom(bandHint) {
+    var base = buildWedgePlan(false);
+    if (!base) return null;
+    bandLock = dict();
+    base.cells.forEach(function (c) { bandLock[c.g] = c.inner; });
+    if (bandHint) Object.keys(bandHint).forEach(function (g) { bandLock[g] = bandHint[g]; });
+    var bandTotal = { i: 0, o: 0 };
+    base.cells.forEach(function (c) { bandTotal[c.inner ? "i" : "o"] += c.wsum; });
+    var bandR = { i: 0, o: 0 }, bandRows = { i: 0, o: 0 };
+    base.cells.forEach(function (c) {
+      var k = c.inner ? "i" : "o";
+      if (c.rows > bandRows[k]) bandRows[k] = c.rows;
+      (c.slots || []).forEach(function (sl) {
+        var rr = sl.r * UNIT;
+        if (rr > bandR[k]) bandR[k] = rr;
+      });
+    });
+    geomLock = { r0: base.r0, rOuter: base.rOuter, maxR: base.maxR,
+                 total: base.total, bandTotal: bandTotal,
+                 bandR: bandR, rows: bandRows, dim: state.dim };
+
+    var again = buildWedgePlan(false);
+    if (again) geomLock = { r0: again.r0, rOuter: again.rOuter, maxR: again.maxR,
+                            total: again.total, bandTotal: bandTotal,
+                            bandR: bandR, rows: bandRows, dim: state.dim };
+    return base;
+  }
+
+  // github#72, github#86, decisions/0011 -- a switched-to disc sits inside rings borrowed from
+  // github#86 -- another dimension; a live rebuild retakes THOSE, from that
+  // github#86 -- dimension's own plan, so the step stays sub-pixel
+  /** @param {"folder" | "tag"} dim @returns {GeomLock | null} */
+  function ringsIn(dim) {
+    var sBand = bandLock, sGeom = geomLock;
+    bandLock = null; geomLock = null;
+    try {
+      return inDim(dim, function () { takeGeom(); return geomLock; });
+    } finally { bandLock = sBand; geomLock = sGeom; }
+  }
+
+  /** @param {boolean} [skipLayout] @param {Record<string, boolean> | null} [bandHint] @param {boolean} [keepAlpha] */
   function regroup(skipLayout, bandHint, keepAlpha) {
     counts = computeOrder();
     /** @type {Record<string, string> | null} */
@@ -5605,37 +6672,12 @@ function mountVaultGraph(root, data, deps) {
     });
     buildColors();
     colorWalk(colorsBefore);
-    if (!collapsedInit) { collapsedInit = true; collapseAll(); seedHidden(); }
+    if (!dimSeeded[state.dim]) { dimSeeded[state.dim] = true; collapseAll(); seedHidden(); }
     if (!bandLock) {
-      var base = buildWedgePlan(false);
-      if (base) {
-        bandLock = dict();
-        base.cells.forEach(function (c) { bandLock[c.g] = c.inner; });
-        if (bandHint) Object.keys(bandHint).forEach(function (g) { bandLock[g] = bandHint[g]; });
-        var bandTotal = { i: 0, o: 0 };
-        base.cells.forEach(function (c) { bandTotal[c.inner ? "i" : "o"] += c.wsum; });
-        var bandR = { i: 0, o: 0 }, bandRows = { i: 0, o: 0 };
-        base.cells.forEach(function (c) {
-          var k = c.inner ? "i" : "o";
-          if (c.rows > bandRows[k]) bandRows[k] = c.rows;
-          (c.slots || []).forEach(function (sl) {
-            var rr = sl.r * UNIT;
-            if (rr > bandR[k]) bandR[k] = rr;
-          });
-        });
-        geomLock = { r0: base.r0, rOuter: base.rOuter, maxR: base.maxR,
-                     total: base.total, bandTotal: bandTotal,
-                     bandR: bandR, rows: bandRows };
-
-        var again = buildWedgePlan(false);
-        if (again) geomLock = { r0: again.r0, rOuter: again.rOuter, maxR: again.maxR,
-                                total: again.total, bandTotal: bandTotal,
-                                bandR: bandR, rows: bandRows };
-
-        if (renderer) {
-          var span = base.maxR * UNIT * 1.02;
-          renderer.setCustomBBox({ x: [-span, span], y: [-span, span] });
-        }
+      var base = takeGeom(bandHint);
+      if (base && renderer) {
+        var span = base.maxR * UNIT * 1.02;
+        renderer.setCustomBBox({ x: [-span, span], y: [-span, span] });
       }
     }
     buildLegend();
@@ -5645,7 +6687,12 @@ function mountVaultGraph(root, data, deps) {
   }
 
   // github#3
-  function hardRelayout(animate, deferLayout) {
+  /**
+   * @param {boolean} animate
+   * @param {boolean} [deferLayout]
+   * @param {boolean} [freshGeom]  take a NEW geometry lock instead of holding the old one
+   */
+  function hardRelayout(animate, deferLayout, freshGeom) {
     stopPlay();
     if (cascadeRun) {
       WIN.cancelAnimationFrame(cascadeRun.raf);
@@ -5662,15 +6709,24 @@ function mountVaultGraph(root, data, deps) {
     bandLock = null; geomLock = null;
     if (deferLayout && prevBand) {
       regroup(true, prevBand, true);
-      // github#49
-      if (prevGeom) geomLock = prevGeom;
+      // github#49; github#72, decisions/0011
+      if (prevGeom && !freshGeom) geomLock = prevGeom;
       return;
     }
     // github#45
     regroup(true);
+    // github#21, github#86 -- one pass lays out with the previous pass's room
+    // github#86 -- the fixed point takes two, so an instant relayout runs two
+    if (!deferLayout && !animate) applyLayout(false);
     if (!deferLayout) applyLayout(!!animate);
     if (renderer) renderer.refresh();
   }
+
+  // github#72, design/0014
+  invalidatesOnData("search hits", function () {
+    var hits = $("hits");
+    if (hits && hits.firstChild) hits.replaceChildren();
+  });
 
   function buildSearch() {
     var q = /** @type {HTMLInputElement} */ ($("q"));
@@ -5681,6 +6737,8 @@ function mountVaultGraph(root, data, deps) {
       /** @type {string[]} */
       var found = [];
       graph.forEachNode(function (id, a) {
+        // github#86 -- one hit per note, not one per copy of it
+        if (a.dupOf) return;
         if (a.label.toLowerCase().indexOf(state.query) > -1) found.push(id);
       });
       found.sort(function (p, o) { return graph.getNodeAttribute(o, "deg") - graph.getNodeAttribute(p, "deg"); });
@@ -5850,8 +6908,49 @@ function mountVaultGraph(root, data, deps) {
     buildLegend();
   }
 
+  // github#86, design/0015 -- the control belongs to the thing it changes
+  // github#86 -- each side carries its own dimension's group count
+  function syncDimCounts() {
+    var seg = $("dim");
+    if (!seg) return;
+    var btns = seg.querySelectorAll("button[data-dim]");
+    for (var i = 0; i < btns.length; i++) {
+      var b = /** @type {HTMLElement} */ (btns[i]);
+      var d = b.getAttribute("data-dim");
+      var ct = b.querySelector(".dimct");
+      if (!ct || !d) continue;
+      ct.textContent = "(" + inDim(d, dimGroupCount(d)) + ")";
+    }
+  }
+  /** @param {string} d @returns {() => number} */
+  function dimGroupCount(d) { return function () { return (order[d] || []).length; }; }
+
+  function syncDimUI() {
+    var seg = $("dim");
+    if (!seg) return;
+    var btns = seg.querySelectorAll("button[data-dim]");
+    for (var i = 0; i < btns.length; i++) {
+      var b = /** @type {HTMLElement} */ (btns[i]);
+      b.setAttribute("aria-pressed", b.getAttribute("data-dim") === state.dim ? "true" : "false");
+    }
+  }
+
   function buildTools() {
     refreshSettingsPanel = buildSettings;
+
+    // github#86 -- the segmented control: a side is a dimension
+    var dimSeg = $("dim");
+    if (dimSeg) dimSeg.addEventListener("click", function (ev) {
+      var t = /** @type {Element | null} */ (ev.target instanceof Element ? ev.target.closest("button[data-dim]") : null);
+      if (t) setDim(t.getAttribute("data-dim") || "folder", true);
+    });
+    syncDimUI();
+
+    // github#131, design/0019 -- the two readings
+    if ($("tabgroups")) $("tabgroups").onclick = function () { setReading("groups"); };
+    if ($("tabnote")) $("tabnote").onclick = function () { setReading("note"); };
+    cardHome();
+    setReading("groups");
 
     $("allon").onclick = function () {
       seedHidden();
@@ -5880,6 +6979,8 @@ function mountVaultGraph(root, data, deps) {
     if ($("zin")) $("zin").onclick = function () { zoomBy(1); };
     if ($("zout")) $("zout").onclick = function () { zoomBy(-1); };
     if ($("pan")) $("pan").onclick = function () { setPan(!panEnabled, true); };
+    // github#79
+    if ($("ov")) $("ov").onclick = fit;
     setPan(panEnabled, false);
     // github#23
     if ($("compact")) $("compact").onclick = function () { setCompactAxis(!compactAxis, true); };
@@ -5931,17 +7032,21 @@ function mountVaultGraph(root, data, deps) {
         $("gear").setAttribute("aria-expanded", String(open));
         if (open) { buildOptions(); buildSettings(); }
       };
+      // github#86 -- the reset drops this tab's pins, not the other dimension's
       $("fcreset").onclick = function () {
-        pickColor(null, null);
-        var savedSub = applySubfolderColors({});
-        if (saveSubfolderColors) saveSubfolderColors(Object.assign({}, savedSub));
+        pickColor(null, null, settingsDim);
+        var savedSub = applySubfolderColors({}, settingsDim);
+        saveSubColorsFor(settingsDim, Object.assign(dict(), savedSub));
         buildSettings();
       };
       $("setbody").addEventListener("click", function (ev) {
         var t = ev.target instanceof Element ? ev.target : null;
         if (!t) return;
+        // github#86 -- the tabs
+        var td = t.closest("[data-setdim]");
+        if (td) { settingsDim = td.getAttribute("data-setdim") === "tag" ? "tag" : "folder"; buildSettings(); return; }
         var v = t.closest("[data-vis]");
-        if (v) { pickVisible(v.getAttribute("data-vis")); return; }
+        if (v) { pickVisible(v.getAttribute("data-vis"), settingsDim); return; }
         var tw = t.closest("[data-stw]");
         if (tw) {
           var fg = tw.getAttribute("data-stw");
@@ -5954,11 +7059,11 @@ function mountVaultGraph(root, data, deps) {
         if (s) {
           var pk = s.getAttribute("data-sfc"), slash = pk.indexOf("/");
           pickSubColors(pk.slice(0, slash), [pk.slice(slash + 1)],
-                        s.getAttribute("data-key") || null);
+                        s.getAttribute("data-key") || null, settingsDim);
           return;
         }
         var b = t.closest("[data-fc]");
-        if (b) pickColor(b.getAttribute("data-fc"), b.getAttribute("data-key") || null);
+        if (b) pickColor(b.getAttribute("data-fc"), b.getAttribute("data-key") || null, settingsDim);
       });
       $("optbody").addEventListener("click", function (ev) {
         var t = ev.target instanceof Element ? ev.target : null;
@@ -5989,7 +7094,7 @@ function mountVaultGraph(root, data, deps) {
     /**
      * @param {PaletteSlot[]} pal
      * @param {{ role: string, current: string, autoKey?: string, dataAttr?: string,
-     *           dataValue?: string, titleFor?: (on: boolean, isAuto: boolean) => string }} opts
+     *           dataValue?: string, group?: string, titleFor?: (on: boolean, isAuto: boolean) => string }} opts
      */
     function swatchButtonsHTML(pal, opts) {
       return pal.map(function (p) {
@@ -5999,8 +7104,9 @@ function mountVaultGraph(root, data, deps) {
                (opts.dataAttr ? ' data-' + opts.dataAttr + '="' + esc(opts.dataValue) + '"' : '') +
                ' data-key="' + p.key + '" aria-checked="' + on + '"' +
                (isAuto ? ' data-auto="1"' : '') +
-               ' title="' + esc(p.name) + (opts.titleFor ? opts.titleFor(on, isAuto) : "") +
-               '" aria-label="' + esc(p.name) + '"></button>';
+               ' title="' + esc(slotTitle(p.key, p.name)) +
+               (opts.titleFor ? opts.titleFor(on, isAuto) : "") +
+               '" aria-label="' + esc(p.name) + '">' + swatchPreviewHTML(p.key, opts.group) + '</button>';
       }).join("");
     }
 
@@ -6015,13 +7121,14 @@ function mountVaultGraph(root, data, deps) {
      * @param {boolean} visShown @param {() => void} onToggleVisible
      * @param {boolean} [byFolderOn] @param {(() => void) | null} [onToggleByFolder]
      * @param {boolean} [tintOn] @param {(() => void) | null} [onToggleTint]
+     * @param {string} [group]
      */
-    function openCtxMenu(x, y, current, onPick, autoKey, visShown, onToggleVisible, byFolderOn, onToggleByFolder, tintOn, onToggleTint) {
+    function openCtxMenu(x, y, current, onPick, autoKey, visShown, onToggleVisible, byFolderOn, onToggleByFolder, tintOn, onToggleTint, group) {
       var el = $("ctxmenu");
       if (!el) return;
       var pal = paletteInfo();
       var sws = swatchButtonsHTML(pal, {
-        role: "menuitemradio", current: current, autoKey: autoKey,
+        role: "menuitemradio", current: current, autoKey: autoKey, group: group,
         titleFor: function (on, isAuto) { return isAuto ? " (automatic)" : ""; }
       });
       var visTitle = visShown ? "Hide this folder by default" : "Show this folder by default";
@@ -6078,13 +7185,14 @@ function mountVaultGraph(root, data, deps) {
         var g = gBtn.getAttribute("data-g");
         var isUnlinked = g === UNLINKED;
         var keptSeparate = isUnlinked && !unlinkedByFolder;
-        openCtxMenu(ev.clientX, ev.clientY, folderColors[g] || groupSlot[g] || "",
+        openCtxMenu(ev.clientX, ev.clientY, colorsFor()[g] || groupSlot[g] || "",
                     function (key) { pickColor(g, key); }, groupAutoSlot[g] || "",
                     !hiddenByDefault(g), function () { pickVisible(g); },
                     isUnlinked ? unlinkedByFolder : undefined,
                     isUnlinked ? function () { setUnlinkedByFolder(!unlinkedByFolder, true); } : undefined,
                     keptSeparate ? unlinkedTintByFolder : undefined,
-                    keptSeparate ? function () { setUnlinkedTintByFolder(!unlinkedTintByFolder, true); } : undefined);
+                    keptSeparate ? function () { setUnlinkedTintByFolder(!unlinkedTintByFolder, true); } : undefined,
+                    g);
         return;
       }
       var subBtn = t.closest(".lgs[data-hsub]");
@@ -6094,7 +7202,7 @@ function mountVaultGraph(root, data, deps) {
         var subs = subOrder[f] || [];
         var idx = subBtn.getAttribute("data-idx").split(",").map(Number);
         var picked = idx.map(function (i) { return subs[i]; });
-        var cur = idx.length === 1 ? (subfolderColors[f + "/" + picked[0]] || "") : "";
+        var cur = idx.length === 1 ? (subColorsFor()[f + "/" + picked[0]] || "") : "";
         openCtxMenu(ev.clientX, ev.clientY, cur,
                     function (key) { pickSubColors(f, picked, key); });
         return;
@@ -6103,54 +7211,67 @@ function mountVaultGraph(root, data, deps) {
     });
 
     /** @param {string} folder @param {string | null} key */
-    function pickColor(folder, key) {
+    /** @param {string | null} folder @param {string | null} key @param {string} [dim] */
+    function pickColor(folder, key, dim) {
+      var d = dim || state.dim;
       /** @type {SlotMap} */
       var next = dict();
       if (folder) {
-        Object.keys(folderColors).forEach(function (g) { next[g] = folderColors[g]; });
+        var cur = colorsFor(d);
+        Object.keys(cur).forEach(function (g) { next[g] = cur[g]; });
         if (key) next[folder] = key; else delete next[folder];
       }
-      var saved = applyFolderColors(next);
-      if (saveFolderColors) saveFolderColors(Object.assign({}, saved));
+      var saved = applyFolderColors(next, d);
+      saveColorsFor(d, Object.assign(dict(), saved));
       buildSettings();
     }
 
-    /** @param {string} folder @param {string[]} subs @param {string | null} key */
-    function pickSubColors(folder, subs, key) {
+    /** @param {string} folder @param {string[]} subs @param {string | null} key @param {string} [dim] */
+    function pickSubColors(folder, subs, key, dim) {
+      var d = dim || state.dim;
       /** @type {SlotMap} */
       var next = dict();
-      Object.keys(subfolderColors).forEach(function (k) { next[k] = subfolderColors[k]; });
+      var curSub = subColorsFor(d);
+      Object.keys(curSub).forEach(function (k) { next[k] = curSub[k]; });
       subs.forEach(function (sb) {
         var pk = folder + "/" + sb;
         if (key) next[pk] = key; else delete next[pk];
       });
-      var saved = applySubfolderColors(next);
-      if (saveSubfolderColors) saveSubfolderColors(Object.assign({}, saved));
+      var saved = applySubfolderColors(next, d);
+      saveSubColorsFor(d, Object.assign(dict(), saved));
       buildSettings();
     }
 
     /** @param {string} folder */
-    function pickVisible(folder) {
+    /** @param {string} folder @param {string} [dim] */
+    function pickVisible(folder, dim) {
+      var d = dim || state.dim;
       /** @type {Record<string, boolean>} */
       var next = dict();
-      Object.keys(folderShown).forEach(function (g) { next[g] = folderShown[g]; });
-      next[folder] = hiddenByDefault(folder);
-      var saved = applyFolderShown(next);
-      if (saveFolderShown) saveFolderShown(Object.assign({}, saved));
-      var h = state.hidden[state.dim] || (state.hidden[state.dim] = dict());
-      if (hiddenByDefault(folder)) h[folder] = true; else delete h[folder];
-      buildLegend();
-      cascade(null, { colToggle: true });
+      var cur = shownFor(d);
+      Object.keys(cur).forEach(function (g) { next[g] = cur[g]; });
+      // github#86 -- flip THIS dimension's default, on screen or not
+      var wasHidden = typeof cur[folder] === "boolean" ? !cur[folder] : isArchiveGroup(folder);
+      next[folder] = wasHidden;
+      var saved = applyFolderShown(next, d);
+      saveShownFor(d, Object.assign(dict(), saved));
+      if (d === state.dim) {
+        var h = state.hidden[state.dim] || (state.hidden[state.dim] = dict());
+        if (hiddenByDefault(folder)) h[folder] = true; else delete h[folder];
+        buildLegend();
+        cascade(null, { colToggle: true });
+      }
       buildSettings();
     }
 
-    /** @param {string} g @param {PaletteSlot[]} pal */
-    function subfolderRows(g, pal) {
-      return (subOrder[g] || []).map(function (sb) {
+    /** @param {string} g @param {PaletteSlot[]} pal @param {string} [dim] */
+    function subfolderRows(g, pal, dim) {
+      var d = dim || state.dim;
+      return subsFor(d, g).map(function (sb) {
         var pk = g + "/" + sb;
-        var pin = subfolderColors[pk] || "";
-        var tint = subShade[pk] || colorOf(g);
-        var nm = sb || "(directly in folder)";
+        var pin = subColorsFor(d)[pk] || "";
+        var tint = subShadeFor(d, pk) || slotColor(slotFor(d, g));
+        var nm = sb || (d === "tag" ? "(no nested tag)" : "(directly in folder)");
         var sws = swatchButtonsHTML(pal, {
           role: "radio", dataAttr: "sfc", dataValue: pk, current: pin,
           titleFor: function (on, isAuto) { return on ? " (chosen)" : ""; }
@@ -6160,7 +7281,7 @@ function mountVaultGraph(root, data, deps) {
                '<div class="scrh">' +
                '<span class="sw" style="background:' + tint + ';border-radius:50%"></span>' +
                '<span class="nm" title="' + esc(nm) + '">' + esc(nm) + '</span>' +
-               '<span class="ct">' + (subCount[pk] || 0) + '</span>' +
+               '<span class="ct">' + subCountFor(d, pk) + '</span>' +
                '<button class="auto" data-sfc="' + esc(pk) + '" data-key=""' +
                ' aria-pressed="' + (!pin) + '"' +
                ' title="Back to the automatic tint">Auto</button>' +
@@ -6182,7 +7303,12 @@ function mountVaultGraph(root, data, deps) {
       { key: "unlinkedTintByFolder", label: "Colour unlinked notes by folder",
         title: "While unlinked notes are kept as their own group, give each one its own folder's colour instead of the flat unlinked swatch -- also reachable by right-clicking the (unlinked) row",
         get: function () { return unlinkedTintByFolder; },
-        set: function (v) { setUnlinkedTintByFolder(v, true); } }
+        set: function (v) { setUnlinkedTintByFolder(v, true); } },
+      // github#78, design/0006
+      { key: "countBars", label: "Count bars in the legend",
+        title: "Draw a short rule along the bottom of each folder row, in that folder's own colour, scaled so the largest folder currently shown fills its row -- the count alone makes 406 notes and 1 note look the same",
+        get: function () { return countBars; },
+        set: function (v) { setCountBars(v, true); } }
     ];
     function buildOptions() {
       var host = $("optbody");
@@ -6197,23 +7323,55 @@ function mountVaultGraph(root, data, deps) {
       }).join(""));
     }
 
+    /** @param {string} dim @returns {string[]} */
+    function orderFor(dim) { return inDim(dim, function () { return (order[dim] || []).slice(); }); }
+    /** @param {string} dim @param {string} g */
+    function slotFor(dim, g) { return inDim(dim, function () { return groupSlot[g] || ""; }); }
+    /** @param {string} dim @param {string} g */
+    function autoSlotFor(dim, g) { return inDim(dim, function () { return groupAutoSlot[g] || ""; }); }
+    /** @param {string} dim @param {string} g @returns {string[]} */
+    function subsFor(dim, g) { return inDim(dim, function () { return (subOrder[g] || []).slice(); }); }
+    /** @param {string} dim @param {string} pk */
+    function subCountFor(dim, pk) { return inDim(dim, function () { return subCount[pk] || 0; }); }
+    /** @param {string} dim @param {string} pk */
+    function subShadeFor(dim, pk) { return inDim(dim, function () { return subShade[pk] || ""; }); }
+    /** @param {string} key a palette slot @returns {string} */
+    function slotColor(key) { return THEME.byKey[key] || THEME.neutrals[0]; }
+
     function buildSettings() {
       var pal = paletteInfo();
-      var rows = (order[state.dim] || []).map(function (g) {
-        var pinned = folderColors[g] || "";
-        var cur = pinned || groupSlot[g] || "";
+      // github#86, design/0015 -- one tab per grouping, the same control the group list uses.
+      // github#86 -- each tab writes its own dimension's maps, on screen or not
+      var d = settingsDim;
+      var tabs = '<span class="dimseg setseg" role="group" aria-label="Set colours for">' +
+        DIMS.map(function (k) {
+          return '<button type="button" data-setdim="' + k + '" aria-pressed="' + (k === d) +
+                 '" title="Colours and default visibility for ' + (k === "tag" ? "tags" : "folders") + '">' +
+                 (k === "tag" ? "Tags" : "Folders") + '</button>';
+        }).join("") + '</span>';
+      // github#86 -- a dimension with nothing to show still gets its tab
+      var names = orderFor(d);
+      if (!names.length) {
+        setHTML($("setbody"), tabs +
+          '<div class="lbl" style="margin:9px 0 0;opacity:.7">This vault has no ' +
+          (d === "tag" ? "tags" : "folders") + ' to colour.</div>');
+        return;
+      }
+      var rows = names.map(function (g) {
+        var pinned = colorsFor(d)[g] || "";
+        var cur = pinned || slotFor(d, g) || "";
         // github#29
-        var autoKey = groupAutoSlot[g] || "";
+        var autoKey = autoSlotFor(d, g) || "";
         var sws = swatchButtonsHTML(pal, {
-          role: "radio", dataAttr: "fc", dataValue: g, current: cur, autoKey: autoKey,
+          role: "radio", dataAttr: "fc", dataValue: g, group: g, current: cur, autoKey: autoKey,
           titleFor: function (on, isAuto) {
             return on ? (pinned ? " (chosen)" : " (automatic)") : (isAuto ? " (automatic default)" : "");
           }
         });
-        var shown = !hiddenByDefault(g);
-        var hasSubs = state.dim === "folder" &&
-                      (groupHasPinnedSub(g) ||
-                       ((subOrder[g] || []).length > 1 && (counts[g] || 0) >= NEST_MIN));
+        var shownMap = shownFor(d)[g];
+        var shown = typeof shownMap === "boolean" ? shownMap : !isArchiveGroup(g);
+        var subs = subsFor(d, g);
+        var hasSubs = subs.length > 1 || subs.some(function (sb) { return !!subColorsFor(d)[g + "/" + sb]; });
         var open = hasSubs && !state.collapsed[g];
         return '<div class="scr" role="radiogroup" aria-label="Colour for ' + esc(g) + '">' +
                '<div class="scrh">' +
@@ -6228,13 +7386,14 @@ function mountVaultGraph(root, data, deps) {
                ' title="Back to the slot this folder gets automatically">Auto</button>' +
                '</div>' +
                '<span class="sws">' + sws + '</span></div>' +
-               (open ? subfolderRows(g, pal) : "");
+               (open ? subfolderRows(g, pal, d) : "");
       }).join("");
-      setHTML($("setbody"), rows);
+      setHTML($("setbody"), tabs + rows);
     }
   }
 
-  var FIT_RATIO = 1.08;
+  // github#128
+  var FIT_RATIO = 0.954;
 
   // github#14
   var camAtRest = true, fitting = false;
@@ -6274,6 +7433,253 @@ function mountVaultGraph(root, data, deps) {
     if (typeof lo === "number" && r < lo) r = lo;
     if (typeof hi === "number" && r > hi) r = hi;
     cam.animate({ ratio: r }, { duration: renderer.getSetting("zoomDuration") || 120 });
+  }
+
+  /* --------------------------------------------------------------- overview */
+
+  // github#79
+  var OV_DISC_FRAC = 0.62;
+  var OV_CHEV_PX = 6;
+  var OV_SECTOR_A = 0.55;
+  var OV_FILL_A = 0.18;
+  /**
+   * @typedef {Object} OvSector
+   * @property {string} g
+   * @property {string} band     "i" or "o"
+   * @property {number} a0       leading edge, sweep radians
+   * @property {number} a1       trailing edge
+   * @property {string} c        the group's colour
+   */
+  /**
+   * @typedef {Object} OvShape
+   * @property {number} s        tile side, css px
+   * @property {number} k        graph units -> tile px
+   * @property {BandNum} rings   outer edge of each band
+   * @property {number[]} inner  inner edge of each band, [i, o]
+   * @property {OvSector[]} sectors
+   * @property {number[]} rect   the viewport footprint: x0, y0, x1, y1
+   * @property {number | null} chevron   canvas radians, set only when the rect misses the tile
+   */
+  /** @typedef {{ x0: number, x1: number, y0: number, y1: number }} OvExtent */
+  /** @type {Cell[] | null} */
+  var ovCells = null;
+  var ovSig = "";
+  var ovPaints = 0;
+  var ovOn = false;
+  /** @type {OvShape | null} */
+  var ovLast = null;
+
+  function ovSize() {
+    var host = $("ov");
+    var cv = host ? host.querySelector("canvas") : null;
+    var w = cv ? cv.clientWidth : 0;
+    if (w > 0) return w;
+    var v = parseFloat(css("--ov-size"));
+    return v > 0 ? v : 96;
+  }
+
+  // github#79, design/0017 -- after a frame, never off the camera event
+  /** @returns {OvExtent | null} */
+  function ovFootprint() {
+    if (!renderer) return null;
+    var d = renderer.getDimensions();
+    if (!(d.width > 0) || !(d.height > 0)) return null;
+    var a = renderer.viewportToGraph({ x: 0, y: 0 });
+    var b = renderer.viewportToGraph({ x: d.width, y: d.height });
+    if (!isFinite(a.x) || !isFinite(a.y) || !isFinite(b.x) || !isFinite(b.y)) return null;
+    return { x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x),
+             y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y) };
+  }
+
+  // github#79, design/0017 -- the LIVE radius, because fit() frames the live disc
+  /** @param {OvExtent} fp */
+  function ovCropped(fp) {
+    var r = (lastMaxR || 0) * UNIT;
+    if (!(r > 0)) return false;
+    return !(fp.x0 <= -r && fp.x1 >= r && fp.y0 <= -r && fp.y1 >= r);
+  }
+
+  /** @returns {OvSector[]} */
+  function ovSectors() {
+    /** @type {Record<string, OvSector>} */
+    var byKey = dict();
+    /** @type {OvSector[]} */
+    var out = [];
+    var list = ovCells || [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      if (c.pLead === undefined || c.pTrail === undefined) continue;
+      if (!(c.pTrail > c.pLead)) continue;
+      var key = c.bandKey + " " + c.g;
+      var s = byKey[key];
+      if (!s) {
+        s = { g: c.g, band: c.bandKey, a0: c.pLead, a1: c.pTrail, c: colorOf(c.g) };
+        byKey[key] = s;
+        out.push(s);
+      } else {
+        if (c.pLead < s.a0) s.a0 = c.pLead;
+        if (c.pTrail > s.a1) s.a1 = c.pTrail;
+      }
+    }
+    return out;
+  }
+
+  /** @param {OvExtent} fp @returns {OvShape | null} */
+  function ovShape(fp) {
+    if (!geomLock) return null;
+    var outer = geomLock.maxR * UNIT;
+    if (!(outer > 0)) return null;
+    var s = ovSize(), half = s / 2;
+    var k = OV_DISC_FRAC * half / outer;
+    var bR = geomLock.bandR;
+    var iLo = geomLock.r0 * INNER_SCALE * UNIT;
+    var iHi = bR && bR.i > iLo ? bR.i : iLo;
+    var oLo = geomLock.rOuter * UNIT;
+    var oHi = bR && bR.o > oLo ? bR.o : outer;
+    var rect = [half + k * fp.x0, half - k * fp.y1, half + k * fp.x1, half - k * fp.y0];
+    var misses = rect[2] < 0 || rect[0] > s || rect[3] < 0 || rect[1] > s;
+    return { s: s, k: k, rings: { i: iHi * k, o: oHi * k }, inner: [iLo * k, oLo * k],
+             sectors: ovSectors(), rect: rect,
+             chevron: misses ? Math.atan2(-(fp.y0 + fp.y1) / 2, (fp.x0 + fp.x1) / 2) : null };
+  }
+
+  // github#79, design/0017, design/0010 -- the drawing's inputs, at what moves a pixel
+  /** @param {OvShape} sh */
+  function ovSigOf(sh) {
+    /** @type {(string | number)[]} */
+    var p = [Math.round(sh.s), Math.round((WIN.devicePixelRatio || 1) * 100),
+             Math.round(sh.rings.i * 2), Math.round(sh.rings.o * 2),
+             Math.round(sh.inner[0] * 2), Math.round(sh.inner[1] * 2),
+             sh.chevron === null ? "-" : Math.round(sh.chevron * 180 / Math.PI)];
+    for (var i = 0; i < 4; i++) p.push(Math.round(sh.rect[i] * 4));
+    for (var j = 0; j < sh.sectors.length; j++) {
+      var sc = sh.sectors[j];
+      p.push(sc.g, sc.band, sc.c, Math.round(sc.a0 * 180 / Math.PI),
+             Math.round(sc.a1 * 180 / Math.PI));
+    }
+    p.push(THEME.text, THEME.dim);
+    return p.join(",");
+  }
+
+  var OV_DIRS = ["right", "lower right", "below", "lower left",
+                 "left", "upper left", "above", "upper right"];
+  /** @param {number} a canvas radians @returns {string} */
+  function ovDirWord(a) {
+    var i = Math.round(a / (Math.PI / 4));
+    while (i < 0) i += 8;
+    return OV_DIRS[i % 8];
+  }
+
+  /** @param {OvShape} sh */
+  function ovLabel(sh) {
+    var host = $("ov");
+    if (!host) return;
+    var t = sh.chevron === null
+      ? "Where the frame sits on the disc. Click to fit."
+      : "Viewport " + ovDirWord(sh.chevron) + " of the disc. Click to fit.";
+    if (host.title !== t) {
+      host.title = t;
+      host.setAttribute("aria-label", t);
+    }
+  }
+
+  /** @param {OvShape} sh */
+  function ovPaint(sh) {
+    var host = $("ov");
+    if (!host) return;
+    var cv = /** @type {HTMLCanvasElement | null} */ (host.querySelector("canvas"));
+    if (!cv || !cv.getContext) return;
+    var s = sh.s, half = s / 2, dpr = WIN.devicePixelRatio || 1;
+    var w = Math.round(s * dpr);
+    if (cv.width !== w || cv.height !== w) { cv.width = w; cv.height = w; }
+    var g2 = /** @type {CanvasRenderingContext2D} */ (cv.getContext("2d"));
+    g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g2.clearRect(0, 0, s, s);
+
+    g2.strokeStyle = THEME.dim;
+    g2.lineWidth = 1;
+    [sh.rings.i, sh.rings.o].forEach(function (r) {
+      if (!(r > 0.5)) return;
+      g2.beginPath();
+      g2.arc(half, half, r, 0, 2 * Math.PI);
+      g2.stroke();
+    });
+
+    g2.globalAlpha = OV_SECTOR_A;
+    sh.sectors.forEach(function (sc) {
+      var lo = sc.band === "i" ? sh.inner[0] : sh.inner[1];
+      var hi = sc.band === "i" ? sh.rings.i : sh.rings.o;
+      if (!(hi > lo)) return;
+      var a0 = sc.a0 - Math.PI / 2, a1 = sc.a1 - Math.PI / 2;
+      g2.fillStyle = sc.c;
+      g2.beginPath();
+      g2.arc(half, half, hi, a0, a1, false);
+      g2.arc(half, half, lo, a1, a0, true);
+      g2.closePath();
+      g2.fill();
+    });
+    g2.globalAlpha = 1;
+
+    var r = sh.rect;
+    if (sh.chevron === null) {
+      g2.fillStyle = THEME.text;
+      g2.globalAlpha = OV_FILL_A;
+      g2.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
+      g2.globalAlpha = 0.85;
+      g2.strokeStyle = THEME.text;
+      g2.strokeRect(r[0] + 0.5, r[1] + 0.5,
+                    Math.max(1, r[2] - r[0] - 1), Math.max(1, r[3] - r[1] - 1));
+    } else {
+      var rr = half - OV_CHEV_PX - 1;
+      g2.save();
+      g2.translate(half + rr * Math.cos(sh.chevron), half + rr * Math.sin(sh.chevron));
+      g2.rotate(sh.chevron);
+      g2.fillStyle = THEME.text;
+      g2.globalAlpha = 0.85;
+      g2.beginPath();
+      g2.moveTo(OV_CHEV_PX, 0);
+      g2.lineTo(-OV_CHEV_PX * 0.6, OV_CHEV_PX * 0.7);
+      g2.lineTo(-OV_CHEV_PX * 0.6, -OV_CHEV_PX * 0.7);
+      g2.closePath();
+      g2.fill();
+      g2.restore();
+    }
+    g2.globalAlpha = 1;
+    ovLabel(sh);
+    ovPaints++;
+    ovLast = sh;
+  }
+
+  /** @param {boolean} on */
+  function ovShow(on) {
+    if (ovOn === on) return;
+    ovOn = on;
+    var host = $("ov");
+    if (host) {
+      // github#79 -- a control that hides itself hands focus on, never drops it
+      if (!on && DOC && DOC.activeElement === host) {
+        var back = $("reset");
+        if (back) back.focus();
+      }
+      host.hidden = !on;
+    }
+    ROOT.setAttribute("data-ov", on ? "on" : "off");
+    if (!on) { ovSig = ""; ovLast = null; }
+  }
+
+  function ovSync() {
+    if (dead || !$("ov")) return;
+    var fp = geomLock ? ovFootprint() : null;
+    var cropped = !!fp && ovCropped(fp);
+    // github#79, design/0017
+    if (cropped && !ovOn && cascadeRun && fitting) cropped = false;
+    var sh = cropped && fp ? ovShape(fp) : null;
+    if (!sh) { ovShow(false); return; }
+    ovShow(true);
+    var sig = ovSigOf(sh);
+    if (sig === ovSig) return;
+    ovSig = sig;
+    ovPaint(sh);
   }
 
   /* github#73, design/0013 */
@@ -6362,6 +7768,144 @@ function mountVaultGraph(root, data, deps) {
     return compactAxis;
   }
 
+  /**
+   * github#86, design/0015 -- one nav state per dimension: names may collide
+   * @typedef {Object} DimNav
+   * @property {Record<string, boolean>} hiddenSub
+   * @property {Record<string, boolean>} highlight
+   * @property {Record<string, boolean>} highlightSub
+   * @property {Record<string, boolean>} collapsed
+   * @property {Record<string, boolean>} tailOpen
+   * @property {Record<string, boolean>} pathOpen
+   */
+  /** @type {Record<string, DimNav>} */
+  var dimNav = dict();
+
+  /** @param {string} dim */
+  function stashDimNav(dim) {
+    dimNav[dim] = {
+      hiddenSub: state.hiddenSub, highlight: state.highlight,
+      highlightSub: state.highlightSub, collapsed: state.collapsed,
+      tailOpen: state.tailOpen, pathOpen: state.pathOpen
+    };
+  }
+
+  /** @param {string} dim */
+  function restoreDimNav(dim) {
+    var b = dimNav[dim];
+    state.hiddenSub = b ? b.hiddenSub : dict();
+    state.highlight = b ? b.highlight : dict();
+    state.highlightSub = b ? b.highlightSub : dict();
+    state.collapsed = b ? b.collapsed : dict();
+    state.tailOpen = b ? b.tailOpen : dict();
+    state.pathOpen = b ? b.pathOpen : dict();
+  }
+
+  // github#86, design/0015 -- the rings belong to the page, not to a dimension: the disc
+  // github#86 -- arriving re-packs inside the rings it finds, like a filter,
+  // github#86 -- so the two discs of a switch share a hub and an outer edge
+  /** @param {GeomLock | null} rings */
+  function keepRings(rings) {
+    if (!rings || !geomLock) return;
+    geomLock.r0 = rings.r0; geomLock.rOuter = rings.rOuter; geomLock.maxR = rings.maxR;
+    geomLock.bandR = rings.bandR; geomLock.dim = rings.dim;
+    if (renderer) {
+      var span = rings.maxR * UNIT * 1.02;
+      renderer.setCustomBBox({ x: [-span, span], y: [-span, span] });
+    }
+  }
+
+  // github#86, design/0015
+  /** @param {string} v @param {boolean} [persist] @param {boolean} [instant] */
+  function setDim(v, persist, instant) {
+    var next = DIMS.indexOf(/** @type {"folder" | "tag"} */ (v)) >= 0
+      ? /** @type {"folder" | "tag"} */ (v) : "folder";
+    if (next === state.dim) return state.dim;
+    if (next === "tag") buildTagFiling();
+
+    // github#86, design/0015 -- a switch cut short leaves stand-ins; take them home
+    dropStandIns();
+    // github#86 -- D-8: every visible note leaves; a stand-in arrives instead
+    /** @type {Record<string, string>} */
+    var leftColors = dict();
+    var n = 0;
+    if (renderer && !instant) {
+      graph.forEachNode(function (id, a) {
+        // github#86 -- a copy does not survive a switch; it leaves
+        if (a.dupOf) return;
+        if (!visible(id) || (alpha[id] || 0) <= 0.004) return;
+        // github#86 -- its colour and group, read while this is still its dimension
+        leftColors[id] = nodeColor(id);
+        leftGroup[id] = groupOf(id);
+        leaving[id] = true;
+        n++;
+      });
+      if (n) {
+        addStandIns();
+        /** @type {Record<string, number>} */
+        var oldCounts = dict();
+        /** @type {Record<string, string>} */
+        var oldColors = dict();
+        var oldBasis = barBasis();
+        /** @type {Record<string, string>} */
+        var oldFill = dict();
+        /** @type {Record<string, string>} */
+        var oldSwTitle = dict();
+        /** @type {Record<string, boolean>} */
+        var oldSubs = dict();
+        /** @type {Record<string, boolean>} */
+        var oldOpen = dict();
+        (order[state.dim] || []).forEach(function (g) {
+          oldCounts[g] = counts[g] || 0; oldColors[g] = colorOf(g);
+          oldFill[g] = swatchFill(g); oldSwTitle[g] = swatchTitle(g, bandLock);
+          oldSubs[g] = groupHasPinnedSub(g) || ((subOrder[g] || []).length > 1 && (counts[g] || 0) >= NEST_MIN);
+          oldOpen[g] = oldSubs[g] && !state.collapsed[g];
+        });
+        legendSwitch = { dim: state.dim, order: (order[state.dim] || []).slice(), counts: oldCounts,
+                         colors: oldColors, fill: oldFill, swTitle: oldSwTitle, bandLock: bandLock, subs: oldSubs, open: oldOpen,
+                         hidden: state.hidden[state.dim] || dict(), basis: oldBasis.max, basisGroup: oldBasis.group };
+      }
+    }
+
+    // github#86, design/0015 -- the disc being LEFT, so the cascade can draw both
+    /** @type {LeftDisc} */
+    var from = { dim: state.dim, subOrder: subOrder, bandLock: bandLock, geomLock: geomLock,
+                 color: leftColors };
+    var rings = geomLock;
+    stashDimNav(state.dim);
+    state.dim = next;
+    settingsDim = next;
+    restoreDimNav(next);
+    state.hoverGroup = null;
+    state.hoverSub = dict();
+    // github#86 -- the sub-wedges answer to the dimension too
+    buildSubOrder();
+    syncDimUI();
+    if (n) {
+      // github#86 -- fresh locks for the new dimension, positions untouched
+      moveFrom = null; splitHold = null; pinnedPlan = null; planKeep = null;
+      roomNow = null; cellNow = null; edgeNow = null; colWalk = null; posSrc = null;
+      bandLock = null; geomLock = null;
+      // github#86 -- alpha is the cascade's to walk: a note this disc hides and
+      // github#86 -- the next shows ARRIVES with the fill edge, not at the switch
+      regroup(true, undefined, true);
+      keepRings(rings);
+    } else {
+      hardRelayout(false, false);
+      keepRings(rings);
+      // github#86, design/0015 -- room and position are a fixed point: converge
+      applyLayout(false);
+      applyLayout(false);
+    }
+    attempt(placeLogo); attempt(heatBuild); attempt(buildLegend);
+    // github#86 -- the colour panel is dimension-dependent now
+    if (refreshSettingsPanel) refreshSettingsPanel();
+    if (persist && onDim) onDim(state.dim);
+    // github#76, github#86 -- every wedge changes, so cross the two discs in one sweep
+    if (n) cascade(dropStandIns, { colToggle: true, hand: true, from: from });
+    return state.dim;
+  }
+
   // github#3
   // github#45
   function setUnlinkedByFolder(on, persist, instant) {
@@ -6397,6 +7941,79 @@ function mountVaultGraph(root, data, deps) {
     attempt(placeLogo); attempt(heatBuild); attempt(buildLegend);
     if (persist && onUnlinkedTintByFolder) onUnlinkedTintByFolder(unlinkedTintByFolder);
     return unlinkedTintByFolder;
+  }
+
+  // github#78, design/0006
+  /** @param {Record<string, number>} map */
+  function paintBars(map) {
+    var host = $("legend");
+    if (!host) return;
+    Array.prototype.forEach.call(host.querySelectorAll(".lg[data-g]"),
+      /** @param {HTMLElement} el */ function (el) {
+        var g = el.getAttribute("data-g");
+        if (g === null || map[g] === undefined) return;
+        var v = map[g];
+        if (v <= 0) {
+          el.classList.remove("bar");
+          el.classList.remove("bar-out");
+          el.style.removeProperty("--vg-share");
+          return;
+        }
+        el.classList.add("bar");
+        el.classList.toggle("bar-out", !!barNow && !barNow[g]);
+        el.style.setProperty("--vg-share", (v * 100).toFixed(3) + "%");
+      });
+  }
+
+  // github#78, design/0006
+  /** @returns {boolean} whether a walk is worth running */
+  function barWalkStart() {
+    barShown = null;
+    if (!countBars || !barPrev || !barNow) return false;
+    var moved = false;
+    Object.keys(barNow).forEach(function (g) {
+      var a = barPrev[g] === undefined ? 0 : barPrev[g];
+      if (Math.abs(a - barNow[g]) > 0.0005) moved = true;
+    });
+    if (!moved) return false;
+    /** @type {Record<string, number>} */
+    var from = dict();
+    Object.keys(barNow).forEach(function (g) {
+      from[g] = barPrev && barPrev[g] !== undefined ? barPrev[g] : 0;
+    });
+    barShown = from;
+    paintBars(from);
+    return true;
+  }
+
+  // github#78, design/0006
+  /** @param {number} e eased progress, 0..1, the disc's own */
+  function barWalkTick(e) {
+    if (!barShown || !barNow) return;
+    /** @type {Record<string, number>} */
+    var at = dict();
+    Object.keys(barNow).forEach(function (g) {
+      var a = barShown[g] === undefined ? 0 : barShown[g];
+      at[g] = a + (barNow[g] - a) * e;
+    });
+    paintBars(at);
+  }
+
+  // github#78, design/0006
+  function barWalkEnd() {
+    if (!barShown) return;
+    barShown = null;
+    if (barNow) paintBars(barNow);
+  }
+
+  // github#78, design/0006
+  function setCountBars(on, persist) {
+    countBars = !!on;
+    var btn = $("opt-countBars");
+    if (btn) btn.setAttribute("aria-pressed", countBars ? "true" : "false");
+    attempt(buildLegend);
+    if (persist && onCountBars) onCountBars(countBars);
+    return countBars;
   }
 
   function savePng() {
@@ -6487,7 +8104,8 @@ function mountVaultGraph(root, data, deps) {
       "<b>" + s.unresolved + "</b> link(s) point at notes that do not exist" +
       (s.ghostsIncluded ? " (shown as ghosts)" : " (hidden)") + "<br>" +
       (s.templatesExcluded ? "Templates excluded. " : "") +
-      "Generated " + esc(DATA.generated));
+      "Generated " + esc(DATA.generated) +
+      (DATA.version ? " &middot; v" + esc(DATA.version) : ""));
   }
 
   /** @param {unknown} s */
@@ -6551,6 +8169,8 @@ function mountVaultGraph(root, data, deps) {
   var heatSig = "";
   /** @type {number | null} */
   var heatRz = null;
+  // github#72, design/0014
+  invalidatesOnData("heatmap tally", function () { heatSig = ""; if (heat) heatBuild(); });
 
   /** @param {string} s @returns {number} ms, or NaN */
   function heatParse(s) {
@@ -6608,6 +8228,10 @@ function mountVaultGraph(root, data, deps) {
     /** @type {Record<string, number>} */
     var all = dict();
     graph.forEachNode(function (id, a) {
+      // github#86 -- a day counts NOTES written, not dots; a stand-in is its
+      // github#86 -- note's arriving dot: its weight and colour cross-fade
+      // github#86 -- the note's day from the colour it had to the colour it gets
+      if (a.dupOf && !a.standIn) return;
       var k = heatDateOf(a);
       if (!heatParse(k)) { undated++; return; }
       all[k] = (all[k] || 0) + 1;
@@ -6694,8 +8318,10 @@ function mountVaultGraph(root, data, deps) {
 
     var inWin = 0;
     for (var i = 0; i < keys.length; i++) inWin += days[keys[i]].ids.length;
+    // github#86 -- graph.order counts DOTS, and this sentence says notes
     $("heatnote").textContent =
-      "last " + cols + " weeks · " + inWin + " of " + graph.order + " notes" +
+      "last " + cols + " weeks · " + inWin + " of " +
+      (graph.order - standIns.length) + " notes" +
       (before ? " · " + before + " earlier" : "") +
       (after ? " · " + after + " later" : "") +
       (undated ? " · " + undated + " undated" : "") +
@@ -6764,6 +8390,8 @@ function mountVaultGraph(root, data, deps) {
       sig.push(Math.ceil(heat.days[heat.keys[i]].n * 4));
     }
     sig.push(state.markDay || "", state.hoverDay || "", heat.cell, state.heatSource);
+    // github#86 -- while a switch runs the colours move under a steady count
+    if (standIns.length) sig.push("s" + lastCascade.frames);
     sig = sig.join(",");
     if (sig === heatSig) return;
     heatSig = sig;
@@ -7719,6 +9347,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {boolean} [hover]
    * @property {boolean} [drag]
    * @property {boolean} [touchmode]
+   * @property {string} [live]       "outer" or "inner": hand the page one more note on that ring
    * @property {number} [wheel]
    * @property {string[]} [target]
    * @property {string[]} [to]
@@ -7782,6 +9411,8 @@ function mountVaultGraph(root, data, deps) {
    */
   function demoFind(kind, arg) {
     if (kind === "id") return $(arg);
+    // github#86 -- a side of the grouping control
+    if (kind === "dim") return $("dim") ? $("dim").querySelector('button[data-dim="' + arg + '"]') : null;
     if (kind === "stage") {
       var stageEl = $("graph");
       if (!stageEl) return null;
@@ -7890,6 +9521,8 @@ function mountVaultGraph(root, data, deps) {
       return pickY;
     }
     if (kind === "note") return demoNoteRect(arg);
+    // github#72, design/0014
+    if (kind === "arrival") return demoArrivalRect();
     if (kind === "biginner") return demoBigInnerNote();
     if (kind === "pin") {
       var dcard = $("detail");
@@ -7936,7 +9569,8 @@ function mountVaultGraph(root, data, deps) {
       v = { x: v.x + org.left, y: v.y + org.top };
       var r = renderer.scaleSize ? renderer.scaleSize(dotPx(a.size, id)) : dotPx(a.size, id);
       if (r > maxR) maxR = r;
-      pts.push({ id: id, x: v.x, y: v.y, r: r, mine: a.folder === g, label: a.label });
+      // github#86 -- which wedge the dot is DRAWN in
+      pts.push({ id: id, x: v.x, y: v.y, r: r, mine: groupOf(id) === g, label: a.label });
     });
     var best = null, bestGap = -1;
     for (var i = 0; i < pts.length; i++) {
@@ -8066,9 +9700,41 @@ function mountVaultGraph(root, data, deps) {
       { settle: true, act: "intro", why: "start from a disc at rest" },
       { click: true, target: ["id", "refresh"], act: "intro", why: "replay the intro on camera" },
       { settle: true, act: "intro", why: "the vault grows from its first note to now, and the range end sweeps with it" },
+      // github#86, design/0015 -- the second dimension: one hand erases the folder disc
+      // github#86 -- in place, the other lights the tag disc; links, heat strip,
+      // github#86 -- nav bar following the notes
+      { click: true, target: ["dim", "tag"], act: "tags", why: "cut the disc by tag instead of by folder" },
+      { settle: true, act: "tags", why: "one hand takes the folders, the other brings the tags" },
+      { click: true, target: ["twisty", "area"], act: "tags", why: "a nested tag unfolds the same way a nested folder does" },
+      { click: true, target: ["sub", "area/health"], act: "tags", why: "click the sub-tag: haloed and pushed out, same as a subfolder" },
+      { settle: true, act: "tags", why: "let the sub-wedge push out" },
+      { click: true, target: ["sub", "area/health"], act: "tags", why: "...and let it back down" },
+      { settle: true, act: "tags", why: "let it settle back" },
+      { click: true, target: ["twisty", "area"], act: "tags", why: "fold it away again" },
+      { click: true, target: ["dim", "folder"], act: "tags", why: "and back to folders" },
+      { settle: true, act: "tags", why: "the same swap the other way round" },
 
       { hover: true, target: ["note", "04"], act: "note", why: "hover a daily note" },
       { hover: true, target: ["note", "05"], act: "note", why: "hover a meeting note" },
+
+      { click: true, target: ["id", "band"], act: "collapsepreview", why: "fold the calendar band away -- a preview of the toggle, restored before the acts ahead that need the legend" },
+      { settle: true, act: "collapsepreview", why: "let the disc take the band's height" },
+      { click: true, target: ["id", "sheet"], act: "collapsepreview", why: "...and the folder list too" },
+      { settle: true, act: "collapsepreview", why: "let the disc take the whole window" },
+      { click: true, target: ["id", "sheet"], act: "collapsepreview", why: "bring the folder list back -- the acts ahead need it" },
+      { settle: true, act: "collapsepreview", why: "let it return" },
+      { click: true, target: ["id", "band"], act: "collapsepreview", why: "...and the calendar band" },
+      { settle: true, act: "collapsepreview", why: "back to the starting layout" },
+
+      { drag: true, target: ["biginner"], act: "pin", to: ["stage", "centre"],
+        why: "drag a note into the hole to pin it" },
+      { settle: true, act: "pin", why: "the hub opens and the ring closes around where it was" },
+      { rightclick: true, target: ["note", "05"], act: "pin", why: "right-click a note -- pins the same way" },
+      { settle: true, act: "pin", why: "let the second pin land" },
+      { click: true, target: ["note", "03"], act: "pin", why: "click a note to open its card" },
+      { click: true, target: ["pin"], act: "pin", why: "...and pin it from the card itself" },
+      { settle: true, act: "pin", why: "let the third pin land" },
+      { click: true, target: ["detailclose"], act: "pin", why: "close the card" },
 
       // github#40, design/0012
       { click: true, target: ["note", "05"], act: "hoptrail", why: "open a well-linked note's card" },
@@ -8085,8 +9751,6 @@ function mountVaultGraph(root, data, deps) {
       { settle: true, act: "hoptrail", why: "let it land" },
       { click: true, target: ["crumbback"], act: "hoptrail", why: "the back arrow steps back one hop" },
       { settle: true, act: "hoptrail", why: "let the camera fly back" },
-      { click: true, target: ["crumbback"], act: "hoptrail", why: "...and one more" },
-      { settle: true, act: "hoptrail", why: "let it land" },
       { click: true, target: ["crumb", "0"], act: "hoptrail",
         why: "or click a crumb to jump straight back to it -- the trail truncates there" },
       { settle: true, act: "hoptrail", why: "let the walk unwind" },
@@ -8095,16 +9759,6 @@ function mountVaultGraph(root, data, deps) {
       { click: true, target: ["id", "reset"], act: "hoptrail",
         why: "fit the disc again -- a walk moves the camera, and the acts after it aim at notes" },
       { settle: true, act: "hoptrail", why: "let the camera come home" },
-
-      { drag: true, target: ["biginner"], act: "pin", to: ["stage", "centre"],
-        why: "drag a note into the hole to pin it" },
-      { settle: true, act: "pin", why: "the hub opens and the ring closes around where it was" },
-      { rightclick: true, target: ["note", "05"], act: "pin", why: "right-click a note -- pins the same way" },
-      { settle: true, act: "pin", why: "let the second pin land" },
-      { click: true, target: ["note", "03"], act: "pin", why: "click a note to open its card" },
-      { click: true, target: ["pin"], act: "pin", why: "...and pin it from the card itself" },
-      { settle: true, act: "pin", why: "let the third pin land" },
-      { click: true, target: ["detailclose"], act: "pin", why: "close the card" },
 
       // github#23
       { click: true, target: ["id", "compact"], act: "compactaxis", why: "turn off the compact axis -- back to one width per month" },
@@ -8277,6 +9931,17 @@ function mountVaultGraph(root, data, deps) {
         why: "...and bring the whole vault back" },
       { settle: true, act: "only05", why: "let the disc refill" },
 
+      // github#72, design/0014
+      { live: "outer", act: "live",
+        why: "a note is written into the biggest folder -- the outer ring absorbs it in one cascade" },
+      { settle: true, act: "live", why: "let the disc re-pack around it, nothing torn down" },
+      { hover: true, target: ["arrival"], act: "live", why: "hover the note that just arrived" },
+      { park: true, act: "live", why: "let go of it" },
+      { live: "inner", act: "live",
+        why: "...and one into a small folder, on the inner ring" },
+      { settle: true, act: "live", why: "let the inner ring take it" },
+      { hover: true, target: ["arrival"], act: "live", why: "hover that one too" },
+
       // github#82 -- record wide; band first, it buys the radius
       { click: true, target: ["id", "band"], act: "collapse",
         why: "fold the calendar band away -- the disc grows into the row it had" },
@@ -8316,7 +9981,8 @@ function mountVaultGraph(root, data, deps) {
 
   // github#34, github#73
   // github#82 -- collapse closes the hero: it is the last act and ends folded
-  var FULL_RUN_EXCLUDES = ["subfoldercolor", "hiddenbydefault", "yearchip", "only05", "mobile"];
+  // github#72, design/0014
+  var FULL_RUN_EXCLUDES = ["subfoldercolor", "hiddenbydefault", "yearchip", "only05", "live", "mobile"];
 
   /** @returns {DemoBeat[]} */
   function demoFullStoryboard() {
@@ -8325,6 +9991,81 @@ function mountVaultGraph(root, data, deps) {
       beats = beats.concat([{ park: true, act: beats[beats.length - 1].act, why: "leave the final frame clean" }]);
     }
     return beats;
+  }
+
+  // github#72, design/0014
+  /** @type {string} */
+  var demoArrival = "";
+
+  /**
+   * @param {string} which   "outer" or "inner"
+   */
+  function demoLive(which) {
+    if (!DATA) return { applied: false, reason: "no data" };
+    var wantInner = which === "inner";
+    /** @type {Record<string, number>} */
+    var shown = dict();
+    /** @type {Record<string, boolean>} */
+    var innerOf = dict();
+    buildWedgePlan(false).cells.forEach(function (c) {
+      if (c.g === MERGED || c.g === UNLINKED) return;
+      shown[c.g] = (shown[c.g] || 0) + c.list.length;
+      innerOf[c.g] = !!c.inner;
+    });
+    var folder = "", most = -1;
+    Object.keys(shown).forEach(function (g) {
+      if (innerOf[g] !== wantInner || shown[g] <= most) return;
+      most = shown[g]; folder = g;
+    });
+    if (!folder) return { applied: false, reason: "no folder on the " + which + " ring" };
+
+    /** @type {VaultData} */
+    var next = {
+      vault: DATA.vault, generated: DATA.generated, dev: DATA.dev,
+      nodes: DATA.nodes.map(function (n) {
+        return Object.assign({}, n, { dirs: (n.dirs || []).slice(), tags: (n.tags || []).slice() });
+      }),
+      edges: DATA.edges.map(function (e) { return { s: e.s, t: e.t, w: e.w }; }),
+      stats: Object.assign({}, DATA.stats)
+    };
+    var host = -1, hostScore = -Infinity, taken = 0, newest = "";
+    next.nodes.forEach(function (n, i) {
+      if (/^Untitled( \d+)?$/.test(n.label)) taken++;
+      if (n.ghost) return;
+      if ((n.created || "") > newest) newest = n.created;
+      if (n.folder !== folder) return;
+      var score = n.deg - 1e6 * n.id.split("/").length;
+      if (score > hostScore) { hostScore = score; host = i; }
+    });
+    if (host < 0) return { applied: false, reason: "no note in " + folder };
+    var h = next.nodes[host];
+    var label = taken ? "Untitled " + taken : "Untitled";
+    var path = h.id.slice(0, h.id.lastIndexOf("/") + 1) + label + ".md";
+    // design/0014
+    var day = newest || h.created || "";
+    next.nodes.push({ id: path, label: label, folder: h.folder, dirs: (h.dirs || []).slice(),
+                      sub: h.sub || "", type: "note", tags: [], created: day, touched: day,
+                      words: 0, deg: 1 });
+    next.edges.push({ s: host, t: next.nodes.length - 1, w: 1 });
+    h.deg += 1;
+    if (next.stats) { next.stats.nodes += 1; next.stats.edges += 1; next.stats.files += 1; }
+    demoArrival = path;
+    var res = applyData(next);
+    return { applied: res.applied, reason: res.reason, added: res.added, cascaded: res.cascaded,
+             ring: which, folder: folder, path: path, linkedTo: h.label };
+  }
+
+  // github#72, design/0014
+  function demoArrivalRect() {
+    var id = demoArrival ? idOfPath[demoArrival] : undefined;
+    if (id === undefined || !graph.hasNode(id) || !renderer) return null;
+    var a = graph.getNodeAttributes(id);
+    var org = $("graph").getBoundingClientRect();
+    var v = renderer.graphToViewport({ x: a.x, y: a.y });
+    var r = renderer.scaleSize ? renderer.scaleSize(dotPx(a.size, id)) : dotPx(a.size, id);
+    var box = Math.max(6, r * 1.5);
+    return { left: v.x + org.left - box / 2, top: v.y + org.top - box / 2, width: box, height: box,
+             expect: id, demoLabel: "note " + a.label + ", just arrived" };
   }
 
   /** @param {string} name @returns {DemoBeat[]} */
@@ -8347,6 +10088,7 @@ function mountVaultGraph(root, data, deps) {
     doneTitle: DEMO_DONE_TITLE,
     storyboard: demoFullStoryboard,
     act: demoAct,
+    live: demoLive,
     busy: demoBusy,
     busyWhy: function () {
       return { play: !!play, cascade: !!cascadeRun, anim: !!anim,
@@ -8366,30 +10108,292 @@ function mountVaultGraph(root, data, deps) {
 
   /* ---- END: demo automation + debug API ---- */
 
+  /* ------------------------------------------------------- live rebuild */
+
+  // github#72, design/0014
+  var LIVE_MAX_CHANGED = 200;
+
+  /** @type {{ data: VaultData, renames: Record<string, string> } | null} */
+  var livePending = null;
+  /** @type {number | null} */
+  var liveTimer = null;
+  var LIVE_IDLE_MS = 120;
+
+  // github#120 -- a drag owns the frame loop, and nothing knew it
+  var dragging = false;
+  var dragEndedAt = -1e9;
+  var dragStartedAt = 0;
+  // github#120 -- inertia outlives the button coming up
+  var DRAG_GRACE_MS = 250;
+  // github#120 -- last resort only; 5,000 ms was a bug
+  var DRAG_MAX_MS = 60000;
+
+  function dragOwnsFrames() {
+    if (dragging && NOW() - dragStartedAt > DRAG_MAX_MS) dragging = false;
+    return dragging || NOW() - dragEndedAt < DRAG_GRACE_MS;
+  }
+
+  function liveBusy() { return !!(cascadeRun || anim || play || dragOwnsFrames()); }
+  // github#72, design/0014, github#120
+  function liveWhy() {
+    return cascadeRun ? "cascade" : anim ? "tween" : play ? "timeline" : dragOwnsFrames() ? "drag" : "";
+  }
+
+  // github#72, design/0014 -- `words` is deliberately not in the key
+  /** @param {VaultNode} n */
+  function placeKeyOf(n) {
+    return n.label + "\t" + n.folder + "\t" + (n.sub || "") + "\t" + (n.dirs || []).join("/") +
+           "\t" + (n.type || "") + "\t" + (n.tags || []).join(",") + "\t" + (n.created || "") +
+           "\t" + (n.touched || "") + "\t" + n.deg + "\t" + (n.ghost ? "1" : "");
+  }
+
+  // github#72, design/0014
+  /**
+   * @param {VaultData} src
+   * @returns {Record<string, Record<string, number>>}
+   */
+  function linkWeights(src) {
+    /** @type {Record<string, Record<string, number>>} */
+    var m = dict();
+    src.edges.forEach(function (e) {
+      var a = src.nodes[e.s], b = src.nodes[e.t];
+      if (!a || !b) return;
+      var lo = a.id < b.id ? a.id : b.id, hi = a.id < b.id ? b.id : a.id;
+      (m[lo] || (m[lo] = dict()))[hi] = e.w;
+    });
+    return m;
+  }
+
+  /**
+   * @typedef {Object} LiveDiff
+   * @property {string[]} added
+   * @property {string[]} removed
+   * @property {string[]} replaced
+   * @property {boolean} links
+   * @property {string[]} words     changed word count and nothing else
+   */
+  /** @param {VaultData} was @param {VaultData} now @returns {LiveDiff} */
+  function diffData(was, now) {
+    /** @type {Record<string, VaultNode>} */
+    var old = dict();
+    was.nodes.forEach(function (n) { old[n.id] = n; });
+    /** @type {LiveDiff} */
+    var d = { added: [], removed: [], replaced: [], links: false, words: [] };
+    /** @type {Record<string, number>} */
+    var seen = dict();
+    now.nodes.forEach(function (n) {
+      seen[n.id] = 1;
+      var o = old[n.id];
+      if (!o) { d.added.push(n.id); return; }
+      if (placeKeyOf(o) !== placeKeyOf(n)) d.replaced.push(n.id);
+      else if ((o.words || 0) !== (n.words || 0)) d.words.push(n.id);
+    });
+    was.nodes.forEach(function (n) { if (!seen[n.id]) d.removed.push(n.id); });
+
+    var wa = linkWeights(was), wb = linkWeights(now);
+    /** @param {Record<string, Record<string, number>>} x @param {Record<string, Record<string, number>>} y */
+    var missing = function (x, y) {
+      return Object.keys(x).some(function (lo) {
+        var row = x[lo], other = y[lo];
+        return Object.keys(row).some(function (hi) { return !other || other[hi] !== row[hi]; });
+      });
+    };
+    d.links = missing(wa, wb) || missing(wb, wa);
+    return d;
+  }
+
+  // github#72, design/0014, decisions/0006, decisions/0011
+  /**
+   * @param {VaultData} next
+   * @param {{ renames?: Record<string, string> }} [opts]  oldPath -> newPath; github#49
+   * @returns {LiveResult}
+   */
+  function applyData(next, opts) {
+    if (dead) return { applied: false, reason: "torn down" };
+    if (!next || !next.nodes || !next.edges) return { applied: false, reason: "not a build" };
+    /** @type {Record<string, string>} */
+    var renames = (opts && opts.renames) || dict();
+    if (liveBusy()) {
+      livePending = { data: next, renames: renames };
+      if (liveTimer === null) liveTimer = WIN.setInterval(drainLive, LIVE_IDLE_MS);
+      return { applied: false, reason: "busy", busy: liveWhy(), queued: true };
+    }
+
+    /** @type {Record<string, string>} */
+    var held = dict();
+    /** @type {Record<string, Point>} */
+    var posOf = dict();
+    /** @type {Record<string, number>} */
+    var alphaOf = dict();
+    /** @type {Record<string, string>} */
+    var groupWas = dict();
+    graph.forEachNode(function (id, a) {
+      held[a.path] = id;
+      posOf[a.path] = { x: a.x, y: a.y };
+      alphaOf[a.path] = alpha[id] || 0;
+      groupWas[a.path] = groupOf(id);
+    });
+    Object.keys(renames).forEach(function (from) {
+      var to = renames[from];
+      if (!to || held[from] === undefined) return;
+      held[to] = held[from]; posOf[to] = posOf[from];
+      alphaOf[to] = alphaOf[from]; groupWas[to] = groupWas[from];
+      delete held[from];
+    });
+
+    var d = diffData(DATA, next);
+    var churn = d.added.length + d.removed.length + d.replaced.length;
+    if (churn > LIVE_MAX_CHANGED) {
+      return { applied: false, reason: "too much changed", churn: churn, limit: LIVE_MAX_CHANGED };
+    }
+
+    // design/0014 -- the path a person typing spends all their time on
+    if (!churn && !d.links) {
+      /** @type {Record<string, number>} */
+      var wordsOf = dict();
+      next.nodes.forEach(function (n) { wordsOf[n.id] = n.words || 0; });
+      d.words.forEach(function (path) {
+        var id = idOfPath[path];
+        if (id !== undefined) graph.setNodeAttribute(id, "words", wordsOf[path] || 0);
+      });
+      DATA = next;
+      return { applied: true, reason: "words only", added: 0, removed: 0, replaced: 0,
+               moved: 0, cascaded: false };
+    }
+
+    DATA = next;
+    ingest(next, function (path) { return held[path]; });
+
+    // decisions/0006 -- survivors back where they are DRAWN, arrivals seated at zero
+    graph.forEachNode(function (id, a) {
+      var p = posOf[a.path];
+      if (p) graph.mergeNodeAttributes(id, { x: p.x, y: p.y });
+      alpha[id] = p ? (alphaOf[a.path] || 0) : 0;
+    });
+
+    onData.forEach(function (h) { attempt(h.fn); });
+
+    // decisions/0011
+    var ringsDim = geomLock ? geomLock.dim : null;
+    hardRelayout(false, true, true);
+    // github#86 -- and back inside the rings it was switched into, same step
+    if (ringsDim && ringsDim !== state.dim) keepRings(ringsIn(ringsDim));
+
+    /** @type {Record<string, string> | null} */
+    var movesFrom = null;
+    var moved = 0;
+    graph.forEachNode(function (id, a) {
+      var g0 = groupWas[a.path];
+      if (g0 === undefined || (alphaOf[a.path] || 0) <= 0.004) return;
+      if (g0 === groupOf(id)) return;
+      if (!movesFrom) movesFrom = dict();
+      movesFrom[id] = g0;
+      moved++;
+    });
+
+    attempt(placeLogo); attempt(buildLegend); attempt(buildStats);
+    if (dateSpan) attempt(drawDateUI);
+    cascade(null, { colToggle: true, movesFrom: movesFrom });
+    return { applied: true, reason: "", added: d.added.length, removed: d.removed.length,
+             replaced: d.replaced.length, moved: moved, cascaded: true };
+  }
+
+  // github#72, design/0014
+  /**
+   * @param {string} path
+   * @param {number} words
+   * @returns {boolean}
+   */
+  function setWords(path, words) {
+    var id = idOfPath[path];
+    if (id === undefined || !graph.hasNode(id)) return false;
+    graph.setNodeAttribute(id, "words", words);
+    return true;
+  }
+
+  function drainLive() {
+    if (dead || !livePending) { stopDrain(); return; }
+    if (liveBusy()) return;
+    var held = livePending;
+    livePending = null;
+    stopDrain();
+    attempt(function () { applyData(held.data, { renames: held.renames }); });
+  }
+  function stopDrain() {
+    if (liveTimer !== null) { WIN.clearInterval(liveTimer); liveTimer = null; }
+  }
+  // github#62
+  onDestroy.push(function () { livePending = null; stopDrain(); });
+
   /* ------------------------------------------------------------------ go */
 
   var bootTimer = WIN.setTimeout(function () {
     if (dead) return;
     makeRenderer();
     API = window.__vg = { graph: graph,
+                    // github#72
+                    applyData: applyData,
+                    // github#120 -- NOT part of the debug API, because the host needs it in a
+                    // github#120 -- the host asks before building, not only applying
+                    interacting: dragOwnsFrames,
+                    setWords: setWords,
                     readTheme: readTheme, get renderer() { return renderer; },
                     placeLogo: placeLogo,
                     palette: paletteInfo,
+                    // github#77
+                    slotContrast: slotContrast,
+                    slotTitle: slotTitle,
+                    previewLadder: previewLadder,
+                    swatchPreview: swatchPreviewHTML,
+                    previewSizes: function () { return PREVIEW_R_PX.slice(); },
                     groupOrder: function () { return (order[state.dim] || []).slice(); },
+                    // github#86, design/0015 -- one grouping's rows, whichever disc is on screen:
+                    // github#86 -- what a settings surface needs to offer colours for it
+                    groupsOf: /** @param {string} dim */ function (dim) {
+                      return inDim(String(dim), function () {
+                        return (order[state.dim] || []).map(function (g) {
+                          return {
+                            name: g, n: counts[g] || 0,
+                            slot: colorsFor()[g] || groupSlot[g] || "", autoSlot: groupAutoSlot[g] || "",
+                            pinned: !!colorsFor()[g],
+                            shown: !hiddenByDefault(g),
+                            subs: (subOrder[g] || []).map(function (sb) {
+                              return { name: sb, n: subCount[g + "/" + sb] || 0,
+                                       pin: subColorsFor()[g + "/" + sb] || "" };
+                            })
+                          };
+                        });
+                      });
+                    },
                     groupCount: /** @param {string} g */ function (g) { return counts[g] || 0; },
                     slotOf: /** @param {string} g */ function (g) { return groupSlot[g] || ""; },
+                    // github#84
+                    colorOf: colorOf,
                     autoSlotOf: /** @param {string} g */ function (g) { return groupAutoSlot[g] || ""; },
                     setFolderColors: applyFolderColors,
-                    setSubfolderColors: applySubfolderColors,
+                    setSubfolderColors: /** @param {Record<string, unknown>} m */ function (m) { return applySubfolderColors(m, "folder"); },
+                    setTagColors: /** @param {Record<string, unknown>} m */ function (m) { return applyFolderColors(m, "tag"); },
+                    setSubtagColors: /** @param {Record<string, unknown>} m */ function (m) { return applySubfolderColors(m, "tag"); },
+                    get tagColors() { return Object.assign(dict(), dimColors.tag); },
+                    get subtagColors() { return Object.assign(dict(), dimSubColors.tag); },
+                    get tagShown() { return Object.assign(dict(), dimShown.tag); },
                     setFolderShown: applyFolderShown,
                     setPanEnabled: function (v) { return setPan(v !== false, false); },
                     // github#23
                     setCompactAxis: function (v) { return setCompactAxis(v !== false, false); },
                     // github#3
                     setUnlinkedByFolder: function (v) { return setUnlinkedByFolder(v !== false, false, true); },
+                    // github#86, design/0015
+                    setDim: /** @param {string} v */ function (v) { return setDim(String(v), false, true); },
+                    noteOf: /** @param {string} id */ function (id) { return noteOf(String(id)); },
+                    filingOf: /** @param {string} id */ function (id) {
+                      return { g: fileGroup(String(id)), sub: fileSub(String(id)),
+                               dirs: fileDirs(String(id)).slice() };
+                    },
                     // github#41, design/0011
                     setFitCap: function (v) { return setFitCap(v === true); },
                     setUnlinkedTintByFolder: function (v) { return setUnlinkedTintByFolder(v === true, false); },
+                    setCountBars: function (v) { return setCountBars(v !== false, false); },
                     applyHiddenDefaults: function () {
                       seedHidden();
                       buildLegend();
@@ -8524,7 +10528,7 @@ function mountVaultGraph(root, data, deps) {
                         var d = renderer && renderer.getNodeDisplayData(id);
                         pts.push({ r: Math.hypot(a.x, a.y), th: Math.atan2(a.y, a.x),
                                    rad: (d && renderer ? renderer.scaleSize(d.size)
-                                                       : 4) * perPx, g: a.folder });
+                                                       : 4) * perPx, g: groupOf(id) });
                       });
                       pts.sort(function (x, y) { return x.r - y.r; });
                       var gi = 0, gap = 0;
@@ -8626,10 +10630,16 @@ function mountVaultGraph(root, data, deps) {
                     ringsLayout: ringsLayout, visible: visible, groupOf: groupOf,
                     alpha: alpha, cascade: cascade, syncAlpha: syncAlpha,
                     syncLazyEdges: syncLazyEdges,
+                    // github#86 -- where the suite asks a copy who it is
+                    select: select, togglePin: togglePin, isPinned: isPinned,
+                    adj: adj, focusSet: focusSet,
+                    rankOf: /** @param {string} id */ function (id) { return tlRank[String(id)] || 0; },
                     get lazyEdges() { return lazyEdges; },
                     isOrphan: isOrphan,
                     wedgeDebug: wedgeDebug, wedgeEdges: wedgeEdges,
                     bandRef: function () { return geomLock ? geomLock.bandR : null; },
+                    // github#86 -- the rings as locked, and the dimension they were taken from
+                    get geomLock() { return geomLock; },
                     wedgeTrace: /** @param {number} [rLattice] */ function (rLattice) {
                       DBG.trace = []; DBG.traceR = rLattice;
                       drawWedgeDebug();
@@ -8649,10 +10659,10 @@ function mountVaultGraph(root, data, deps) {
                     nodeColor: nodeColor,
                     isArchiveGroup: isArchiveGroup,
                     get folderColors() {
-                      return Object.assign(dict(), folderColors);
+                      return Object.assign(dict(), dimColors.folder);
                     },
                     get subfolderColors() {
-                      return Object.assign(dict(), subfolderColors);
+                      return Object.assign(dict(), dimSubColors.folder);
                     },
                     subColorOf: /** @param {string} folder @param {string} [sub] */ function (folder, sub) {
                       return subShade[folder + "/" + (sub || "")] || colorOf(folder);
@@ -8663,12 +10673,13 @@ function mountVaultGraph(root, data, deps) {
                     subOrderOf: /** @param {string} g */ function (g) { return (subOrder[g] || []).slice(); },
                     subCountOf: function (g, sub) { return subCount[g + "/" + (sub || "")] || 0; },
                     get folderShown() {
-                      return Object.assign(dict(), folderShown);
+                      return Object.assign(dict(), dimShown.folder);
                     },
                     get panEnabled() { return panEnabled; },
                     get compactAxis() { return compactAxis; },
                     get unlinkedByFolder() { return unlinkedByFolder; },
                     get unlinkedTintByFolder() { return unlinkedTintByFolder; },
+                    get countBars() { return countBars; },
                     get unlinkedTintColors() { return unlinkedTintColors.slice(); },
                     get subTailRank() { return SUB_SLOTS - 1; },
                     hiddenByDefault: hiddenByDefault,
@@ -8983,7 +10994,7 @@ function mountVaultGraph(root, data, deps) {
                         var m = dict();
                         ids.forEach(function (id) {
                           var a = graph.getNodeAttributes(id);
-                          var k = a.folder + "/" + (a.dirs || []).join("/");
+                          var k = fileGroup(id, a) + "/" + fileDirs(id, a).join("/");
                           m[k] = (m[k] || 0) + 1;
                         });
                         return m;
@@ -9044,6 +11055,16 @@ function mountVaultGraph(root, data, deps) {
                         maxR: geomLock.maxR * UNIT
                       };
                     },
+                    // github#79
+                    overview: function () {
+                      var fp = ovFootprint();
+                      return { shown: ovOn, paints: ovPaints, sig: ovSig,
+                               hidden: !!($("ov") && $("ov").hidden),
+                               cropped: fp ? ovCropped(fp) : null,
+                               footprint: fp,
+                               liveR: (lastMaxR || 0) * UNIT,
+                               shape: ovLast };
+                    },
                     // github#41, design/0011
                     traceOn: /** @param {string | number} id */ function (id) {
                       trace = { id: String(id), tag: "", rows: [] };
@@ -9085,6 +11106,29 @@ function mountVaultGraph(root, data, deps) {
                     // github#31
                     // github#3
                     relayout: function () { hardRelayout(false); },
+                    // github#72
+                    data: function () { return DATA; },
+                    invalidations: function () { return onData.map(function (h) { return h.name; }); },
+                    liveState: function () {
+                      return { pending: !!livePending, draining: liveTimer !== null,
+                               busy: liveBusy(), limit: LIVE_MAX_CHANGED, nextId: nextId,
+                               paths: Object.keys(idOfPath).length };
+                    },
+                    // github#86 -- the fill edge's lag behind the erase edge, in degrees
+                    get handBlade() { return HAND_BLADE_DEG; },
+                    // github#86 -- the fade behind either edge, in degrees
+                    get handFade() { return HAND_FADE_DEG; },
+                    set handFade(v) { HAND_FADE_DEG = Math.max(1, Math.min(180, +v || 1)); },
+                    // github#86 -- whether a dot sits in the inner ring, as the checks ask
+                    isInner: /** @param {string} id */ function (id) { return !!(bandLock && bandLock[groupOf(id)]); },
+                    // github#86 -- the stand-ins a switch is drawing, none at rest
+                    standIns: function () { return standIns.slice(); },
+                    set handBlade(v) { HAND_BLADE_DEG = Math.max(0, Math.min(360, +v || 0)); },
+                    // github#86 -- lay the visible disc out over an arc, without touching it
+                    arcLayout: /** @param {number} from @param {number} to */ function (from, to) {
+                      planArc = { from: from, to: to };
+                      try { return ringsLayout(); } finally { planArc = null; }
+                    },
                     // github#62
                     destroy: destroy,
     };
@@ -9150,7 +11194,8 @@ function mountVaultGraph(root, data, deps) {
       attempt(onDestroy[i]);
     }
     onDestroy.length = 0;
-    if (renderer) attempt(function () { renderer.kill(); });
+    // github#135 -- drop the handle: `if (renderer)` is every call site
+    if (renderer) { attempt(function () { renderer.kill(); }); renderer = null; }
     if (window.__vg === API) delete window.__vg;
     API = null;
   }

@@ -1,8 +1,25 @@
-  /* ---- tokens: light is the base, dark redefines only what changes -------- */
+  /* ---- tokens: every palette hex once, as a light/dark pair; the theme
+     blocks below only map --gN onto one of them. github#77, design/0004 */
+  .vault-graph {
+    --surface-1-l: #fcfcfb;
+    --surface-1-d: #1a1a19;
+    --g1-l: #2a78d6;  --g1-d: #3987e5;
+    --g2-l: #eb6834;  --g2-d: #d95926;
+    --g3-l: #1baf7a;  --g3-d: #199e70;
+    --g4-l: #eda100;  --g4-d: #c98500;
+    --g5-l: #008300;  --g5-d: #008300;
+    --g6-l: #d3006e;  --g6-d: #eb1580;
+    --g7-l: #4a3aa7;  --g7-d: #9085e9;
+    --g8-l: #e34948;  --g8-d: #e66767;
+    --g9-l: #00aecb;  --g9-d: #009fbb;
+    --g10-l:#9412ad;  --g10-d:#b429d1;
+    --g11-l:#6f6e67;  --g11-d:#8d8c84;
+    --g12-l:#45443f;  --g12-d:#bdbcb2;
+  }
   .vault-graph {
     color-scheme: light;
     --surface-0: #f4f3f0;
-    --surface-1: #fcfcfb;
+    --surface-1: var(--surface-1-l);
     --surface-2: #ffffff;
     --border:    #dedcd5;
     --border-strong: #c4c2b8;
@@ -14,18 +31,18 @@
     --edge-hi:   #2a78d6;
     --dim:       #e6e5df;
     --today:     #0b0b0b;
-    --g1: #2a78d6;
-    --g2: #eb6834;
-    --g3: #1baf7a;
-    --g4: #eda100;
-    --g5: #008300;
-    --g6: #d3006e;
-    --g7: #4a3aa7;
-    --g8: #e34948;
-    --g9: #00aecb;
-    --g10:#9412ad;
-    --g11:#6f6e67;
-    --g12:#45443f;
+    --g1: var(--g1-l);
+    --g2: var(--g2-l);
+    --g3: var(--g3-l);
+    --g4: var(--g4-l);
+    --g5: var(--g5-l);
+    --g6: var(--g6-l);
+    --g7: var(--g7-l);
+    --g8: var(--g8-l);
+    --g9: var(--g9-l);
+    --g10:var(--g10-l);
+    --g11:var(--g11-l);
+    --g12:var(--g12-l);
     --n1: #6f6e67;
     --n2: #45443f;
     --n3: #8a897f;
@@ -35,7 +52,7 @@
     .vault-graph:not([data-theme="light"]) {
       color-scheme: dark;
       --surface-0: #121211;
-      --surface-1: #1a1a19;
+      --surface-1: var(--surface-1-d);
       --surface-2: #232322;
       --border:    #33332f;
       --border-strong: #4a4a45;
@@ -46,10 +63,10 @@
       --edge-hi:   #3987e5;
       --dim:       #2a2a28;
       --today:     #ffffff;
-      --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500;
-      --g5: #008300; --g6: #eb1580; --g7: #9085e9; --g8: #e66767;
-      --g9: #009fbb; --g10:#b429d1;
-      --g11:#8d8c84; --g12:#bdbcb2;
+      --g1: var(--g1-d); --g2: var(--g2-d); --g3: var(--g3-d); --g4: var(--g4-d);
+      --g5: var(--g5-d); --g6: var(--g6-d); --g7: var(--g7-d); --g8: var(--g8-d);
+      --g9: var(--g9-d); --g10:var(--g10-d);
+      --g11:var(--g11-d); --g12:var(--g12-d);
       --n1: #8d8c84; --n2: #bdbcb2; --n3: #77766d;
       --accent: #3987e5;
     }
@@ -57,7 +74,7 @@
   .vault-graph[data-theme="dark"] {
     color-scheme: dark;
     --surface-0: #121211;
-    --surface-1: #1a1a19;
+    --surface-1: var(--surface-1-d);
     --surface-2: #232322;
     --border:    #33332f;
     --border-strong: #4a4a45;
@@ -68,10 +85,10 @@
     --edge-hi:   #3987e5;
     --dim:       #2a2a28;
     --today:     #ffffff;
-    --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500;
-    --g5: #008300; --g6: #eb1580; --g7: #9085e9; --g8: #e66767;
-    --g9: #009fbb; --g10:#b429d1;
-    --g11:#8d8c84; --g12:#bdbcb2;
+    --g1: var(--g1-d); --g2: var(--g2-d); --g3: var(--g3-d); --g4: var(--g4-d);
+    --g5: var(--g5-d); --g6: var(--g6-d); --g7: var(--g7-d); --g8: var(--g8-d);
+    --g9: var(--g9-d); --g10:var(--g10-d);
+    --g11:var(--g11-d); --g12:var(--g12-d);
     --n1: #8d8c84; --n2: #bdbcb2; --n3: #77766d;
     --accent: #3987e5;
   }
@@ -100,6 +117,9 @@
     background: var(--surface-0);
     border-right: 1px solid var(--border);
     overflow-y: auto;
+    /* github#116 -- this is the scroll container, so its scrollbar's width came out of every
+       block until the gutter was reserved. Measured: invariants.md. */
+    scrollbar-gutter: stable;
     padding: 14px 14px 28px;
     display: flex; flex-direction: column; gap: 18px;
   }
@@ -111,6 +131,59 @@
     font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
     color: var(--text-3); margin-bottom: 7px; font-weight: 600;
   }
+
+  /* github#86, design/0015 -- the grouping dimension, in the group list's own heading.
+     Semi-obvious: no border or fill at rest, so it reads as the heading it replaced, and a
+     chevron that is always there so anyone looking for a control finds one. */
+  /* github#86, design/0015 -- the grouping is a segmented control in the group list's own
+     heading, in the style the settings segments already use: two named sides, the active one
+     filled with the accent, so the one control that changes what the whole disc IS reads as a
+     control. It replaced a dropdown drawn as a heading with a chevron, which read as a label:
+     "is the dropdown obvious enough?" -- it was not. Inline, so the count sits beside it, and
+     the heading's uppercase does not reach the names. */
+  /* github#131, design/0019 -- the two readings of the sidebar. A tab, not a segment: the
+     dimseg below it changes what the disc IS, and these two change only what this column
+     shows, so they must not read as the same kind of control. */
+  .vault-graph #vg-tabs { display: flex; gap: 4px; margin-bottom: 9px; }
+  .vault-graph #vg-tabs .tab {
+    flex: 1 1 0; min-width: 0; font: inherit; font-size: 11px; padding: 5px 9px; cursor: pointer;
+    background: none; color: var(--text-3); border: 0; border-bottom: 2px solid transparent;
+    border-radius: 0; text-align: center; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vault-graph #vg-tabs .tab:hover:not(:disabled) { color: var(--text-1); }
+  .vault-graph #vg-tabs .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .vault-graph #vg-tabs .tab[aria-selected="true"] {
+    color: var(--text-1); font-weight: 600; border-bottom-color: var(--accent);
+  }
+  .vault-graph #vg-tabs .tab:disabled { opacity: 0.4; cursor: default; }
+  /* The card in the column: one scroll container, not two. The reading carries the
+     positioning context, or the card's absolute close button escapes to the page corner. */
+  .vault-graph #vg-readnote { position: relative; }
+  .vault-graph #vg-readnote > #vg-detail {
+    position: static; width: auto; max-height: none; overflow: visible;
+    box-shadow: none; border: 0; border-radius: 0; padding: 0; background: none; z-index: auto;
+  }
+  .vault-graph #vg-readnote > #vg-detail .x { top: -2px; right: 0; }
+  .vault-graph #vg-readnote > #vg-detail h2 { margin-top: 0; }
+
+  .vault-graph .dimseg { display: inline-grid; grid-auto-flow: column; gap: 2px; vertical-align: middle; margin: -3px 0; }
+  .vault-graph .dimseg button {
+    font: inherit; font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0;
+    padding: 3px 9px; cursor: pointer; line-height: 1.3;
+    background: var(--surface-2); color: var(--text-2);
+    border: 1px solid var(--border); border-radius: 5px;
+  }
+  .vault-graph .dimseg button:hover { border-color: var(--border-strong); color: var(--text-1); }
+  .vault-graph .dimseg button[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+  .vault-graph .dimseg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* github#86 -- the grouping owns a full-width row; All and None sit under it, at their own width */
+  .vault-graph .dimseg.dimfull { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 6px; }
+  .vault-graph .dimseg.dimfull button { padding: 5px 8px; border-radius: 6px; text-align: center; }
+  .vault-graph .dimseg .dimct { font-variant-numeric: tabular-nums; opacity: 0.62; margin-left: 5px; font-weight: 500; }
+  .vault-graph .dimall { margin-bottom: 7px; }
 
   .vault-graph .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
   .vault-graph .seg button {
@@ -130,6 +203,8 @@
   .vault-graph input[type="search"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
   .vault-graph .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  /* github#86 -- the display above would otherwise beat the hidden attribute */
+  .vault-graph .row[hidden] { display: none; }
   .vault-graph .row .val { font-variant-numeric: tabular-nums; color: var(--text-2); font-size: 11px; }
 
   .vault-graph #vg-legend { display: flex; flex-direction: column; gap: 1px; }
@@ -164,15 +239,55 @@
     gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer;
     border: 1px solid transparent; text-align: left; background: none;
     font: inherit; color: var(--text-1); flex: 1; min-width: 0;
+    /* github#78 -- this is a <button>, and Obsidian gives every button an inset
+       shadow that paints OVER a background image. Reset it or the host decides
+       whether the count bar is visible. design/0006 */
+    box-shadow: none;
   }
   .vault-graph .lg[data-hl="on"], .vault-graph .lgs[data-hl="on"] {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    background-color: color-mix(in srgb, var(--accent) 22%, transparent);
     border-color: var(--accent);
     box-shadow: inset 2px 0 0 0 var(--accent);
     color: var(--text-1);
   }
   .vault-graph .lg[data-hl="on"] .ct, .vault-graph .lgs[data-hl="on"] .ct { color: var(--text-2); }
-  .vault-graph .lg:hover { background: var(--surface-2); border-color: var(--border); }
+  /* github#78 -- background-COLOR, not the shorthand. The shorthand resets
+     background-image; .lg.bar out-orders it as written, so this buys independence
+     from rule order rather than fixing a live bug. Measured: invariants.md. */
+  .vault-graph .lg:hover { background-color: var(--surface-2); border-color: var(--border); }
+  /* github#78 -- the count bar: this row's share of the vault, drawn along the bottom of
+     the row in the group's own colour. A background layer rather than a fifth grid cell
+     because .nm is the only 1fr and already truncates; the row is one width on every row
+     (219px measured) while .nm is not (122/117/141px), so the row is the honest track.
+     The selector carries #vg-legend for SPECIFICITY, not for scoping: a plain
+     `.vault-graph .lg.bar` ties with `.vault-graph .lg:hover` and loses to whichever
+     comes last, and a stale plugin stylesheet in the host document put a `background`
+     SHORTHAND on hover after it -- wiping every longhand and the bar with them. An id
+     makes the rule win on merit rather than on order. github#78
+
+     It starts 2px in, which is what keeps it: the highlight's leading accent band is
+     an `inset 2px` shadow and inset shadows paint OVER a background image, so a bar
+     flush to the edge lost its first 2px and a floored one vanished. It stays in the
+     padding strip BELOW the content, where no grid item can cover it -- moving the
+     origin to content-box fixed the band and let the `only` chip cover the bar
+     instead. The floor is 4px so that no state paints fewer than 3px — lifted to 0 by
+     `--vg-floor` on a row walking down to nothing, or the shrink ends in a 4px stub
+     that blinks out. design/0006 */
+  .vault-graph #vg-legend .lg.bar {
+    background-image: linear-gradient(var(--vg-bar), var(--vg-bar));
+    background-repeat: no-repeat;
+    background-position: 2px 100%;
+    background-size: max(var(--vg-floor, 4px), var(--vg-share)) 2px;
+  }
+  .vault-graph #vg-legend .lg.bar.bar-out { --vg-floor: 0px; }
+  /* github#86, design/0015 -- during a dimension switch the rows of the disc being left stay,
+     inert, and drop out as their notes fade; a row of the disc arriving drops in with its
+     first note. The height is animated through max-height because a row's height is what
+     the font makes it; 48px clears any row the legend draws, and the cap exists only while
+     the legend carries lg-switching, so no host font can ever clip a resting row. */
+  .vault-graph #vg-legend.lg-switching .lgr { max-height: 48px; transition: max-height .3s ease, opacity .25s ease; }
+  .vault-graph #vg-legend.lg-switching .lgr.lgr-gone { max-height: 0; opacity: 0; overflow: hidden; pointer-events: none; }
+  .vault-graph #vg-legend.lg-switching .lgr[data-old] { pointer-events: none; }
   .vault-graph .lg .sw { width: 11px; height: 11px; border-radius: 50%; }
   .vault-graph .lg .sw.sw-in { transform: scale(0.6); }
   .vault-graph .lg .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -250,27 +365,54 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .vault-graph .sws { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  /* github#86, design/0015 -- the settings tabs are the group list's own segmented control,
+     one rule apart: it spans the panel and sits above the rows. */
+  .vault-graph .dimseg.setseg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 9px; }
+  .vault-graph .dimseg.setseg button { text-align: center; padding: 5px 8px; }
   .vault-graph #vg-setbody { max-height: 46vh; overflow-y: auto; }
+  /* github#77 -- auto-fill, never a fixed count: the panel is 288px wide minus its
+     padding and a scrollbar, and four fixed columns overflowed it, putting the
+     twelfth slot behind a horizontal scrollbar. */
   .vault-graph #vg-setbody .sws {
-    display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px;
+    display: grid; grid-template-columns: repeat(auto-fill, 50px); gap: 4px;
+    justify-content: start;
   }
-  .vault-graph #vg-setbody .swatch { width: 100%; height: auto; aspect-ratio: 1; }
+  /* github#77 -- a swatch is the dots the slot will draw, on the ground it will
+     draw them on. The <svg> is 1 unit to 1 CSS pixel and must never be scaled,
+     or the radii stop being the ones the disc draws. Every colour in it comes
+     from a token, so a theme change repaints it with no rebuild. */
   .vault-graph .swatch {
-    width: 18px; height: 18px; padding: 0; cursor: pointer; border-radius: 50%;
-    border: 1px solid var(--border);
+    width: 50px; height: 42px; padding: 0; cursor: pointer; border-radius: 5px;
+    border: 1px solid var(--border); line-height: 0; flex: 0 0 auto;
   }
-  .vault-graph .swatch.vg-g1  { background: var(--g1); }
-  .vault-graph .swatch.vg-g2  { background: var(--g2); }
-  .vault-graph .swatch.vg-g3  { background: var(--g3); }
-  .vault-graph .swatch.vg-g4  { background: var(--g4); }
-  .vault-graph .swatch.vg-g5  { background: var(--g5); }
-  .vault-graph .swatch.vg-g6  { background: var(--g6); }
-  .vault-graph .swatch.vg-g7  { background: var(--g7); }
-  .vault-graph .swatch.vg-g8  { background: var(--g8); }
-  .vault-graph .swatch.vg-g9  { background: var(--g9); }
-  .vault-graph .swatch.vg-g10 { background: var(--g10); }
-  .vault-graph .swatch.vg-g11 { background: var(--g11); }
-  .vault-graph .swatch.vg-g12 { background: var(--g12); }
+  .vault-graph .swatch .prev {
+    width: 48px; height: 40px; display: block; border-radius: 4px;
+  }
+  .vault-graph .swatch .gnd { fill: var(--surface-1); }
+  .vault-graph .swatch .d  { fill: var(--dot); }
+  .vault-graph .swatch .t1 { fill: var(--k1); }
+  .vault-graph .swatch .t2 { fill: var(--k2); }
+  .vault-graph .swatch .t3 { fill: var(--k3); }
+  @media (prefers-color-scheme: dark) {
+    .vault-graph:not([data-theme="light"]) .swatch .t1 { fill: var(--k1d); }
+    .vault-graph:not([data-theme="light"]) .swatch .t2 { fill: var(--k2d); }
+    .vault-graph:not([data-theme="light"]) .swatch .t3 { fill: var(--k3d); }
+  }
+  .vault-graph[data-theme="dark"] .swatch .t1 { fill: var(--k1d); }
+  .vault-graph[data-theme="dark"] .swatch .t2 { fill: var(--k2d); }
+  .vault-graph[data-theme="dark"] .swatch .t3 { fill: var(--k3d); }
+  .vault-graph .swatch.vg-g1  { --dot: var(--g1); background: var(--g1); }
+  .vault-graph .swatch.vg-g2  { --dot: var(--g2); background: var(--g2); }
+  .vault-graph .swatch.vg-g3  { --dot: var(--g3); background: var(--g3); }
+  .vault-graph .swatch.vg-g4  { --dot: var(--g4); background: var(--g4); }
+  .vault-graph .swatch.vg-g5  { --dot: var(--g5); background: var(--g5); }
+  .vault-graph .swatch.vg-g6  { --dot: var(--g6); background: var(--g6); }
+  .vault-graph .swatch.vg-g7  { --dot: var(--g7); background: var(--g7); }
+  .vault-graph .swatch.vg-g8  { --dot: var(--g8); background: var(--g8); }
+  .vault-graph .swatch.vg-g9  { --dot: var(--g9); background: var(--g9); }
+  .vault-graph .swatch.vg-g10 { --dot: var(--g10); background: var(--g10); }
+  .vault-graph .swatch.vg-g11 { --dot: var(--g11); background: var(--g11); }
+  .vault-graph .swatch.vg-g12 { --dot: var(--g12); background: var(--g12); }
 
   .vault-graph.vg-tokens {
     display: block; height: auto; overflow: visible; position: static;
@@ -280,13 +422,20 @@
   .vault-graph.vg-tokens .vg-subrow {
     margin-left: 24px; padding-top: 6px; padding-bottom: 6px; border-top: none;
   }
-  .vault-graph.vg-tokens .sws { flex-wrap: wrap; justify-content: flex-end; }
-  .vault-graph .swatch:hover { transform: scale(1.15); }
+  /* github#77 -- the swatches get their own fixed grid, so the chevron on a
+     folder with subfolders cannot shift them out of line with its neighbours */
+  .vault-graph.vg-tokens .sws { flex-wrap: nowrap; justify-content: flex-end; }
+  .vault-graph.vg-tokens .sw-grid {
+    display: grid; grid-template-columns: repeat(4, 50px); gap: 4px;
+    justify-content: start; flex: none;
+  }
+  .vault-graph .swatch:hover { transform: scale(1.06); }
   .vault-graph .swatch[aria-checked="true"] {
-    box-shadow: 0 0 0 1px var(--surface-0), 0 0 0 2px var(--text-1);
+    outline: 2px solid var(--text-1); outline-offset: 2px;
+    border-color: var(--text-1);
   }
   .vault-graph .swatch[aria-checked="true"][data-auto="1"] {
-    box-shadow: 0 0 0 1px var(--surface-0), 0 0 0 2px var(--text-3);
+    outline-color: var(--text-3); border-color: var(--text-3);
   }
   .vault-graph .swatch[data-auto="1"]:not([aria-checked="true"]) {
     position: relative;
@@ -332,6 +481,7 @@
        bottom-right corner (github#4). Nothing floats over the top-left, so the toggles
        would have been pushed 44px into the disc for a reason that is not theirs. */
     --panels-inset: 12px;
+    --ov-size: 96px;
   }
   .vault-graph #vg-cam {
     position: absolute; right: var(--controls-inset); bottom: var(--controls-inset);
@@ -345,6 +495,25 @@
   .vault-graph #vg-mob {
     position: absolute; left: var(--panels-inset); top: var(--panels-inset);
     z-index: 6; display: flex; flex-direction: row; gap: 6px;
+  }
+  /* github#79 -- beside the cluster at the pan button's row, bottom-aligned with it. The
+     cluster is 142px tall (--controls-h) and the tile is 96, so it sits entirely inside the
+     band the detail card's max-height already clears: the card does not have to yield. */
+  .vault-graph #vg-ov {
+    position: absolute; bottom: var(--controls-inset);
+    right: calc(var(--controls-inset) + 31px + 8px);
+    z-index: 6; width: var(--ov-size); height: var(--ov-size); padding: 0;
+    cursor: pointer; background: var(--surface-2); color: var(--text-3);
+    border: 0; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 0 0 1px var(--border);
+    opacity: .8; transition: opacity .12s, box-shadow .12s;
+  }
+  .vault-graph #vg-ov:hover { opacity: 1; box-shadow: 0 0 0 1px var(--border-strong); }
+  .vault-graph #vg-ov:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+  .vault-graph #vg-ov[hidden] { display: none; }
+  .vault-graph #vg-ov canvas { display: block; width: 100%; height: 100%; }
+  @media (prefers-reduced-motion: reduce) {
+    .vault-graph #vg-ov { transition: none; }
   }
   .vault-graph #vg-cam button, .vault-graph #vg-mob button {
     display: flex; align-items: center; justify-content: center;
@@ -672,10 +841,11 @@
     background: var(--surface-2); border: 1px solid var(--border-strong);
     border-radius: 8px; padding: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.22);
   }
+  /* github#77 */
   .vault-graph .ctxmenu .sws {
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 6px;
+    display: grid; grid-template-columns: repeat(3, max-content); gap: 4px;
+    margin-bottom: 6px; justify-content: center;
   }
-  .vault-graph .ctxmenu .swatch { width: 100%; height: auto; aspect-ratio: 1; }
   .vault-graph .ctxmenu .auto { width: 100%; }
 
   /* github#34 */
@@ -727,6 +897,10 @@
 
   /* github#73 -- the disc gets the screen; the legend and the band are summoned */
   @media (max-width: 720px) {
+    /* github#131, design/0019 -- the phone keeps design/0013's answer: the card is a sheet
+       over the stage, not a reading of a column that is itself summoned, so there is no
+       second reading here and no tab strip to choose one. */
+    .vault-graph #vg-tabs { display: none; }
     .vault-graph { grid-template-columns: 1fr; grid-template-rows: 1fr; }
     .vault-graph #vg-sidebar {
       position: absolute; left: 0; right: 0; bottom: 0; z-index: 8;
@@ -759,6 +933,10 @@
     }
     /* Both control clusters move to the top corners, clear of that sheet. */
     .vault-graph #vg-cam { top: var(--controls-inset); bottom: auto; }
+    /* github#79 -- the cluster is top-right here, so the tile goes left of it, top-aligned,
+       clear of #vg-mob's own corner on the left. */
+    .vault-graph { --ov-size: 72px; }
+    .vault-graph #vg-ov { top: var(--controls-inset); bottom: auto; }
     /* Above the sheet (z-index 8): #vg-mob sits in #vg-canvas, which the band pushes below
        the sheet's top edge, and a panel that covers its own toggle cannot be closed. The rest
        of the cluster -- where it sits and which way it runs -- is the base rule's, github#82. */
