@@ -336,7 +336,7 @@ const resolve = (dest, sourceId) => {
   if (isRelativeDest(dest)) return -1;
   const there = exact(canonicalDest(sourceId, dest));
   if (there >= 0) return there;
-  if (dest.includes("/")) return -1;
+  // github#141 -- byKey holds no paths now, so an alias may carry a slash
   const k = dest.toLowerCase().trim();
   return byKey.has(k) ? byKey.get(k) : -1;
 };

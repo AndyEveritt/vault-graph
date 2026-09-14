@@ -2149,7 +2149,13 @@ function mountVaultGraph(root, data, deps) {
         share(inner, "i"); share(outer, "o");
         cells.forEach(function (c) { c.bandRef = c.band; });
       };
-      if (!movable.length) { applyAssign(); return; }
+      if (!movable.length) {
+        // github#117 -- no outer band: flip to all outer, as the seed guard does
+        if (names.every(function (g) { return assign[g]; })) {
+          names.forEach(function (g) { assign[g] = false; });
+        }
+        applyAssign(); return;
+      }
 
       /** @param {Cell[]} ins @param {Cell[]} outs @param {number} rv */
       var spanFor = function (ins, outs, rv) {
@@ -3246,10 +3252,12 @@ function mountVaultGraph(root, data, deps) {
     cascade();
   }
 
-  var TODAY = (function () {
-    var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; };
+  /** @param {number} ms */
+  function localKey(ms) {
+    var d = new Date(ms), p = function (n) { return (n < 10 ? "0" : "") + n; };
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
-  })();
+  }
+  var TODAY = localKey(Date.now());
 
   /**
    * The date the BAND is counting, github#70. `created` is still the default and
@@ -3281,6 +3289,9 @@ function mountVaultGraph(root, data, deps) {
    * @type {Record<string, boolean>}
    */
   var recentSet = dict();
+  // github#70 -- what the dim reads; on a disarm it outlives recentSet
+  /** @type {Record<string, boolean>} */
+  var recentDim = recentSet;
   /** How far the non-matching notes have dimmed, 0..1. Walked by hlWalk. */
   var recentT = 0;
   /**
@@ -3319,7 +3330,8 @@ function mountVaultGraph(root, data, deps) {
       return { lo: lo, hi: hi, label: v + " in the last 7 days, since " + lo };
     }
     if (kind === "open" && lastOpen !== null) {
-      var lk = heatKey(lastOpen);
+      // github#70 -- the host's clock is local time, like TODAY; heatKey is UTC
+      var lk = localKey(lastOpen);
       // The host's stamp can outrun the newest dated day (it is a clock, not a file), and a
       // window whose start is after its end matches nothing rather than everything.
       return { lo: lk, hi: hi > lk ? hi : lk, label: v + " on or after " + lk };
@@ -3339,6 +3351,7 @@ function mountVaultGraph(root, data, deps) {
     recentSet = dict();
     if (win) {
       graph.forEachNode(function (id, a) { if (inRecent(win, a)) recentSet[id] = true; });
+      recentDim = recentSet;
     }
   }
 
@@ -5187,6 +5200,7 @@ function mountVaultGraph(root, data, deps) {
         if (recentT > 1) recentT = 1;
         if (recentT < 0) recentT = 0;
         if (recentT !== rAim) moving = true;
+        else if (rAim === 0) recentDim = recentSet;
       }
       graph.forEachNode(function (id) {
         var aim = isHighlighted(id) ? 1 : 0, v = hl[id] || 0;
@@ -5335,7 +5349,7 @@ function mountVaultGraph(root, data, deps) {
         // dot the cascade is still walking is untouched by this (the law about resting sizes).
         // The note under the pointer is exempt: asking what something is must always answer,
         // and a lens is a way of looking rather than a filter that removes.
-        if (recentT > 0.004 && !recentSet[noteOf(id)] &&
+        if (recentT > 0.004 && !recentDim[noteOf(id)] &&
             id !== state.hovered && id !== state.selected) {
           r.color = mixHex(r.color || nodeColor(id), THEME.dim, recentT);
           r.label = "";
@@ -7097,9 +7111,9 @@ function mountVaultGraph(root, data, deps) {
     state.hoverDay = null;
     // github#70 -- neither is persisted (decisions/0009 keeps filters and highlights out of
     // the store), so Refresh returns the band to the date it opens on and drops the lens.
-    state.heatSource = "created";
     setRecent(null);
     recentT = 0;
+    recentDim = recentSet;
     state.until = null;
     state.query = "";
     state.hovered = null;
@@ -7107,6 +7121,9 @@ function mountVaultGraph(root, data, deps) {
     hideTip();
     /** @type {HTMLInputElement} */ ($("q")).value = "";    $("hits").replaceChildren();
     state.from = null; state.to = null; state.heatEnd = null;
+    // github#70 -- through setHeatSource, so the tally is rebuilt with it
+    setHeatSource("created");
+    syncRecentUI();
     rangeChrome();
     buildLegend();
   }
@@ -8405,6 +8422,8 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function heatBuild() {
+    // github#70 -- a rebuilt tally is a new set of matches for the chips too
+    recentCache = dict();
     var wrap = $("heatwrap"), cv = /** @type {HTMLCanvasElement} */ ($("heatc"));
     if (!wrap || !cv) return;
 
@@ -8752,6 +8771,8 @@ function mountVaultGraph(root, data, deps) {
     t.style.top = (above >= 2 ? above : cy + heat.cell + 8) + "px";
   }
 
+  /** @type {Record<string, { key: string, ids: string[], days: string[] }>} */
+  var recentCache = dict();
   /**
    * github#70. Every chip, every run: how many notes it would light RIGHT NOW -- counted
    * against alpha, so a chip composes with the folder filter and the date range the way the
@@ -8762,23 +8783,33 @@ function mountVaultGraph(root, data, deps) {
     var win = recentWindow(kind, state.recent === kind && recentRef !== null
       ? recentRef : undefined);
     if (!win) return { n: 0, bulk: 0, win: null };
+    // github#70 -- the walk once per window, the alpha pass per call
+    var key = state.heatSource + "|" + win.lo + "|" + win.hi;
+    var c = recentCache[kind];
+    if (!c || c.key !== key) {
+      c = recentCache[kind] = { key: key, ids: [], days: [] };
+      graph.forEachNode(function (id, a) {
+        if (!inRecent(win, a)) return;
+        c.ids.push(id); c.days.push(heatDateOf(a));
+      });
+    }
     var n = 0, bulk = 0;
-    graph.forEachNode(function (id, a) {
-      if (!inRecent(win, a) || (alpha[id] || 0) <= 0.004) return;
+    for (var i = 0; i < c.ids.length; i++) {
+      if ((alpha[c.ids[i]] || 0) <= 0.004) continue;
       n++;
       // Same key the band tiled by, so a chip's "of them on a bulk day" counts the same days
       // the band flagged.
-      var d = heat ? heat.days[heatDateOf(a)] : null;
+      var d = heat ? heat.days[c.days[i]] : null;
       if (d && d.bulk) bulk++;
-    });
+    }
     return { n: n, bulk: bulk, win: win };
   }
 
   /**
-   * github#70 -- refresh the chip labels, counts and pressed state. Each chip costs a walk
-   * of the graph, so this is NOT called per frame: heatDraw calls it once it has decided to
-   * repaint, which is the same guard and the same cadence the band's own tiles get. A chip
-   * click calls it directly, because that changes no day count and so passes no guard.
+   * github#70 -- refresh the chip labels, counts and pressed state. A chip's matches are
+   * cached per window (recentCount), so a call is one pass over them: heatDraw calls it
+   * whenever it repaints, which during a cascade is every frame, the cadence the band's own
+   * tiles get. A chip click calls it directly, since that changes no day count.
    */
   function syncRecentUI() {
     var box = $("recent");
@@ -8812,7 +8843,7 @@ function mountVaultGraph(root, data, deps) {
       // page look as though the question could not be asked, which is a different claim.
       btn.disabled = c.n === 0 && !on;
       var cnt = btn.querySelector(".n");
-      if (cnt) cnt.textContent = String(c.n);
+      if (cnt && cnt.textContent !== String(c.n)) cnt.textContent = String(c.n);
       btn.title = c.win
         ? c.n + " note" + (c.n === 1 ? "" : "s") + " " + c.win.label +
           (c.bulk ? " · " + c.bulk + " of them on a bulk day, so probably a sync or a rename" : "") +

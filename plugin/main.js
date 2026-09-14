@@ -596,14 +596,13 @@ class VaultGraphView extends ItemView {
     // stops moving is worse than one that measures from a slightly earlier moment.
     this.lastSeenPrev = this.plugin.settings.lastSeen;
     this.plugin.settings.lastSeen = Date.now();
-    await this.plugin.saveSettings();
-    await this.render();
+    // github#70 -- a failed stamp must not skip the render or the teardown
+    try { await this.plugin.saveSettings(); } finally { await this.render(); }
   }
 
   async onClose() {
     this.plugin.settings.lastSeen = Date.now();
-    await this.plugin.saveSettings();
-    this.teardown();
+    try { await this.plugin.saveSettings(); } finally { this.teardown(); }
   }
 
   // github#62; github#140 -- the one place a render is invalidated
