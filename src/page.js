@@ -5453,6 +5453,57 @@ function mountVaultGraph(root, data, deps) {
     return out >= 0 ? mag : -mag;
   }
 
+  /* ------------------------------------------------ github#144, a lost context */
+
+  // github#144 -- host-neutral wording: the tab and the view alike
+  var GLOST_STALL_MS = 4000;
+  var glostGone = dict();
+  /** @type {number | null} */
+  var glostTimer = null;
+
+  function glostCount() {
+    var n = 0;
+    // github#144 -- dict() has a null prototype, so for..in is safe here
+    for (var k in glostGone) { void k; n++; }
+    return n;
+  }
+
+  /** @param {boolean} stalled */
+  function glostPaint(stalled) {
+    var el = $("glost"), n = glostCount();
+    if (!n) { el.hidden = true; el.textContent = ""; return; }
+    var what = n === 1 ? "A graphics layer" : n + " graphics layers";
+    el.textContent = stalled
+      ? what + " was lost and has not come back. Reopen the graph to rebuild it."
+      : what + " was lost -- restoring...";
+    el.hidden = false;
+  }
+
+  function glostStopTimer() {
+    if (glostTimer !== null) { WIN.clearTimeout(glostTimer); glostTimer = null; }
+  }
+
+  /** @param {string} layer */
+  function glostLost(layer) {
+    glostGone[layer] = true;
+    glostPaint(false);
+    glostStopTimer();
+    // github#144 -- escalates the wording only; the restore is what clears it
+    glostTimer = WIN.setTimeout(function () {
+      glostTimer = null;
+      if (glostCount()) glostPaint(true);
+    }, GLOST_STALL_MS);
+  }
+
+  /** @param {string} layer */
+  function glostRestored(layer) {
+    delete glostGone[layer];
+    if (!glostCount()) glostStopTimer();
+    glostPaint(false);
+  }
+
+  onDestroy.push(function () { glostStopTimer(); glostGone = dict(); });
+
   function makeRenderer() {
     renderer = new RendererCls(graph, $("graph"), {
       win: WIN,
@@ -5599,6 +5650,10 @@ function mountVaultGraph(root, data, deps) {
       // github#79
       ovSync();
     });
+
+    // github#144 -- the engine says which layer went; the page says it out loud
+    renderer.on("contextLost", function (e) { glostLost(e.layer); });
+    renderer.on("contextRestored", function (e) { glostRestored(e.layer); });
 
     renderer.on("enterNode", function (e) {
       state.hovered = e.node;

@@ -100,6 +100,7 @@
   .vault-graph #vg-detail[hidden],
   .vault-graph #vg-htip[hidden],
   .vault-graph #vg-logo[hidden],
+  .vault-graph #vg-glost[hidden],
   .vault-graph #vg-logoInner[hidden] { display: none; }
   .vault-graph { height: 100%; margin: 0; }
   .vault-graph {
@@ -829,6 +830,17 @@
   .vault-graph #vg-busy {
     position: absolute; inset: 0; display: grid; place-items: center;
     background: var(--surface-1); z-index: 20; font-size: 13px; color: var(--text-2);
+  }
+
+  /* github#144 -- said out loud, over whatever is left of the disc. Above #vg-tip and the
+     camera cluster but under #vg-busy, which is a state this one cannot be in at the same
+     time. pointer-events: none so it never eats a click meant for the graph underneath. */
+  .vault-graph #vg-glost {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 8; max-width: min(88%, 420px); pointer-events: none;
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: 7px; padding: 7px 11px; font-size: 12px; color: var(--text-1);
+    box-shadow: 0 6px 20px rgba(0,0,0,.18); display: block; text-align: center;
   }
 
   /* github#82 -- above the breakpoint the sidebar is a grid column, not a sheet, so folding

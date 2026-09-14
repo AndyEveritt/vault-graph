@@ -204,7 +204,7 @@ export interface RendererEvents {
   clickStage: StageEvent;
   doubleClickStage: StageEvent;
   afterRender: void;
-  // github#144 -- the engine says a layer went away and came back; the page draws the notice
+  // github#144 -- the engine says it; the page draws the notice
   contextLost: ContextEvent;
   contextRestored: ContextEvent;
 }

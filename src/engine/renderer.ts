@@ -106,7 +106,7 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
   private killed = false;
   private renderFrame: number | null = null;
   private hoverFrame: number | null = null;
-  // github#144 -- the layers whose context is gone right now; empty is the healthy case
+  // github#144 -- the layers whose context is gone right now
   private readonly lost = new Set<WebGLLayer>();
   private readonly contextListeners: Array<() => void> = [];
   private readonly onWindowResize = (): void => {
@@ -201,7 +201,7 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.correctionRatio = getMatrixImpact(this.matrix, state, dims);
 
     const params = this.renderParams();
-    // github#144 -- a lost layer draws nothing; the other two, and the 2D layers, carry on
+    // github#144 -- a lost layer draws nothing, the others carry on
     if (!this.lost.has("nodes")) {
       this.nodePrograms.circle.render(params);
       this.nodePrograms.halo.render(params);
@@ -229,7 +229,7 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.hoveredNode = null;
     for (const p of [this.nodePrograms.circle, this.nodePrograms.halo, this.hoverPrograms.circle,
                      this.hoverPrograms.halo, this.edgePrograms.line, this.edgePrograms.curve]) p.kill();
-    // github#144 -- off before the deliberate loss below, so teardown raises no notice
+    // github#144 -- off before the deliberate loss below
     for (const off of this.contextListeners) off();
     this.contextListeners.length = 0;
     for (const gl of [this.gl.edges, this.gl.nodes, this.gl.hoverNodes]) {
@@ -312,7 +312,7 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     const gl = canvas.getContext("webgl2", { preserveDrawingBuffer: false, antialias: false });
     if (!gl) throw new Error("vault-graph: WebGL2 is not available in this window");
     this.applyContextState(gl);
-    // github#144 -- a context the browser takes back is only restorable if the loss is prevented
+    // github#144 -- a loss must be prevented to be restorable
     const lost = (event: Event): void => this.onContextLost(id, event);
     const restored = (): void => this.onContextRestored(id);
     canvas.addEventListener("webglcontextlost", lost);
@@ -326,12 +326,7 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
 
   /* --------------------------------------------------- github#144, context loss */
 
-  /**
-   * The context state a fresh context does NOT carry over. A restored context is the same
-   * object with default state and no resources, so this is the whole of what has to be said
-   * again. From the constructor the viewport is still 0x0 and resize(true) sets the real one
-   * two lines later; from a restore this is the only thing that sets it.
-   */
+  // github#144 -- the state a restored context does not carry over
   private applyContextState(gl: WebGL2RenderingContext): void {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.viewport(0, 0, this.width * this.pixelRatio, this.height * this.pixelRatio);
@@ -348,7 +343,7 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
   }
 
   private onContextLost(layer: WebGLLayer, event: Event): void {
-    // kill() loses all three on purpose to hand the GPU memory back -- do not ask for those back
+    // github#144 -- kill() loses all three on purpose
     if (this.killed) return;
     event.preventDefault();
     if (this.lost.has(layer)) return;
@@ -361,13 +356,11 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.lost.delete(layer);
     const gl = this.gl[layer];
     this.applyContextState(gl);
-    // The old programs' shaders, programs and buffers died with the context; there is nothing
-    // to delete, and the objects themselves belong to a generation that no longer exists.
+    // github#144 -- nothing to delete: the old resources died with the context
     if (layer === "nodes") this.nodePrograms = this.makeNodePrograms("nodes");
     else if (layer === "hoverNodes") this.hoverPrograms = this.makeNodePrograms("hoverNodes");
     else this.edgePrograms = this.makeEdgePrograms();
-    // A fresh program is at capacity 0 with an empty array, so the data has to go up again --
-    // which is exactly what process() does, and render() is what calls it.
+    // github#144 -- a fresh program is at capacity 0, so process() again
     this.needToProcess = true;
     this.render();
     this.emit("contextRestored", { layer });
@@ -399,7 +392,7 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
 
   private clear(): void {
     for (const layer of ["nodes", "edges", "hoverNodes"] as const) {
-      // github#144 -- a call on a lost context is a silent no-op; skipping says so out loud
+      // github#144 -- a call on a lost context is a silent no-op
       if (this.lost.has(layer)) continue;
       const gl = this.gl[layer];
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
