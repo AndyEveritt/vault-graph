@@ -83,3 +83,23 @@ scripts/    refresh-graph.ps1, make-logo.ps1    entry points
 `vendor/` rather than `lib/` because the signal that matters for those two files is "not
 ours, don't edit, don't review — updating means dropping in a new release." It is also
 what keeps this a zero-`npm install` project: no package manager, node built-ins only.
+
+## Superseded in part, 2026-09-14 — the repo layout above, not the decision
+
+The decision holds unchanged: nothing about a vault is hardcoded, the source lives in the
+repo, the output goes in the vault. Three details in the *layout block* have since moved, and
+it is left as written rather than edited so that what 2026-08-22 actually looked like stays
+legible.
+
+| Then | Now |
+|---|---|
+| `src/ build-graph.mjs, template.html` | `template.html` became `shell.html` + `page.css` + `page.html` + `page.js`, all under `src/`, and `src/engine/` holds the TypeScript store and renderer |
+| `vendor/ sigma, graphology` | Gone. Both bundles were replaced by our own engine in github#58 — `decisions/0012` |
+| "a zero-`npm install` project: no package manager, node built-ins only" | No longer true. The plugin build needs esbuild and the gates need eslint and tsc; `.githooks/pre-push` **fails closed** without `node_modules` rather than skipping lint. The *exporter* still needs nothing but Node, which is the part of this that survived |
+
+Vault location has also grown from two routes to four: explicit (`--vault`,
+`VAULT_GRAPH_VAULT`, `OBSIDIAN_VAULT`), Obsidian's own `obsidian.json` registry
+(`--vault-name`, the sole known vault, or the sole open one), then walking up. Every one of
+them still refuses a directory with no `.obsidian` in it, which is the actual decision here.
+
+Current layout: `architecture.md`.
