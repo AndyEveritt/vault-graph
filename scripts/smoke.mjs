@@ -3229,7 +3229,7 @@ check("the last frame of a cascade is the resting layout", async (p) => {
   await sleep(200);
 
   const sampler = `(function (trigger) {
-    window.__LF = { last: null, rest: null, frames: 0 };
+    window.__LF = { prev: null, last: null, rest: null, frames: 0 };
     var snap = function () {
       var a0 = __vg.renderer.graphToViewport({ x: 0, y: 0 });
       var b0 = __vg.renderer.graphToViewport({ x: 160, y: 0 });
@@ -3246,7 +3246,7 @@ check("the last frame of a cascade is the resting layout", async (p) => {
     };
     var tick = function () {
       if (__vg.demo.busy()) {
-        window.__LF.last = snap(); window.__LF.frames++;
+        window.__LF.prev = window.__LF.last; window.__LF.last = snap(); window.__LF.frames++;
         requestAnimationFrame(tick);
       } else {
         // SNAP ON THE TRANSITION TOO, or last is the second-to-last animated frame.
@@ -3263,7 +3263,14 @@ check("the last frame of a cascade is the resting layout", async (p) => {
         // This is still BEFORE the final assignment, which is the frame the check wants: the
         // beat below exists because busy() clears before that assignment lands, so snapping
         // the instant it clears captures the last ANIMATED frame and not the resting one.
-        window.__LF.last = snap(); window.__LF.frames++;
+        // github#159 -- AND KEEP THE FRAME BEFORE IT. Snapping on the transition put 'last'
+        // on the far side of anything that changes ON the transition: a dot held under a
+        // stale endpoint cap through the whole walk and released on the landing frame went
+        // 7px -> 30px between the last busy frame and this one, and last -> rest read 0
+        // because both were post-release. 'prev' is the last busy frame; sizes are asserted
+        // across prev -> last as well. Positions are not -- that pair is the 22-27 unit
+        // coin flip on the 10k fixture recorded above, and it is a real frame of motion.
+        window.__LF.prev = window.__LF.last; window.__LF.last = snap(); window.__LF.frames++;
         // A BEAT: busy() clears before the final assignment lands. Without this the check
         // measures its own stopwatch -- see the note in animation.md.
         setTimeout(function () { window.__LF.rest = snap(); }, 320);
@@ -3280,8 +3287,15 @@ check("the last frame of a cascade is the resting layout", async (p) => {
       await sleep(100);
     }
     return await p.j(`(function () {
-      var L = window.__LF.last, R = window.__LF.rest;
+      var L = window.__LF.last, R = window.__LF.rest, P = window.__LF.prev;
       if (!L || !R) return { frames: window.__LF.frames, n: 0 };
+      // github#159 -- the size step ON the landing frame, prev -> last
+      var ddT = 0, worstT = "";
+      if (P) Object.keys(L).forEach(function (id) {
+        if (!P[id] || !(P[id].dot > 0.01)) return;
+        var sT = Math.abs(L[id].dot - P[id].dot) / P[id].dot;
+        if (sT > ddT) { ddT = sT; worstT = id; }
+      });
       var dr = 0, dt = 0, dd = 0, n = 0, worst = "";
       Object.keys(R).forEach(function (id) {
         if (!L[id]) return;
@@ -3298,19 +3312,30 @@ check("the last frame of a cascade is the resting layout", async (p) => {
       });
       return { frames: window.__LF.frames, n: n, worst: worst,
                dr: Math.round(dr * 10) / 10, dt: Math.round(dt * 10) / 10,
-               dd: Math.round(dd * 1000) / 10 };
+               dd: Math.round(dd * 1000) / 10,
+               ddT: Math.round(ddT * 1000) / 10, worstT: worstT };
     })()`).then((r) => ({ label, ...r }));
   };
 
   const out = [];
   // github#50
-  const g = (await p.j(`__vg.groupOrder().filter(function (x) { return __vg.groupCount(x) > 0; })`))[0];
-  out.push(await run("folder toggle", `document.querySelector('[data-eye="' +
-    ${JSON.stringify(g)}.replace(/"/g, String.fromCharCode(92) + '"') + '"]').click();`));
-  await p.eval(`document.querySelector('[data-eye="' +
-    ${JSON.stringify(g)}.replace(/"/g, String.fromCharCode(92) + '"') + '"]').click(); void 0`);
-  await settle(p);
-  await sleep(200);
+  const groups = await p.j(`__vg.groupOrder().filter(function (x) { return __vg.groupCount(x) > 0; })
+                             .map(function (x) { return [x, __vg.groupCount(x)]; })`);
+  const g = groups[0][0];
+  // github#159 -- AND THE LARGEST. groupOrder()[0] on the dominant-folder vault is
+  // "(vault root)", one note; the folder that re-plans both rings is `projects` at 738,
+  // and the size release only shows on a toggle big enough to move a dot's neighbours.
+  const gBig = groups.reduce((a, b) => (b[1] > a[1] ? b : a), groups[0])[0];
+  const eye = (name) => `document.querySelector('[data-eye="' +
+    ${JSON.stringify("NAME")}.replace(/"/g, String.fromCharCode(92) + '"') + '"]').click();`
+    .replace(JSON.stringify("NAME"), JSON.stringify(name));
+  for (const [label, name] of gBig === g ? [["folder toggle", g]]
+                                        : [["folder toggle", g], ["largest folder toggle", gBig]]) {
+    out.push(await run(label, eye(name)));
+    await p.eval(eye(name) + " void 0");
+    await settle(p);
+    await sleep(200);
+  }
 
   const span = await p.j(`(function () { var f = document.querySelector("#vg-from");
     return f ? { min: f.min, max: f.max } : null; })()`);
@@ -3322,12 +3347,13 @@ check("the last frame of a cascade is the resting layout", async (p) => {
   }
   await clearRange(p);
 
-  const bad = out.filter((r) => !r.n || r.dr > 16 || r.dt > 16 || r.dd > 5);
+  const bad = out.filter((r) => !r.n || r.dr > 16 || r.dt > 16 || r.dd > 5 || r.ddT > 5);
   return {
     ok: !bad.length,
     detail: out.map((r) => r.n
       ? `${r.label}: ${r.frames}f, ${r.n} notes, dr ${r.dr} dtan ${r.dt}` +
-        (r.dt > 1 ? ` (${r.worst})` : "") + ` dot ${r.dd}%`
+        (r.dt > 1 ? ` (${r.worst})` : "") + ` dot ${r.dd}%` +
+        ` landing-frame dot ${r.ddT}%` + (r.ddT > 5 ? ` (${r.worstT})` : "")
       : `${r.label}: nothing sampled`).join(" | "),
   };
 }, { on: WALK, clock: "real" });
