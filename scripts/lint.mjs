@@ -25,6 +25,16 @@ if (tsc.status !== 0) {
 }
 console.log("typecheck: ok -- tsc --noEmit clean");
 
+// github#145 -- the compiler's check on the JAVASCRIPT, and the probe that proves it still has
+// teeth. A separate script rather than a third spawnSync here, because the probe needs a
+// mutated copy of src/page.js and a generated config to point at it, and both have to be
+// cleaned up whether the run passes or not.
+const contracts = spawnSync(process.execPath, [join(ROOT, "scripts", "check-js-contracts.mjs")],
+                            { cwd: ROOT, encoding: "utf8" });
+if (contracts.stdout) process.stdout.write(contracts.stdout);
+if (contracts.stderr) process.stderr.write(contracts.stderr);
+if (contracts.status !== 0) process.exit(1);
+
 const eslint = new ESLint({ cwd: ROOT });
 const results = await eslint.lintFiles(SCOPE);
 const formatter = await eslint.loadFormatter("./scripts/lint-summary.mjs");
