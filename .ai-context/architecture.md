@@ -16,7 +16,7 @@ Nothing runs at serve time. There is no serve time.
           ▼                                   ▼
       VaultData  ────────────────────────  VaultData        contract: src/page.js "types"
           │                                   │
-  window.VAULT_DATA                   mountVaultGraph(el, data, deps)
+  window.VAULT_DATA                   mountVaultGraph(root, data, deps)
           │                                   │
           └───────────────┬───────────────────┘
                           ▼
@@ -86,9 +86,9 @@ Beyond the data it owns three things the exporter has no equivalent of:
   destroys the mount handle, drops the element reference and empties `contentEl`. Every
   asynchronous continuation inside `render()` re-checks `this.renderGen === gen` before
   touching anything, so a stale build cannot mount over a current one.
-- **The live rebuild** (github#72, `design/0014`, `decisions/0011-a-live-rebuild-…`): the disc
-  follows the vault while the view is open, debounced, and retakes the geometry lock only at
-  rest.
+- **The live rebuild** (github#72, `design/0014`,
+  `decisions/0011-a-live-rebuild-retakes-the-geometry-lock-at-rest`): the disc follows the
+  vault while the view is open, debounced, and retakes the geometry lock only at rest.
 
 ## Persistence — the host owns it (`decisions/0009`)
 
@@ -171,7 +171,7 @@ A ghost's id is `ghost:<canonical full destination>`, with the basename kept as 
 
 **The equivalence is close but not total, and the gap is measured rather than claimed.**
 The exporter and a real Obsidian mount agree on every node id and every edge weight on the
-probe vault, ghost ids included. Exactly one divergence remains and is deliberate:
+miniature probe vault github#141 built for it, ghost ids included. Exactly one divergence remains and is deliberate:
 `[[Nickname]]` stays unresolved in Obsidian's `resolvedLinks` while the exporter resolves it
 through its alias index, so the plugin grows a `ghost:Nickname` the exporter does not —
 adopting the cache's answer would delete real edges. `invariants.md`, *Link resolution*, has

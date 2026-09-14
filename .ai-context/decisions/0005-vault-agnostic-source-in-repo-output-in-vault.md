@@ -95,7 +95,7 @@ legible.
 |---|---|
 | `src/ build-graph.mjs, template.html` | `template.html` became `shell.html` + `page.css` + `page.html` + `page.js`, all under `src/`, and `src/engine/` holds the TypeScript store and renderer |
 | `vendor/ sigma, graphology` | Gone. Both bundles were replaced by our own engine in github#58 — `decisions/0012` |
-| "a zero-`npm install` project: no package manager, node built-ins only" | No longer true. The plugin build needs esbuild and the gates need eslint and tsc; `.githooks/pre-push` **fails closed** without `node_modules` rather than skipping lint. The *exporter* still needs nothing but Node, which is the part of this that survived |
+| "a zero-`npm install` project: no package manager, node built-ins only" | No longer true, of any of it. The gates need eslint and tsc, `.githooks/pre-push` **fails closed** without `node_modules` rather than skipping lint, and the exporter itself now imports esbuild to bundle `src/engine` — so even `build-graph.mjs` no longer runs on a bare Node |
 
 Vault location has also grown from two routes to four: explicit (`--vault`,
 `VAULT_GRAPH_VAULT`, `OBSIDIAN_VAULT`), Obsidian's own `obsidian.json` registry
