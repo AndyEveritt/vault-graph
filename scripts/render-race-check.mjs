@@ -1,35 +1,8 @@
 #!/usr/bin/env node
-// github#140
-
-/* ===================================================================== why ==
- * `VaultGraphView.render()` tears down, then awaits `buildData()`, then mounts. The
- * defect this harness measures lives entirely in that gap: nothing between the teardown
- * and the mount can be invalidated, so a build that finishes after its view was closed
- * still mounts, and two overlapping renders leave two live mounts with only the newer one
- * reachable through `this.handle`.
- *
- * Seeing that needs one thing none of the other harnesses can offer: control over WHEN a
- * build finishes. `deferred-check.mjs`, `refresh-check.mjs` and `obsidian-smoke.mjs` all
- * drive a real Obsidian, where the only way to hold `buildData()` open is to monkeypatch
- * its internals over CDP -- which measures the patch as much as the code. So this runs the
- * REAL view class against stubbed hosts instead, with the first `vault.adapter` read of
- * each build held on a latch the harness releases by name.
- *
- * Real browser, headless: `render()` parses `src/page.html` with `DOMParser` and appends
- * the result, and a hand-written DOM shim that is subtly wrong would hide the defect
- * rather than show it. Nothing here reads a pixel, so headless costs no display and the
- * run needs no screen lock.
- *
- * What is stubbed, and why each one has to be:
- *   obsidian          -- ItemView, Notice and the HTMLElement sugar the view calls
- *   src/page.js       -- mountVaultGraph: WebGL, and the thing we are counting
- *   src/engine/index  -- GraphStore/Renderer, reached only through the mount
- * Everything else -- the view class, buildData, readFolders, the whole plugin/main.js
- * module -- is the shipped source, bundled from disk.
- *
- *   node scripts/render-race-check.mjs
- *   node scripts/render-race-check.mjs --keep    # leave the bundle for inspection
- */
+// github#140 -- holds a render open on a latch, so a stale build can be seen
+// github#140 -- the real VaultGraphView, stubbed hosts, headless Chrome
+// github#140 -- why, and the numbers: .ai-context/invariants.md
+// github#140 -- node scripts/render-race-check.mjs [--keep]
 
 import { build } from "esbuild";
 import { spawn } from "node:child_process";
@@ -123,10 +96,7 @@ export function mountVaultGraph(page, data, deps) {
 
 const ENGINE_STUB = `export class GraphStore {}\nexport class Renderer {}\n`;
 
-/* ---------------------------------------------------------------- the driver --
- * Runs in the page. It owns the stubbed host, the latch that holds each build open, and
- * the snapshot the checks below read. Deliberately small: every assertion is made in Node.
- */
+// github#140 -- the in-page driver; every assertion is made in Node
 const DRIVER = `
 import { VaultGraphView } from "__PLUGIN_MAIN__";
 
@@ -258,8 +228,7 @@ const stubs = {
     virtual(/^\.\.\/src\/page\.js$/, PAGE_STUB);
     virtual(/^\.\.\/src\/engine\/index$/, ENGINE_STUB);
 
-    // raw:/b64: -- the same contract build-plugin.mjs gives main.js, so page.html and the
-    // logo travel unchanged.
+    // github#140 -- the raw:/b64: contract build-plugin.mjs gives main.js
     for (const [prefix, loader] of [["raw:", "text"], ["b64:", "base64"]]) {
       const filter = new RegExp("^" + prefix);
       b.onResolve({ filter }, (a) => ({
@@ -277,9 +246,7 @@ const stubs = {
       loader: "js",
     }));
 
-    // THE ONE EDIT TO THE SHIPPED SOURCE, and it is an append: main.js exports only the
-    // plugin class, and the harness drives the view. Appending the export here rather than
-    // adding one to plugin/main.js keeps the product's module surface exactly as it ships.
+    // github#140 -- the one edit to shipped source, and the bundler makes it
     b.onLoad({ filter: /[\\/]plugin[\\/]main\.js$/, namespace: "file" }, (a) =>
       a.path === PLUGIN_MAIN
         ? { contents: readFileSync(a.path, "utf8") + "\nexport { VaultGraphView };\n", loader: "js" }
@@ -429,8 +396,8 @@ try {
                                     : results.length + "/" + results.length + " pass"));
   if (failed.length) process.exitCode = 1;
 } finally {
-  try { await p.close(); } catch { /* the socket is already gone */ }
-  try { chrome.kill(); } catch { /* already exited */ }
+  try { await p.close(); } catch {}
+  try { chrome.kill(); } catch {}
   await sleep(300);
   if (KEEP) console.log("\nbundle kept at " + scratch);
   else { rmSync(scratch, { recursive: true, force: true }); }

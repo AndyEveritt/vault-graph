@@ -2862,6 +2862,68 @@ node scripts/obsidian-smoke.mjs --only live      # a real Obsidian, throwaway co
 node scripts/live-growth-check.mjs --view open --pan    # github#120, minutes not seconds
 ```
 
+## A render that is no longer the current one mounts nothing
+
+github#140. `render()` tears down synchronously and then awaits `buildData()`, and until this
+there was nothing in that gap a later teardown or a newer render could reach into. Everything
+after the await -- `lastData`, the appended page, `mountVaultGraph()`, `subscribeLive()` -- ran
+unconditionally, on whatever view state existed by the time the build came back.
+
+**`teardown()` bumps a monotonic `renderGen`, and that is the only place it moves.** Every way a
+mount ends routes through it -- a newer render, `onClose()`, an explicit teardown -- so there is no
+fourth call site to forget, and `teardown()` stays idempotent. `render()` captures the generation
+immediately after its own teardown call, freezes the four settings `buildData` reads
+(`BuildOptions`), and re-reads the generation on the far side of the await. A superseded render
+returns having written **nothing**: no `lastData`, no markup, no mount, no registration -- and its
+error and `finally` paths are guarded identically, because the current render's handle and busy
+state are not an old request's to clear.
+
+`this.rebuilding` moved into `render()` with it. It had guarded the Refresh button alone, which
+left settings rebuilds, the rebuild command and the initial open unguarded; `teardown()` clears it,
+without which a view closed mid-build keeps a busy flag no later render would ever clear.
+
+```bash
+node scripts/render-race-check.mjs      # headless, ~10s, no display and no screen lock
+```
+
+The harness bundles the **real** `VaultGraphView` against stubbed `obsidian`, `src/page.js` and
+`src/engine/index`, runs it in headless Chrome over `cdp.mjs`, and holds the first `vault.adapter`
+read of each build on a latch it releases by name -- which is the one thing the Obsidian harnesses
+cannot offer, since the only way to delay `buildData()` there is to monkeypatch it over CDP and
+measure the patch. Real browser rather than a DOM shim, because `render()` parses `src/page.html`
+with `DOMParser` and a shim that is subtly wrong hides the defect instead of showing it. Sixteen
+checks, three scenarios, measured on either side of the fix:
+
+| | before | after |
+|---|---|---|
+| A and B overlap, **B resolves first** — pages in the root | 2 | **1** |
+| — live mounts | 2 (`B`, `A`) | **1 (`B`)** |
+| — `this.handle` / `lastData` | `A` / `A` | **`B` / `B`** |
+| the view is closed mid-build — mounts created | 1 | **0** |
+| — pages in the root / `this.handle` | 1 / `C` | **0 / `null`** |
+| — `rebuilding` left behind | true | **false** |
+| three rapid rebuilds resolving **3, 1, 2** — pages in the root | 3 | **1** |
+| — live mounts | 3 (`r3`, `r1`, `r2`) | **1 (`r3`)** |
+| — `this.handle` | `r2`, the last to *resolve* | **`r3`, the newest *started*** |
+
+**11 of 15 checks failed before, 16 of 16 pass after.** The first row is the leak the issue names:
+the second assignment to `this.handle` orphaned the first mount rather than replacing it, so it
+stayed alive and unreachable and the later teardown destroyed only one of the two. github#120 holds
+through all of it -- **six view event refs across three renders, not eighteen**, which the harness
+asserts so the two fixes cannot quietly undo each other.
+
+**Two things read across the await that were reading the wrong window.** `win:` on the mount deps
+and `syncTheme()`'s theme probe both used `activeWindow` / `activeDocument`, which name whichever
+window has focus rather than the render target -- so a `css-change` arriving while the main window
+was focused painted a popout with the main window's theme. Both read `this.contentEl.ownerDocument`
+now, at the point of use rather than captured, because a leaf can be moved between windows and the
+element always knows where it is.
+
+`liveRebuild()`'s own `github#62` handle-identity guard is **untouched and still required**: it
+stops an old *live* result reaching a replacement graph, which is a different race in a different
+method. Finding 4 of github#81 (host registrations accumulating per render) is not this -- github#120
+fixed it in `73c62ca`, and the two stay apart.
+
 ## Word counts land by path, and an index stopped meaning a node
 
 github#72. The host reads word counts in the background after the mount and applies them one at a
