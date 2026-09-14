@@ -2657,6 +2657,14 @@ way.
 | data URL | 76 kB → 2,042 kB | 29 kB → 813 kB |
 
 The logo column is the control: it is the part that was always there, and it barely moves.
+`PNG_GRAPH_PX_MIN` is 2,000 — three orders of magnitude under what a real export clears and
+well over what a blank one can reach, so the floor is not a number anything is tuned to.
+
+The extra render costs one frame on a button pressed occasionally, which is the same frame
+the page draws continuously while the camera moves; a click mid-cascade cancels the pending
+frame and draws it immediately rather than dropping it. `render()` also emits `afterRender`,
+so `placeLogo()` has run before `savePng()` reads the logo's position — the export now
+composites the logo where this frame put it rather than where the last one did.
 
 ## A torn-down mount holds nothing outside its root
 

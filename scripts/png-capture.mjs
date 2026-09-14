@@ -58,7 +58,7 @@ export function pngCaptureJs(at) {
 }
 
 // github#142
-export const PNG_GRAPH_PX_MIN = 2000;
+const PNG_GRAPH_PX_MIN = 2000;
 
 /**
  * @param {{ clicked: boolean, layers?: { edges: number, nodes: number }, graphPx?: number }} r
