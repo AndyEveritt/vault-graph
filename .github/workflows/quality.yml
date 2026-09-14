@@ -61,7 +61,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   # CANCEL A SUPERSEDED PULL-REQUEST RUN, NEVER A PUSH RUN. A cancelled run reports a status
   # that is not "passing", and on develop or main that status is the thing a merge boundary
   # reads -- so cancelling one would leave a landed commit looking gated when nothing gated it.

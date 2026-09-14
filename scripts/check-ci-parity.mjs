@@ -94,11 +94,22 @@ function hookGates(hook) {
  */
 function workflowRuns(workflow) {
   const found = [];
-  for (const line of workflow.split("\n")) {
-    const run = /^\s*run:\s*(.+?)\s*$/.exec(line);
-    if (!run) continue;
-    const k = key(run[1]);
+  // github#147 -- only a run:, never a comment naming a script in prose
+  let block = -1;
+  const take = (cmd) => {
+    const k = key(cmd);
     if (k && !found.includes(k)) found.push(k);
+  };
+  for (const line of workflow.split("\n")) {
+    const indent = /^\s*/.exec(line)[0].length;
+    if (block >= 0) {
+      if (line.trim() && indent <= block) block = -1;
+      else { take(line); continue; }
+    }
+    const run = /^\s*run:\s*(.*?)\s*$/.exec(line);
+    if (!run) continue;
+    if (/^[|>][-+]?\d*$/.test(run[1])) block = indent;
+    else take(run[1]);
   }
   return found;
 }
