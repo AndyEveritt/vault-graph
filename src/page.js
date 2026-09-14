@@ -5471,8 +5471,9 @@ function mountVaultGraph(root, data, deps) {
     var one = n === 1;
     var what = (one ? "A graphics layer was" : n + " graphics layers were") + " lost";
     el.textContent = stalled
-      ? what + " and " + (one ? "has" : "have") + " not come back. Reopen the graph to rebuild it."
-      : what + " -- restoring...";
+      ? what + " and " + (one ? "has" : "have") +
+        " not come back. Reload or reopen the graph to rebuild it."
+      : what + " — restoring...";
     el.hidden = false;
   }
 
