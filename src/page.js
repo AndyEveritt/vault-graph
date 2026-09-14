@@ -3812,6 +3812,10 @@ function mountVaultGraph(root, data, deps) {
   var fitVer = -1;
   /** @type {Record<string, number> | null} */
   var fitNow = null;
+  // github#159 -- an endpoint's clearance is measured on the endpoint's OWN positions,
+  // github#159 -- not on whatever frame the graph happens to be holding
+  /** @type {Record<string, Point> | null} */
+  var fitPos = null;
 
   var FIT_GRID_MAX = 1 << 20;
   function measureFit() {
@@ -3827,8 +3831,10 @@ function mountVaultGraph(root, data, deps) {
       var al = alpha[id];
       if (al === undefined) al = 1;
       if (al < 0.35) return;
-      if (!(isFinite(a.x) && isFinite(a.y))) return;
-      ids.push(id); xs.push(a.x); ys.push(a.y);
+      // github#159
+      var q = fitPos && fitPos[id] ? fitPos[id] : a;
+      if (!(isFinite(q.x) && isFinite(q.y))) return;
+      ids.push(id); xs.push(q.x); ys.push(q.y);
     });
     /** @type {Record<string, number>} */
     var map = dict();
@@ -4406,11 +4412,21 @@ function mountVaultGraph(root, data, deps) {
         traceTag(keepTag);
         // github#66
         measureSizeScale();
+        // github#159 -- THE ENDPOINT'S OWN FRAME, for the fit. These sizes become the cap the
+        // github#159 -- walk holds every dot under (github#66), and the frame fit (github#41)
+        // github#159 -- is part of them. measureFit() reads graph positions and re-runs only
+        // github#159 -- when posVer moves, and nothing moves it between endpoint A and
+        // github#159 -- endpoint B -- so B's sizes were measured against A's frame, with A's
+        // github#159 -- neighbours still in it. A dot whose neighbour is leaving was capped
+        // github#159 -- at the size that neighbour allowed, all the way to the landing, and
+        // github#159 -- then released in one frame: 7px to 30px, with nothing else moving.
+        fitPos = outPos; fitVer = -1;
         /** @type {Record<string, number>} */
         var sizes = dict();
         graph.forEachNode(function (id, at) {
           if ((alpha[id] || 0) > 0.004) sizes[id] = dotPx(at.size, id);
         });
+        fitPos = null; fitVer = -1;
         var got = { i: bandOf("i").room, o: bandOf("o").room, pos: outPos,
                     cells: cellRoom, edges: edgeCap, sizes: sizes };
         roomNow = saved; cellNow = savedCell; edgeNow = savedEdge;

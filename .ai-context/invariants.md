@@ -420,6 +420,49 @@ what is left. Measured live 21 / locked 21 / unclamped 23, with the tag vault's 
 branch of *the hub stays the same share of the disc as it is filtered* unchanged in both
 directions.
 
+### A dot held under a stale endpoint cap, released on the landing frame — github#159
+
+Hiding `projects` on the dominant-folder vault, the dots changed size **on the single frame the
+cascade ended**, with nothing moving on that frame or after it. Positions converged the way a
+settle should — `114 → 84 → 101 → 84 → 48 → 17.5 → 3.1 → 0` — and the size channel sat flat at
+zero the whole walk, then moved 23 px on the first frame `busy()` was false. One note, `17`, went
+**7.0 px → 30.2 px** on that frame.
+
+**The cause was in the endpoint sizes, not the walk.** github#66 caps every walking dot at the
+larger of its two resting sizes, and those are computed in `roomOf()` by laying each endpoint
+out (`ringsLayout(pl, true)`) and calling `dotPx()` per note. The frame fit (github#41,
+design/0011) is part of `dotPx()` — and `measureFit()` reads **graph positions** and re-runs
+only when `posVer` moves. Nothing moves it between endpoint A and endpoint B, so **B's sizes
+were measured against A's frame**, with A's neighbours still in it. A dot whose neighbour was
+leaving was capped at the size that neighbour allowed, all the way to the landing, and released
+in one frame once the settle re-measured the real frame. `?nofit` made the snap vanish, which
+is what pointed at the fit; `dotPx(17)` read 28.8 uncapped on every frame while the renderer
+drew 7.0, which is what pointed at the cap.
+
+**Fix: an endpoint's clearance is measured on the endpoint's own positions.** `fitPos` hands
+`measureFit()` the endpoint's `outPos` for the duration of the size pass, with `fitVer` reset
+on both sides so neither endpoint inherits the other's map and the first real frame re-measures.
+Measured after: worst size step over the whole cascade **30.206 → 30.211** (0.005 px), landing
+frame `dsize 0`.
+
+**The check that should have caught it snapshots the wrong side of the transition.** *the last
+frame of a cascade is the resting layout* asserts a dot delta, but takes `last` on the first
+frame `busy()` is false — the frame the release has *already happened on* — and `rest` 320 ms
+later, so `last → rest` read 0. That placement was deliberate, and right for positions (leaving
+`last` a frame back cost up to 27 units on the 10k fixture); it is exactly wrong for anything that
+changes *on* the transition. It now also keeps `prev`, the last busy frame, and asserts **size**
+across `prev → last` (positions are not asserted across that pair — it is a real frame of
+motion). And it toggles the **largest** group as well as `groupOrder()[0]`, which on the
+dominant-folder vault is `(vault root)`, one note.
+
+Verified to have teeth, against the base with the fix reverted: 10k fixture `largest folder
+toggle` landing-frame dot **95.8%**, `range change` **232%**; demo `largest folder toggle`
+**5%**. With the fix: 0% on every toggle on every fixture that runs the check.
+
+**Not reached by that check at all**: the dominant-folder and tag vaults report `0/0` for it —
+the check does not run there. The 10k catches this defect at 232%, so the gate holds, but the
+fixture the report came from is not the one that asserts it.
+
 **A blind spot this fix walks into, and does not cause.** `debugDump().bands` splits the two
 rings at the **biggest radial gap**. That is right whenever a band's own pitch is smaller than
 the gap between the rings, and wrong when it is not — and raising the outer pitch in that one
