@@ -621,6 +621,43 @@ try {
       ", listeners " + first.listeners + " -> " + last.listeners + ", document mousemove " + first.move + "/" + last.move + ", reopen " + Math.min(...msOpen) + "-" + Math.max(...msOpen) + " ms");
   }
 
+  if (selected("since last open")) {
+    // github#70, decisions/0009. The HOST owns this clock, so no page check can reach it and
+    // it was a hand-run step until now: the page is handed the stamp from the PREVIOUS open,
+    // never this instant, or the chip would name a window that closed the moment it opened.
+    // The stamp is written at open as well as at close because a quit that kills Obsidian
+    // never fires onClose, and a chip that silently stops moving is the worst of the three.
+    const read = "(async function(){ var raw = await app.vault.adapter.read(app.vault.configDir +" +
+                 " '/plugins/" + PLUGIN_ID + "/data.json'); return JSON.parse(raw).lastSeen || null; })()";
+    const chips = "(function(){ var box = " + VIEW + ".contentEl.querySelector('#vg-recent');" +
+                  " return box ? Array.prototype.map.call(box.querySelectorAll('button[data-kind]')," +
+                  " function(b){ return b.getAttribute('data-kind'); }).join(',') : 'NO ROW'; })()";
+    const before = await E(read);
+    const dep0 = await E(VIEW + ".lastSeenPrev || null");
+    const kinds0 = await E(chips);
+    await closeGraph(c);
+    const atClose = await E(read);
+    await openGraph(c);
+    const dep1 = await E(VIEW + ".lastSeenPrev || null");
+    const kinds1 = await E(chips);
+    const atOpen = await E(read);
+    // Refresh rebuilds the view in place, and re-passing "now" would turn "since last open"
+    // into "since the last rebuild" -- the dep must survive a rebuild unchanged.
+    await E("(function(){ var b = " + VIEW + ".contentEl.querySelector('#vg-refresh'); if (b) b.click(); })(); void 0");
+    await sleep(1500);
+    const dep2 = await E(VIEW + ".lastSeenPrev || null");
+    const ok = typeof atClose === "number" && typeof atOpen === "number" &&
+               atOpen >= atClose && dep1 === atClose && dep2 === dep1 &&
+               kinds1.split(",").indexOf("open") >= 0;
+    report(ok, "the view stamps lastSeen at open and at close, and hands the page the previous stamp",
+      "data.json lastSeen " + before + " -> " + atClose + " (close) -> " + atOpen + " (reopen); " +
+      "the page was handed " + dep0 + ", then " + dep1 +
+      (dep1 === atClose ? " = the stamp from the close" : "  <- NOT the previous stamp") +
+      ", and " + dep2 + " after a Refresh" + (dep2 === dep1 ? " (unchanged)" : "  <- a rebuild moved it") +
+      "; chips " + kinds0 + " -> " + kinds1 +
+      (kinds1.split(",").indexOf("open") >= 0 ? "" : "  <- no since-last-open chip"));
+  }
+
   if (selected("refresh")) {
     const n0 = errorsBefore();
     const oldHandle = await E("(function(){ var v = " + VIEW + "; window.__vgSmokeOld = v.handle; return !!v.handle; })()");

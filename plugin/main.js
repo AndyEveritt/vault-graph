@@ -75,6 +75,10 @@ function bareMap() {
  * @property {boolean} fitCap                           github#41, design/0011
  * @property {"folder" | "tag"} dim                     github#86 -- grouping dimension
  * @property {boolean} liveRefresh                      github#72
+ * @property {number} [lastSeen]                       github#70 -- ms, when the view was last
+ *                                                   opened or closed. Absent until the first
+ *                                                   open, which is why the chip is missing
+ *                                                   on a first ever run.
  * @property {boolean} [sheetOpen]                      github#82 -- absent until folded once
  * @property {boolean} [bandOpen]                       github#82
  * @property {string} [lastSeenVersion]                 github#83 -- absent until the first load records it
@@ -576,6 +580,8 @@ class VaultGraphView extends ItemView {
     this.renderGen = 0;
     // github#140 -- render() owns this now, not the Refresh button
     this.rebuilding = false;
+    /** github#70 -- the stamp as it was before THIS open; see onOpen. @type {number | undefined} */
+    this.lastSeenPrev = undefined;
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -583,10 +589,20 @@ class VaultGraphView extends ItemView {
   getIcon() { return ICON_ID; }
 
   async onOpen() {
+    // github#70, decisions/0009 -- the HOST owns this clock; the page only receives it.
+    // Read the previous stamp BEFORE overwriting it: what "since last open" means is the
+    // last time this view was up, not this instant. Stamped at open as well as at close
+    // because a quit that kills Obsidian never fires onClose, and a chip that silently
+    // stops moving is worse than one that measures from a slightly earlier moment.
+    this.lastSeenPrev = this.plugin.settings.lastSeen;
+    this.plugin.settings.lastSeen = Date.now();
+    await this.plugin.saveSettings();
     await this.render();
   }
 
   async onClose() {
+    this.plugin.settings.lastSeen = Date.now();
+    await this.plugin.saveSettings();
     this.teardown();
   }
 
@@ -930,6 +946,9 @@ class VaultGraphView extends ItemView {
         await this.plugin.saveSettings();
       },
       folderShown: this.plugin.settings.folderShown,
+      // github#70 -- re-passed unchanged by a rebuild, so Refresh does not turn "since last
+      // open" into "since the last rebuild".
+      lastOpen: this.lastSeenPrev,
       panEnabled: this.plugin.settings.panEnabled,
       /** @param {boolean} v */
       onPanEnabled: async (v) => {

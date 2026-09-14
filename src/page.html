@@ -66,11 +66,28 @@
   <main id="vg-stage">
     <div id="vg-heat">
       <div class="hrow">
-        <div class="lbl">Notes added</div>
-        <span id="vg-heatnote"></span>
-        <div id="vg-heatscale" aria-hidden="true">
-          <span>fewer</span><canvas id="vg-heatkey"></canvas><span>more</span>
+        <!-- github#70: what the band counts must always be nameable (design/0010). This
+             started as the label itself toggling its own word, which named the state but not
+             the choice -- nothing said it could be clicked, or that a second state existed.
+             Both options are on screen now, and the pressed one is the answer. Two buttons
+             that are always both rendered also cannot change the row's width. -->
+        <span class="lbl">Notes</span>
+        <div id="vg-heatsrc" role="group" aria-label="Which date the calendar counts">
+          <button type="button" data-src="created" aria-pressed="true">Added</button>
+          <button type="button" data-src="touched" aria-pressed="false">Touched</button>
         </div>
+        <!-- github#70: no heading. The chips read the date the segment names, so the row
+             states it once and both controls obey it. A "touched:" label lived here while
+             the chips were pinned to that date, and sat next to a button already saying
+             Touched. Filled from script. -->
+        <div id="vg-recent" role="group" aria-label="Halo the notes from a recent window"></div>
+        <!-- github#70: the `fewer [][][] more` key stood here and is gone. It explained a
+             thing the band already demonstrates -- a denser square is more notes -- and it
+             was the one item in this row that could never hold the row's height, being a
+             canvas sized from the cell. Removed on review: "I think people will get the
+             idea." The readout beside it names the tally in words, which is the part a
+             reader cannot infer from looking. -->
+        <span id="vg-heatnote"></span>
         <button id="vg-compact" type="button" aria-pressed="true"
                 title="Compact the date axis by note count. Off gives every year and month equal width."
                 aria-label="Compact date axis">
@@ -155,7 +172,7 @@
           </svg>
         </button>
         <button id="vg-band" type="button" aria-pressed="false"
-                title="The notes-added calendar and the date strip" aria-label="Show the calendar">
+                title="The calendar of notes added or touched, and the date strip" aria-label="Show the calendar">
           <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true" focusable="false">
             <rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.4" fill="none"
                   stroke="currentColor" stroke-width="1.4"/>

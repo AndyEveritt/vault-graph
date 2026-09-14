@@ -34,6 +34,118 @@ the vault on the timeline, and the band grew a column for a day that does not ex
 Weeks start **Monday**, because the vault's own weeks do — weekly reviews are filed by
 ISO week. This is not GitHub's grid.
 
+### `touched` is a second source now, not a second opinion (github#70)
+
+The table above still decides the **default**, and it still holds: the band opens on
+`created`, the timeline and the range filter never left it, and nothing about the argument
+for it has been withdrawn. What changed is that the row this table dismisses -- `mtime` --
+turned out to be dismissed for the wrong reason. It answers a *different* question, not a
+worse one, and the page had no way to ask that question at all: `touched` shipped in every
+exported file from the beginning and was read nowhere.
+
+So the band's label is a two-state control: **Notes added** / **Notes touched**. The rule
+this DDR already imposed is what makes that safe -- the count must be nameable, so the name
+is the control, and the tooltip and the readout repeat the word. Nothing about the tiling,
+the window, the levels or the geometry differs between the two; only which of a note's two
+dates the tally reads.
+
+The dishonesty the table warns about is real and did not go away, so it is **named on the
+band itself**. A day is called *bulk* when it is at least 25 notes and either **20x the
+median day** or **15% of every dated note**, and the tooltip then says what it is:
+"*N*x the typical day here. A sync, an import or a rename does this -- it is not necessarily
+work." Both clauses are needed and each has a measured hole the other closes:
+
+| Fixture | Notes | Distinct touched days | Median | Busiest | Flagged |
+|---|---:|---:|---:|---:|---|
+| demo | 1,403 | 553 | 1 | 40 | 2026-09-05 (40x the median) |
+| 10k | 10,002 | 3,397 | 3 | 54 | none — 54 of 10,002 across 3,397 days is a busy day, not a sync |
+| dominant-folder | 954 | **1** | **954** | **954** | 2026-09-05 (**100%** of the vault) |
+| tag-organised | 891 | **1** | **891** | **891** | its generation day (**100%**) — the fourth fixture, added with `github#86` after this was written, and it behaves exactly as the dominant-folder one does |
+
+The days named here move: two of the four fixtures regenerate weekly, so a re-run reports the
+generation day rather than 2026-09-05. What is pinned is the rule, not the date.
+
+The dominant-folder row is why the share clause exists. Its generator never stamps mtime, so
+all 954 notes carry one — and with a single day in the distribution **the median is the
+outlier itself**, making that day 1x its own median. A multiple-only rule, which is what
+this was first built as, left the one genuine bulk day in the whole suite unflagged. The
+real vault's own cases clear both clauses comfortably: the import day was 180 of 934 (19%)
+and the renumbering day 240 of 934 (26%).
+
+A bulk day is **painted in full and counted in full**. Dimming it by default was considered
+and rejected: hiding data to make a lens look tidy is the failure this file argues against
+throughout, and a reader who is told can decide, where a reader who is shown less cannot.
+
+### The recent chips
+
+Three buttons beside the label: **Today**, **Last 7**, **Since last open**. Each haloes
+the notes whose `touched` falls in its window and dims the rest -- 0 moved, 0 pushed,
+measured on all four fixtures, the same result and for the same reason as a picked day.
+
+**The middle chip is a rolling seven days, and it was the calendar week first.** Week-to-date
+collapses on a Monday: its window is that one day, so both chips count the same notes, cast
+the same halo, and read as one control rendered twice. That is one day in seven -- not an edge
+-- and it is what the first reviewer of the built page hit. It also fails hardest where the
+question matters most: on a Monday morning "what did I touch this week" can only ever answer
+"whatever I touched in the last few minutes". Rolling back six days makes the chip a strict
+superset of Today on every weekday, so the pair is always a narrowing rather than two controls
+that sometimes agree. `smoke.mjs`'s *the 7-day chip spans seven days on every weekday* walks
+all seven reference days rather than whichever one the suite runs on.
+
+The label says **Last 7** and not *Last 7 days*: the unit is left to the tooltip, which names
+the span and its first day. The row is a calendar, so the reader is already counting in days,
+and every chip carries a reserved count slot beside it -- a longer label is the one thing this
+row cannot spend width on (see *the band's control row does not move*).
+
+They read **whichever date the segment names**. One date governs the whole row.
+
+This was the other way round first, and the reversal is worth recording. The chips were
+pinned to `touched` on the reasoning that "what did I touch" is the question the issue was
+raised to answer, and the row then had to carry a `touched:` heading so the second date was
+not silent — which put that word on screen twice, once as a segment position and once as a
+heading beside it. The heading was a symptom. With one date governing the row the honesty
+requirement is met by the segment alone: the band, the chips, the picked day and the tooltip
+all read `heatDateOf`, and there is no second date to disclose. *What did I touch this week*
+is two visible clicks — **Touched**, then **Last 7** — rather than a default nobody can
+see the alternative to.
+
+### The row has one height, and one fewer thing in it
+
+Every control above the band is the same height, declared once as `--vg-hrow-h` on `.hrow` and
+taken by each control through `height` rather than left to its own padding. Measured at
+1440x900 before: segment **22.5px**, chips **27.9**, compact toggle **22.0**, date inputs
+**22.3**, All dates **27.9** -- six controls, four heights, reading as five widgets that
+happened to land on one line. The paddings still differ, because a segment position is not a
+date input; the height is what has to agree. 26px, a little taller than the segment was, so the
+row settles slightly up rather than everything shrinking to its tightest member.
+
+The `fewer [][][] more` key is **gone**. It explained the one thing the band demonstrates by
+existing -- a denser square is more notes -- and it was the only item in the row that could
+never hold the row's height, being a canvas sized from the cell. It is also the element that
+cost the most to keep still: its swatch count follows the quantile cuts, so a date switch that
+collapsed the cuts pulled **17px** out of the row, and `heatDrawKey` carried a reserved-width
+rule (`HEAT_KEY_ANCHORS`) for that alone. Removed on review -- *"I think people will get the
+idea"* -- along with that rule. The readout beside it still names the tally in words, which is
+the part a reader cannot infer from looking.
+
+A chip that matches nothing shows **0** and disables itself rather than disappearing --
+absent reads as "this cannot be asked", zero reads as "asked, and the answer is none". Day
+granularity throughout, because `touched` is a `YYYY-MM-DD` string; "since last open" says
+*on or after* the day rather than pretending to an hour it does not have.
+
+**An armed chip is a set of ids, so anything that mints ids has to say so.** Two parts of the
+page do: a live rebuild (`github#72`) re-mints them, and a dimension switch (`github#86`) draws
+stand-in copies. The lens is therefore in the invalidation registry — re-arming against the
+reference it was armed with, never the clock — and both reads of the set go through `noteOf`,
+so a stand-in is lit by whatever lights the note it draws. Neither was visible while the two
+subsystems and this one were on separate branches; see `invariants.md` for the numbers.
+
+**Since last open is plugin-only, by construction.** It needs a timestamp only a host can
+keep (`decisions/0009` -- the page stores nothing), so the plugin passes `lastOpen` and the
+standalone deliberately does not. The exported page is a snapshot: its data was baked in at
+build time, so that window could only ever be empty. The chip is therefore **not built at
+all** there rather than built and always zero.
+
 ## Two rejected encodings, both measured
 
 **Averaging the day's colours** failed in both directions. Mixing many hues in OKLab
@@ -96,9 +208,14 @@ Hover refreshes only when the day under the pointer actually **changes**. `mouse
 fires many times per cell, and a renderer refresh per event repaints the disc dozens of
 times while crossing one square.
 
-`created` only, not `created`-or-`touched` like `mark today`: the band counts notes
-added, so clicking a square must mark exactly the notes that square counted, or the
-heatmap is lying about its own number.
+**The source field, whichever one is named** -- and never a mix of the two, which is what
+`mark today` used to be. Clicking a square must mark exactly the notes that square counted,
+or the heatmap is lying about its own number. Since github#70 the band can count either
+date, so this rule is enforced through one accessor (`heatDateOf`) that the tally, the
+picked day and the tooltip all read; a check drives both sources and asserts that every note
+in a tile carries that tile's date. Measured over every tile on all three fixtures: **0
+wrong of 1,165 / 954 / 1,295 tiled notes**, and the picked day mismatched **0** of 40, 954
+and 54 notes at each busiest day.
 
 ## Marking today
 

@@ -1038,6 +1038,169 @@ button owned moved onto `state.markDay`, and `smoke.mjs` follows it: *a marked h
 recolours its notes* asserts the fill changes on pick and comes back on clear, which the two
 deleted `mark today` checks were the only cover for.
 
+## A recent chip haloes and dims, but never pushes (github#70)
+
+The chips above the band — Today, Last 7, Since last open — light the notes whose date
+falls in their window and mix everything else toward `--dim`. **Which date is the segment's**,
+through `heatDateOf`, so a chip lights exactly the notes the band's own tiles counted over the
+same span. Both halves ride the existing highlight ramp; neither moves anything, for the
+reason a marked day does not: a day's notes are scattered across every wedge, so pushing a
+subset slides it out *through* its cell-mates.
+
+```bash
+node scripts/smoke.mjs --only "recent chip"
+```
+
+Measured on the three fixtures, each against **its own newest counted day** rather than the
+clock (see the next paragraph), on the default `created`: demo **109 haloed, 0 pushed, 0
+moved**; dominant-folder **12 / 0 / 0**; 10k **2 / 0 / 0**. On `touched` the same windows give
+115, 954 and 2 — the dominant-folder jump from 12 to 954 is that fixture's single mtime day,
+and it is the clearest demonstration that the chips really do follow the segment. The dim is colour
+only — no size and no alpha multiplier — so a dot the cascade is still walking is untouched
+by it, and the resting-size law is not in play. Round trip on the demo: a non-matching note
+goes `#d95926 → #2a2a28 → #d95926`.
+
+Re-measured 2026-09-14 against the four fixtures the suite now carries — the tag-organised
+vault arrived with `github#86` after this work was written — each again on its own newest
+counted day, default `created`, with the middle chip rolling seven days: demo **113 haloed / 0
+pushed / 0 moved**, 10k **2 / 0 / 0**, dominant-folder **14 / 0 / 0**, tag **7 / 0 / 0**. The
+counts move with every weekly fixture regeneration and the shape of the claim does not:
+whatever a window lights, it pushes nothing. Every lens check declares `on: "all"`, so all
+four shapes carry all of them.
+
+### The 7-day chip spans seven days on every weekday (github#70)
+
+```bash
+node scripts/smoke.mjs --only "7-day chip"
+```
+
+The middle chip was **week-to-date** first, and week-to-date collapses on a Monday: its window
+is that single day, so it counted exactly what *Today* counted and the two chips were one
+control rendered twice. One day in seven, and the first thing a reviewer of a built page hit.
+It rolls back six days now, which is a claim about **all seven weekdays**, so the check walks
+seven consecutive injected reference days ending at the vault's own newest counted day rather
+than whichever weekday the suite happens to run on: each window must measure **7 days** and
+must **contain Today's**. Measured 2026-09-14, all four fixtures **7 on every weekday**, with
+Today a strict subset: demo **37 of 113**, 10k **2 of 2**, dominant-folder **2 of 14**, tag
+**1 of 7**. The 10k's 2-of-2 is that fixture having nothing in the six days before its newest
+— the subset still holds, which is the assertion.
+
+**No check here may key on the real clock, and this is not a style preference.** Measured
+2026-09-08: the newest `touched` day is 2026-09-05 on the demo and dominant-folder fixtures
+and 2026-08-28 on the 10k, so *Today* and the 7-day chip light **0 notes on all three** — a
+check written against `new Date()` passes by asserting nothing, and does so more thoroughly
+every day as the two ageing fixtures regenerate forward and the pinned 10k does not. This is
+the same trap the 10k's pinned `--end` exists to avoid. `__vg.setRecent(kind, refMs)` and
+`__vg.recentWindow(kind, refMs)` both take a reference day for exactly this reason.
+
+## The band's control row does not move when its state changes (github#70)
+
+A control that walks away from the pointer between clicks is a defect no numeric check was
+looking for, and this row grew two of them in one change. Every element in it now holds its
+left edge **and its width** across every state the row can be in.
+
+```bash
+node scripts/smoke.mjs --only "control row does not move"
+```
+
+Measured at 1440x900 on the demo fixture across five states (rest, week armed, released,
+source flipped, armed again): **worst shift 19px before, 0px after**. Four separate causes,
+each found by measuring rather than by looking:
+
+| Cause | Before | Fix |
+|---|---|---|
+| the label swapped its text | `Notes added` 76px → `Notes touched` 90px, shoving everything right of it by **14px** | the label is a static word and the choice is a two-position segment; both positions are always rendered, so the control has one width |
+| the pressed position was bolder | **1px**, as the bold moved between `Added` and `Touched` | both positions carry the same weight; the accent fill is what says which is on |
+| a chip's count grew a digit | `This week 0` 75px → `This week 115` 85px, **10px** (measured while that chip was still labelled *This week*; it is *Last 7* since the window went rolling, and the check re-measures rather than trusting this number) | the count slot is reserved at `--vg-count-ch`, set from the note count at mount, with tabular figures: 3ch / 4ch / 5ch on the three fixtures |
+| the heat key lost swatches | **17px**, on the dominant-folder fixture only | `heatDrawKey` sized the canvas for `HEAT_KEY_ANCHORS` (5 — four cuts plus nMax) and centred however many survived the dedup. **The key itself was removed on 2026-09-14** (see below), so this cause no longer exists and neither does the code for it; the row keeps the property by having one element fewer |
+
+The third was not introduced here and is the interesting one: the key has always shrunk when
+a vault's quantiles collapsed, but nothing could change a vault's tally at runtime until the
+band's date became a control. **A pre-existing wobble that only a new control could expose.**
+It shows only where the anchors actually collapse — the dominant-folder fixture, whose 954
+notes share one `touched` day, so all four cuts and `nMax` dedup to a single swatch.
+
+The check compares both `left` and `width`, because an element that keeps its position while
+changing width still pushes whatever the flex row gives the slack to.
+
+## Every control in the band's row is the same height (github#70)
+
+```bash
+node scripts/smoke.mjs --only "same height"
+```
+
+The fidget check above pins `left` and `width`, and would pass with every height in the row
+different — which is what it was. Measured at 1440x900: the Added/Touched segment **22.5px**,
+the chips **27.9**, the compact toggle **22.0**, the date inputs **22.3**, All dates **27.9**.
+Six controls, four heights. The row now declares **one** height, `--vg-hrow-h: 26px` on `.hrow`,
+and every control takes it through `height` rather than through its own padding; the check reads
+the declared value from the custom property rather than hard-coding 26, so changing the row's
+height in one place does not falsify it. Measured after: **7 controls, all at 26px**, and the
+fidget check still **0px worst shift across six states**.
+
+The tolerance is **0.5px**, not zero: a border or a rounded line box can land a tenth either
+side of a declared height, and a tenth is not the defect this exists to catch — four distinct
+heights is.
+
+`#vg-heatscale`, the `fewer [][][] more` key, is **absent**, and the check asserts that too
+rather than exempting it. It was the one element in the row that could never hold a row height,
+being a canvas sized from the heat cell, and it is the one that cost 17px of the original
+fidget. Removed on review; see `design/0010-heatmap.md`.
+
+## The band counts the date it names (github#70)
+
+`design/0010` already required that clicking a square mark exactly the notes that square
+counted. With two possible sources the rule needs enforcing rather than observing, so every
+band reader goes through one accessor, `heatDateOf`, and a check drives both sources and
+asserts that every note in a tile carries that tile's own date.
+
+```bash
+node scripts/smoke.mjs --only "band counts" --only "picked day marks"
+```
+
+Measured, added → touched: demo **1,091 → 1,165** notes in window (busiest day 37 → 40),
+dominant-folder **762 → 954** (busiest 3 on 2025-09-15 → 954 on 2026-09-05), 10k
+**1,275 → 1,295** (busiest 50 → 54). Wrong-dated notes in a tile: **0 of 1,165 / 954 /
+1,295**. Picked-day mismatches at each busiest day, both sources: **0**. Positions moved by
+the switch: **0** on all three — `touched` is read by nothing upstream of the plan, so the
+golden snapshots cannot move and do not.
+
+The label itself is the control (`Notes added` / `Notes touched`), because the count must be
+nameable and the name was already in that slot.
+
+## A bulk day is named, not hidden (github#70)
+
+`mtime` is not a record of work: a sync, an import or a rename rewrites it in bulk, and
+`design/0010` measured this vault's own worst case at 240 files "touched" on the day the
+folders were renumbered. A day too big to be a day's work is therefore **flagged and said
+aloud** — in the tooltip, in the readout, and in every chip's count — while its tile stays
+painted in full and its notes stay counted. Hiding data to make a lens look tidy is the
+failure this project keeps re-learning.
+
+```bash
+node scripts/smoke.mjs --only "bulk day is named"
+```
+
+`BULK_MIN = 25`, `BULK_X = 20`, `BULK_SHARE = 0.15`: a day is bulk when it holds at least 25
+notes **and** is either 20× the median day **or** 15% of every dated note.
+
+| Fixture | Notes | Days | Median | Busiest | Flagged |
+|---|---:|---:|---:|---:|---|
+| demo | 1,403 | 553 | 1 | 40 | 2026-09-05 |
+| 10k | 10,002 | 3,397 | 3 | 54 | none |
+| dominant-folder | 954 | **1** | **954** | **954** | 2026-09-05 |
+
+**Both clauses are load-bearing, and the multiple alone was measured failing.** The
+dominant-folder generator never stamps mtime, so all 954 notes share one day — and with a
+single day in the distribution the median *is* the outlier, making it 1× its own median.
+Built with the multiple test alone, the rule left the only genuine bulk day in the whole
+suite unflagged while flagging two ordinary busy days on the 10k (25 and 54 notes out of
+10,002). The share clause catches the degenerate case and needs no spread to work; the real
+vault's import day (180 of 934, 19%) and renumbering day (240 of 934, 26%) clear both.
+
+The check recomputes the rule from the day counts on its own rather than asking the page —
+a check that reads back the page's own answer agrees with any rule, including a broken one.
+
 ## `skipIndexation` is a promise, and only hlWalk can keep it
 
 `renderer.refresh({ skipIndexation: true })` told Sigma "nothing moved, do not rebuild the
@@ -1091,12 +1254,68 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
 
+## The host owns the "since last open" clock, and hands over the PREVIOUS stamp (github#70)
+
+`decisions/0009` — the page stores nothing, so the third chip's window is a timestamp the host
+keeps and passes in `deps.lastOpen`. Three rules, and none of them is reachable from a page
+check, which is why this one lives in the Obsidian harness rather than the suite:
+
+```bash
+node scripts/obsidian-smoke.mjs --only "since last open"
+```
+
+- **The page is handed the stamp from the previous open, never `Date.now()`** — a chip whose
+  window starts at this instant names a window that closed as it opened.
+- **The stamp is written at open as well as at close.** An Obsidian quit never fires `onClose`,
+  and a chip that silently stops moving is worse than one measuring from slightly too early.
+- **A rebuild re-passes the same value.** `render()`'s own teardown does not stamp, or Refresh
+  would quietly turn *since last open* into *since the last rebuild*.
+
+Measured in a real Obsidian, one open/close/reopen cycle: `data.json` `lastSeen`
+`…139099 → …147288` (close) `→ …147600` (reopen); the page was handed **null** on the first
+open — absent means never seen, and the chip is not built — then **…147288, the stamp from the
+close**, and the same value again after a Refresh. Chips went `today,week` → `today,week,open`.
+The standalone passes no `lastOpen` at all (`src/shell.html`), so the exported page shows two
+chips rather than a third that could only ever read zero.
+
+## An armed chip survives a live rebuild, and a stand-in is lit by its own note (github#70)
+
+An armed chip is a **set of ids**, and two things this repo grew after the lens was written
+hand it ids it has never seen. Both were found by merging `develop` back in rather than by a
+failure, and both now have a check that fails without the fix.
+
+```bash
+node scripts/smoke.mjs --only "live rebuild re-arms" --only "stays lit while a dimension switch"
+```
+
+**A live rebuild re-mints ids** (`github#72`, `design/0014`). A note edited or created with the
+view open is *the* case this lens exists for, and it arrives as a node that did not exist when
+the set was built — so a set left alone goes stale on the one event it most has to answer. The
+lens is registered in the invalidation registry (`invalidatesOnData("recent lens", …)`) and
+re-runs its window **against the reference it was armed with, never the clock**, or a check
+arming a chip at a fixture's own newest day would find itself measuring today after a rebuild.
+Measured, one arrival stamped on the armed day: demo **37 lit → 38**, 10k **2 → 3**,
+dominant-folder **2 → 3**, tag **1 → 2**, probe lit on all four. With the registration disabled
+the probe reads `DARK -- the set went stale` on all four.
+
+**A dimension switch draws copies** (`github#86`, `design/0015`). A stand-in is a second dot for
+a note the lens has an opinion about, under an id the lens has never seen; read by its own id it
+is a non-match, so the note would be haloed on the arriving disc and dimmed on the leaving one
+for as long as the cross lasts. Both reads — `isHighlighted` and the `nodeStyle` dim — go
+through `noteOf`, the same accessor `isPinned` uses, which costs one branch while no copies
+exist. Measured over a switch with a week armed: demo **883,890 stand-in frames, 60,480 of them
+lit, 0 disagreeing with their own note**; tag vault **1,353,429 / 1,519 / 0**. Without `noteOf`,
+the demo run reports **83,040 disagreeing frames and not one lit stand-in**.
+
 ## Every highlight source belongs in the signature
 
 `isHighlighted` answers yes for a clicked group, a clicked subfolder path, a marked heatmap
-day, a hovered day or year, and — since 2026-08-23 — a hovered legend row
-(`state.hoverGroup` / `state.hoverPath`). ("Mark today" was a sixth until 1.7.0 removed the
-button; the band's picked day absorbed it.) Every one of them feeds the same per-note ramp,
+day, a hovered day or year, since 2026-08-23 a hovered legend row (`state.hoverGroup` /
+`state.hoverPath`), and since github#70 **an armed recent chip** (`state.recent`) — plus
+`state.heatSource`, which is not itself a highlight but decides *which date* `isMarkedDay`
+compares, so it changes who is lit without `state.markDay` moving at all. ("Mark today" was
+a sixth until 1.7.0 removed the button; the band's picked day absorbed it.)
+Every one of them feeds the same per-note ramp,
 and every one must appear in `hlSignature`: that signature decides whether the per-note
 sweep runs at all, so a source missing from it is a source whose highlight silently never
 ramps.
