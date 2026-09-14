@@ -2926,20 +2926,26 @@ to keep doing it.
 
 **Two things read across the await that were reading the wrong window.** `win:` on the mount deps
 and `syncTheme()`'s theme probe both used `activeWindow` / `activeDocument`, which name whichever
-window has focus rather than the render target -- so a `css-change` arriving while the main window
-was focused painted a popout with the main window's theme. Both go through Obsidian's own
-`contentEl.win` / `contentEl.doc` now (documented as "the window this node belongs to, or the
-global window"), read at the point of use rather than captured, because a leaf can be moved between
-windows and the element always knows where it is. `win` is not cosmetic: the page drives
-`requestAnimationFrame`, `setTimeout`, `devicePixelRatio` and `matchMedia` off it, 81 call sites,
-and all four are per-window.
+window has **focus**, not the one the view lives in. Both go through Obsidian's own `contentEl.win`
+/ `contentEl.doc` now (documented as "the window this node belongs to, or the global window"), read
+at the point of use rather than captured, because a leaf can be moved between windows and the
+element always knows where it is.
 
-**Measured, because the alternative was assuming it.** A popout body could in principle not carry
-the theme classes, in which case reading the view's own document would paint every popout dark. In
-a real Obsidian with a leaf moved to a popout: **main `theme-dark`, popout `theme-dark`; switched to
-Moonstone, main `theme-light`, popout `theme-light`** -- the classes are mirrored. The same probe
-recorded `activeDocument === document` as **false** with the popout focused, which is the wrong-window
-read this change removes.
+**The two are not equally consequential, and saying so matters more than the fix reading well.**
+`activeDocument === document` was measured **false** with a popout focused, so the wrong-window read
+is real and routine -- but Obsidian **mirrors** the theme classes onto every window, measured in a
+real Obsidian with a leaf popped out: **main `theme-dark` / popout `theme-dark`, and on Moonstone
+main `theme-light` / popout `theme-light`**. The two documents therefore always agree about the
+theme, so `syncTheme()` reading the wrong one was wrong in principle and produced no visible defect.
+It is corrected because the next person to add a per-document read should find the right idiom next
+to it, not because a user could see it.
+
+`win` is the one that bites. The page drives `requestAnimationFrame`, `setTimeout`,
+`devicePixelRatio` and `matchMedia` off `deps.win` across **81 call sites**, and all four are
+genuinely per-window: a popout on a display with different scaling takes the main window's
+`devicePixelRatio` into its canvas sizing, and its cascade runs on the main window's frame clock --
+which is throttled when that window is occluded. That measurement was **not** taken here: it needs
+two displays at different scale factors, and this branch has no number for it.
 
 `liveRebuild()`'s own `github#62` handle-identity guard is **untouched and still required**: it
 stops an old *live* result reaching a replacement graph, which is a different race in a different
