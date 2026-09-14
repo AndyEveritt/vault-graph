@@ -30,6 +30,54 @@ published tag breaks every link to it.
 
 ---
 
+## 2.8.0 — "Recent" — 2026-09-15
+
+**The calendar band becomes something you point at the disc** — ask it what you touched today, in the last week, or since you last had the graph open.
+
+### Halo what you touched recently
+
+- Three chips under the band: **Today**, **Last 7** and **Since last open**. The notes they match
+  wear a halo, everything else dims a little, and nothing on the disc moves.
+- **Last 7** is a rolling seven days, so it never collapses into Today on a Monday.
+- **Since last open** appears only inside Obsidian, which keeps that clock. The exported page has
+  no such stamp, so it does not offer the chip rather than offering one that cannot answer.
+- The band counts either date — **Added** or **Touched** — and every chip's label says which one
+  it means, so a window never claims a date the band is not counting.
+
+### Fewer greys on a crowded disc
+
+- The two grey colour slots stay out of the automatic rotation, so a group is grey only when it
+  is meant to be. On a disc of a hundred tags, twenty greyish groups become two.
+
+### The rings share the room fairly
+
+- The inner ring gets room in proportion to what it carries, so its dots are no longer packed
+  tighter than the outer ring's for no reason.
+- The outer ring's first row sits with its dots' edges on the ring, not their centres, so hiding
+  a big folder no longer makes the ring look as though it walked inward.
+- A dot no longer changes size on the single frame a cascade lands.
+
+### Fixed
+
+- A link written relative to its note resolves against that note, not the vault root, and two
+  different missing notes no longer collapse into one ghost.
+- Pins are stored by the note's path, so adding a note no longer silently repins a different one.
+- An idle PNG export no longer saves the background and the logo with no graph on them.
+- The renderer recovers when the browser takes the WebGL context away, and Refresh rebuilds it.
+- A plugin render that finishes after its view was closed no longer mounts over the new one.
+- Refresh on the exported page rebuilds the band for the date it names; disarming a chip eases
+  the disc back instead of flashing it dim; the since-last-open window uses the local calendar
+  day; and a settings save that fails no longer skips the view's render or teardown.
+- A vault where every folder is small no longer collapses into a single ring.
+
+### Smaller things
+
+- The band's controls sit in one row at one height, and the fewer–more key under it is gone.
+- The JavaScript is compiler-checked, the test runner fails on a runtime error it captured
+  instead of printing a pass over it, and the quality gates run in CI where a merge boundary can
+  see them.
+- The architecture entry point and the record index match the code again.
+
 ## 2.7.0 — "Reader" — 2026-09-12
 
 **The note card stops covering the disc** — and three things that got in the way of reading it are fixed.

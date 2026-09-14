@@ -3279,7 +3279,22 @@ function mountVaultGraph(root, data, deps) {
     var d = new Date(ms), p = function (n) { return (n < 10 ? "0" : "") + n; };
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
   }
-  var TODAY = localKey(Date.now());
+  // github#70 -- ?today=YYYY-MM-DD or ?today=vault pins the clock for a demo
+  var TODAY = (function () {
+    var q = String(WIN.location ? WIN.location.search : "") + " " +
+            String(WIN.location ? WIN.location.hash : "");
+    var m = /(^|[?&#])today=([^&#\s]+)/.exec(q);
+    var v = m ? decodeURIComponent(m[2]) : "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    if (v === "vault") {
+      var newest = "";
+      (data.nodes || []).forEach(function (n) {
+        if (!n.ghost && (n.created || "") > newest) newest = n.created;
+      });
+      if (newest) return newest;
+    }
+    return localKey(Date.now());
+  })();
 
   /**
    * github#70
@@ -9569,6 +9584,9 @@ function mountVaultGraph(root, data, deps) {
     if (kind === "id") return $(arg);
     // github#86 -- a side of the grouping control
     if (kind === "dim") return $("dim") ? $("dim").querySelector('button[data-dim="' + arg + '"]') : null;
+    // github#70 -- a recent chip, or a side of the Added / Touched control
+    if (kind === "chip") return $("recent") ? $("recent").querySelector('button[data-kind="' + arg + '"]') : null;
+    if (kind === "heatsrc") return $("heatsrc") ? $("heatsrc").querySelector('button[data-src="' + arg + '"]') : null;
     if (kind === "stage") {
       var stageEl = $("graph");
       if (!stageEl) return null;
@@ -9947,6 +9965,18 @@ function mountVaultGraph(root, data, deps) {
       { settle: true, act: "heatmap", why: "let the mark ramp in" },
       { click: true, target: ["busiest", "1"], act: "heatmap", why: "...and click again to let it go" },
       { settle: true, act: "heatmap", why: "let it ramp back" },
+
+      // github#70 -- recorded with ?today=vault; see docs/features/recent.md
+      { click: true, target: ["chip", "today"], act: "recent", why: "halo what was added today -- nothing moves, everything else steps back" },
+      { settle: true, act: "recent", why: "let the halo and the dim ramp in" },
+      { click: true, target: ["chip", "week"], act: "recent", why: "widen to the last seven days" },
+      { settle: true, act: "recent", why: "the window grows, and the halo with it" },
+      { click: true, target: ["heatsrc", "touched"], act: "recent", why: "count by the day a note was last touched instead" },
+      { settle: true, act: "recent", why: "same window, the other date" },
+      { click: true, target: ["heatsrc", "created"], act: "recent", why: "...and back to the day it was added" },
+      { settle: true, act: "recent", why: "let it swap back" },
+      { click: true, target: ["chip", "week"], act: "recent", why: "click the chip again to let the lens go" },
+      { settle: true, act: "recent", why: "everything eases back" },
 
       { click: true, target: ["eye", "06"], act: "folders", why: "hide a folder -- the wedges reallocate" },
       { settle: true, act: "folders", why: "let the wedges reallocate" },

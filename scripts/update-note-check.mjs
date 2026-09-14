@@ -339,7 +339,12 @@ try {
   const bytesBefore = readData();
   await openGraph();
   report(!await stripShown(), "an already-seen version shows nothing");
-  report(readData() === bytesBefore, "and writes nothing", "data.json unchanged");
+  // github#70 -- the lens stamps lastSeen on every open; nothing else moves
+  const sansStamp = (s) => { const o = JSON.parse(s); delete o.lastSeen; return JSON.stringify(o); };
+  const afterSans = sansStamp(readData()), beforeSans = sansStamp(bytesBefore);
+  report(afterSans === beforeSans, "and writes nothing but the open stamp",
+         afterSans === beforeSans ? "data.json unchanged apart from lastSeen"
+                                  : "before " + beforeSans + " -> after " + afterSans);
   await closeGraph();
 
   console.log("note for another minor ({ lastSeenVersion: " + N + " }, " + NEXT_MINOR + ")");

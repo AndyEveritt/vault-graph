@@ -225,10 +225,15 @@ this version. 2.6.0 shipped the strip without anyone having looked at it rendere
 how the Got it button's placement (github#126) was first noticed *after* the release.
 
 ```bash
+node scripts/build-plugin.mjs                       # the check copies the ROOT main.js; it does not build
 node scripts/lock.mjs acquire screen-left --owner "release <version>"
 node scripts/update-note-check.mjs --out <scratchpad>/strip
 node scripts/lock.mjs release screen-left --owner "release <version>"
 ```
+
+**Build first, every time.** `update-note-check.mjs` installs whatever `main.js` sits at the repo
+root into its Obsidian; it never builds. Cutting 2.8.0, two runs measured a build from before the
+fix they were meant to prove, and read as the fix not working.
 
 It mounts the plugin in a real Obsidian, upgrades a vault from a `data.json` without
 `lastSeenVersion`, and writes `01-strip-up.png` (the strip as a user first sees it),

@@ -589,14 +589,12 @@ class VaultGraphView extends ItemView {
   async onOpen() {
     // github#70, decisions/0009 -- the HOST owns this clock; the page only receives it.
     this.lastSeenPrev = this.plugin.settings.lastSeen;
-    this.plugin.settings.lastSeen = Date.now();
     // github#70 -- a failed stamp must not skip the render or the teardown
-    try { await this.plugin.saveSettings(); } finally { await this.render(); }
+    try { await this.plugin.stampOpen(); } finally { await this.render(); }
   }
 
   async onClose() {
-    this.plugin.settings.lastSeen = Date.now();
-    try { await this.plugin.saveSettings(); } finally { this.teardown(); }
+    try { await this.plugin.stampOpen(); } finally { this.teardown(); }
   }
 
   // github#62; github#140 -- the one place a render is invalidated
@@ -1664,6 +1662,15 @@ class VaultGraphPlugin extends Plugin {
     const base = disk && typeof disk === "object" ? /** @type {Record<string, unknown>} */ (disk) : {};
     this.settings.lastSeenVersion = this.manifest.version;
     await this.saveData(Object.assign({}, base, { lastSeenVersion: this.manifest.version }));
+  }
+
+  // github#70, design/0016 -- the stamp alone onto what is on disk, like recordVersion
+  async stampOpen() {
+    /** @type {unknown} */
+    const disk = await this.loadData();
+    const base = disk && typeof disk === "object" ? /** @type {Record<string, unknown>} */ (disk) : {};
+    this.settings.lastSeen = Date.now();
+    await this.saveData(Object.assign({}, base, { lastSeen: this.settings.lastSeen }));
   }
 
   openSettings() {
