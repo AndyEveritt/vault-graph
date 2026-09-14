@@ -131,7 +131,7 @@
  * @property {boolean} [fitCap]               github#41, design/0011
  * @property {boolean} [sheetOpen]            github#82 -- absent means "decide from the width"
  * @property {boolean} [bandOpen]             github#82
- * @property {string[]} [pinned]
+ * @property {string[]} [pinned]            github#143 -- the marker, then one note path per slot
  * @property {boolean} [settingsUI]
  * @property {() => void} [openSettings]
  * @property {(map: SlotMap) => void | Promise<void>} [onFolderColors]
@@ -148,7 +148,7 @@
  * @property {(v: boolean) => void | Promise<void>} [onSheetOpen]
  * @property {(v: boolean) => void | Promise<void>} [onBandOpen]
  * @property {(v: boolean) => void | Promise<void>} [onCountBars]
- * @property {(ids: string[]) => void | Promise<void>} [onPinned]
+ * @property {(v: string[]) => void | Promise<void>} [onPinned]   github#143 -- store it verbatim
  * @property {() => void} [onRefresh]
  */
 
@@ -2817,24 +2817,55 @@ function mountVaultGraph(root, data, deps) {
     pinnedPlan = null;
     applyLayout(!!animate, releaseHover);
     placeLogo();
-    if (savePinned) savePinned(state.pinned.slice());
+    persistPins();
   }
 
-  // github#12
-  function seedPins() {
-    var want = deps.pinned;
-    if (!want || !want.length || typeof want.length !== "number") return;
-    /** @type {Record<string, number>} */
-    var seen = dict();
+  // github#143, decisions/0014 -- version 1 was the runtime ids, which move
+  // github#86, github#143 -- a NUL cannot occur in a vault path, so no note forges this
+  var PIN_FORMAT = "\u0000vault-graph:pins:2";
+
+  // github#143, decisions/0014
+  /** @returns {string[]} the marker, then one note path per slot, in slot order */
+  function pinsStored() {
+    /** @type {string[]} */
+    var out = [PIN_FORMAT];
+    state.pinned.forEach(function (id) {
+      // github#141 -- a ghost's path is its canonical full destination
+      if (graph.hasNode(id)) out.push(String(graph.getNodeAttribute(id, "path")));
+    });
+    return out;
+  }
+
+  // github#143, decisions/0014
+  /** @param {unknown} want @returns {string[]} the runtime ids it names, in slot order */
+  function pinsFrom(want) {
     /** @type {string[]} */
     var out = [];
-    for (var i = 0; i < want.length && out.length < PIN_MAX; i++) {
-      var id = want[i];
-      if (typeof id !== "string" || seen[id] || !graph.hasNode(id)) continue;
+    if (!Array.isArray(want) || want[0] !== PIN_FORMAT) return out;
+    /** @type {Record<string, number>} */
+    var seen = dict();
+    for (var i = 1; i < want.length && out.length < PIN_MAX; i++) {
+      var path = want[i];
+      if (typeof path !== "string") continue;
+      var id = idOfPath[path];
+      if (id === undefined || seen[id] || !graph.hasNode(id)) continue;
       seen[id] = 1;
       out.push(id);
     }
-    state.pinned = out;
+    return out;
+  }
+
+  // github#143
+  function persistPins() {
+    if (savePinned) savePinned(pinsStored());
+  }
+
+  // github#12; github#143, decisions/0014 -- an unmarked store is version 1's ordinals
+  function seedPins() {
+    var want = deps.pinned;
+    state.pinned = pinsFrom(want);
+    // github#143, decisions/0014 -- drop it once, not once per mount
+    if (Array.isArray(want) && want.length && want[0] !== PIN_FORMAT) persistPins();
   }
 
   /**
@@ -10683,6 +10714,9 @@ function mountVaultGraph(root, data, deps) {
                     pin: /** @param {string} id */ function (id) { togglePin(id); },
                     pinned: function () { return state.pinned.slice(); },
                     clearPins: function () { state.pinned = []; hubChanged(false); },
+                    // github#143 -- what the host is handed, and what it reads back
+                    pinsStored: function () { return pinsStored(); },
+                    pinsFrom: /** @param {unknown} want */ function (want) { return pinsFrom(want); },
                     lastCascade: function () { return lastCascade; },
                     get planSkelCheck() { return planSkelCheck; },
                     set planSkelCheck(v) { planSkelCheck = !!v; },
