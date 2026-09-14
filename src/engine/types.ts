@@ -143,7 +143,15 @@ export interface EdgeDisplayData {
   zIndex?: number;
 }
 
-export type NodeReducer = (id: string, attrs: NodeAttrs) => NodeDisplayData;
+/**
+ * github#145 -- what a reducer must return is what applyNodeDefaults() takes: a position, and
+ * as much of the display data as the caller cares to set. It said NodeDisplayData until the
+ * JavaScript was compiler-checked, which was a stricter claim than the renderer makes or the
+ * page could meet -- nodeStyle() never sets `hidden`, and applyNodeDefaults exists precisely
+ * to fill in colour, label, size, hidden, highlighted, forceLabel, type and zIndex when they
+ * are absent. EdgeReducer below already said it this way.
+ */
+export type NodeReducer = (id: string, attrs: NodeAttrs) => Partial<NodeDisplayData> & Point;
 export type EdgeReducer = (id: string, attrs: EdgeAttrs) => EdgeAttrs & Partial<EdgeDisplayData>;
 
 /* ------------------------------------------------------------- settings */

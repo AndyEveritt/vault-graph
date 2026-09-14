@@ -170,7 +170,9 @@
 
 /**
  * The __vg api: what mountVaultGraph builds once its deferred init has run, and what
- * plugin/main.js and the settings UIs call. THESE 21 MEMBERS SHIP IN THE PLUGIN. The
+ * plugin/main.js and the settings UIs call. THESE 41 MEMBERS SHIP IN THE PLUGIN -- the count
+ * said 21 and had not been recounted in a while; github#145 added the three getters that were
+ * shipping undeclared and counted the rest. The
  * standalone build adds ~70 more -- state, alpha, demo, probe and the rest of the debug
  * surface the invariant suite drives -- through Object.defineProperties inside the region
  * scripts/build-plugin.mjs strips, so they are deliberately not part of this type: nothing
@@ -201,6 +203,11 @@
  * @property {(map: SlotMap) => void} setTagColors
  * @property {(map: SlotMap) => void} setSubtagColors
  * @property {(map: Record<string, boolean>) => void} setFolderShown
+ * github#145 -- three getters that have always shipped in this literal and were never
+ * declared: the settings UI reads them back to render the tag tab's current pins.
+ * @property {SlotMap} tagColors                  github#86 -- a copy of the tag colour pins
+ * @property {SlotMap} subtagColors               github#86 -- and of the sub-tint pins
+ * @property {Record<string, boolean>} tagShown   github#86 -- tag -> shown by default
  * @property {(v: boolean) => void} setPanEnabled
  * @property {(v: boolean) => void} setCompactAxis
  * @property {(v: boolean) => void} setUnlinkedByFolder
@@ -5144,9 +5151,22 @@ function mountVaultGraph(root, data, deps) {
     ctx.fillText(data.label, data.x + data.size + 5, data.y + n / 3);
   }
 
-  /** @param {string} id @param {NodeAttrs} a @returns {NodeDisplayData & { haloColor?: string }} */
+  /**
+   * github#145 -- the return type is what the object IS, and what the renderer takes: the
+   * node's attributes with the display fields this function sets. applyNodeDefaults() in
+   * src/engine/renderer.ts fills in the rest -- `hidden` among them, which nothing here ever
+   * sets -- so claiming a whole NodeDisplayData was a stricter contract than either end kept.
+   * @param {string} id @param {NodeAttrs} a
+   * @returns {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }}
+   */
   function nodeStyle(id, a) {
-        var r = /** @type {NodeDisplayData & { haloColor?: string }} */ (Object.assign({}, a));
+        // github#145 -- what this object IS at this line: the node's attributes, with the
+        // github#145 -- display fields arriving one at a time below. Casting straight to
+        // github#145 -- NodeDisplayData claimed a colour and a hidden flag that are not there
+        // github#145 -- yet, which is why the compiler called the conversion a mistake -- and
+        // github#145 -- the honest intersection keeps every assignment below checked.
+        var r = /** @type {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }} */ (
+                  Object.assign({}, a));
         r.color = nodeColor(id);
         var hv = hl[id] || 0;
         if (state.markDay && graph.getNodeAttribute(id, "created") === state.markDay) {
@@ -5636,7 +5656,8 @@ function mountVaultGraph(root, data, deps) {
       nodeReducer: function (id, a) {
         var al = alpha[id] || 0;
         if (al <= 0.004) {
-          var h = /** @type {NodeDisplayData} */ (Object.assign({}, a));
+          // github#145 -- as in nodeStyle(): the attrs, with hidden about to be set
+          var h = /** @type {NodeAttrs & Partial<NodeDisplayData>} */ (Object.assign({}, a));
           h.hidden = true;
           return h;
         }
@@ -6352,7 +6373,8 @@ function mountVaultGraph(root, data, deps) {
         var subs = subOrder[g];
         /**
          * @param {string} col @param {string} nm @param {number} ct
-         * @param {string[]} idx  subfolder indexes this row stands for
+         * @param {number[]} idx  subfolder indexes this row stands for; github#145 -- they are
+         *                        numbers at all three call sites, and index subs[] here
          * @param {number} depth @param {string | null} twAttrs @param {boolean} twOpen
          */
         var srow = function (col, nm, ct, idx, depth, twAttrs, twOpen) {
@@ -7129,8 +7151,10 @@ function mountVaultGraph(root, data, deps) {
      * @param {number} x @param {number} y
      * @param {string} current                       slot key in use, "" for none
      * @param {(key: string | null) => void} onPick
-     * @param {string} autoKey                       the slot with no override, "" for none
-     * @param {boolean} visShown @param {() => void} onToggleVisible
+     * @param {string} [autoKey]                     the slot with no override, "" for none
+     * @param {boolean} [visShown] @param {() => void} [onToggleVisible]
+     *   github#145 -- optional, and always were: the sub-colour menu passes the first four
+     *   arguments and nothing else, and every use of these three below is guarded
      * @param {boolean} [byFolderOn] @param {(() => void) | null} [onToggleByFolder]
      * @param {boolean} [tintOn] @param {(() => void) | null} [onToggleTint]
      * @param {string} [group]
@@ -8361,9 +8385,11 @@ function mountVaultGraph(root, data, deps) {
     sig.push(state.markDay || "", state.hoverDay || "", heat.cell);
     // github#86 -- while a switch runs the colours move under a steady count
     if (standIns.length) sig.push("s" + lastCascade.frames);
-    sig = sig.join(",");
-    if (sig === heatSig) return;
-    heatSig = sig;
+    // github#145 -- the joined signature is its own binding; sig was an array of parts and
+    // github#145 -- then, one line later, the string it joins to
+    var sigKey = sig.join(",");
+    if (sigKey === heatSig) return;
+    heatSig = sigKey;
 
     var dpr = window.devicePixelRatio || 1;
     var ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext("2d"));
@@ -8643,6 +8669,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [to0]
    * @property {number} [pFrom]
    * @property {number} [pTo]
+   * @property {number} [winEnd0]  github#145 -- the visible window's end when the drag began
    */
   /** @type {BrushDrag | null} */
   var brushDrag = null;
@@ -9128,7 +9155,9 @@ function mountVaultGraph(root, data, deps) {
       });
       yrHost.addEventListener("pointerover", function (ev) { hoverYear(yrOf(ev)); });
       yrHost.addEventListener("pointerout", function (ev) {
-        if (!ev.relatedTarget || !yrHost.contains(ev.relatedTarget)) hoverYear(null);
+        // github#145 -- relatedTarget is EventTarget; contains() takes a Node
+        var to = /** @type {Node | null} */ (ev.relatedTarget);
+        if (!to || !yrHost.contains(to)) hoverYear(null);
       });
     }
 
@@ -9181,7 +9210,8 @@ function mountVaultGraph(root, data, deps) {
    * @property {boolean} [dblclick]
    * @property {boolean} [rightclick]
    * @property {boolean} [hover]
-   * @property {boolean} [drag]
+   * @property {boolean | number[]} [drag]   github#145 -- true, or the [dx, dy] to travel;
+   *                                         scripts/demo.mjs branches on Array.isArray
    * @property {boolean} [touchmode]
    * @property {string} [live]       "outer" or "inner": hand the page one more note on that ring
    * @property {number} [wheel]
@@ -9228,6 +9258,7 @@ function mountVaultGraph(root, data, deps) {
    * shapes answer the three questions demoWhere asks of them, which is why they are
    * interchangeable here; DemoTarget states that duck-typed contract rather than pretending
    * one is the other.
+   * @typedef {{ left: number, top: number, width: number, height: number }} DemoRect
    * @typedef {Object} DemoTarget
    * @property {number} [left]
    * @property {number} [top]
@@ -9237,7 +9268,8 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [gap]
    * @property {string} [demoLabel]
    * @property {string} [id]
-   * @property {() => DOMRect} [getBoundingClientRect]
+   * @property {() => DemoRect} [getBoundingClientRect]   github#145 -- demoWhere reads four
+   *                                         fields off this, and a DOMRect satisfies them
    * @property {(opts?: unknown) => void} [scrollIntoView]
    * @property {(name: string) => string | null} [getAttribute]
    * @property {(sel: string) => Element | null} [querySelector]
@@ -9912,9 +9944,13 @@ function mountVaultGraph(root, data, deps) {
       return [];
     }
     if (name === "intro") return beats;
-    var out = [{ settle: true, act: name, why: "start from a disc at rest" }].concat(beats);
+    /** @type {DemoBeat[]} */
+    var lead = [{ settle: true, act: name, why: "start from a disc at rest" }];
+    var out = lead.concat(beats);
     if (!beats[beats.length - 1].park) {
-      out = out.concat([{ park: true, act: name, why: "leave the final frame clean" }]);
+      /** @type {DemoBeat[]} */
+      var tailBeat = [{ park: true, act: name, why: "leave the final frame clean" }];
+      out = out.concat(tailBeat);
     }
     return out;
   }
@@ -10245,7 +10281,7 @@ function mountVaultGraph(root, data, deps) {
                       /** @type {Record<string, object>} */
                       var diffs = {};
                       /** @param {Plan} p @returns {Record<string, number>} */
-                      var rows = function (p) { /** @type {Record<string, number>} */ var m = {}; p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
+                      var rows = function (p) { /** @type {Record<string, number>} */ var m = dict(); p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
                       var rs = rows(stat), rl = rows(live);
                       Object.keys(rs).concat(Object.keys(rl)).forEach(function (k) {
                         if (rs[k] !== rl[k]) diffs[k] = { staticPlan: rs[k], livePlan: rl[k] };
@@ -10623,7 +10659,7 @@ function mountVaultGraph(root, data, deps) {
                       var padded = buildWedgePlan(true, W);
                       planKeep = save;
                       /** @param {Plan} p @returns {Record<string, number>} */
-                      var rows = function (p) { /** @type {Record<string, number>} */ var m = {}; p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
+                      var rows = function (p) { /** @type {Record<string, number>} */ var m = dict(); p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
                       var a = rows(lean), b = rows(padded), diffs = {};
                       // github#5
                       Object.keys(a).concat(Object.keys(b)).forEach(function (k) {
