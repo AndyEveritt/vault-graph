@@ -60,6 +60,10 @@ work." Both clauses are needed and each has a measured hole the other closes:
 | demo | 1,403 | 553 | 1 | 40 | 2026-09-05 (40x the median) |
 | 10k | 10,002 | 3,397 | 3 | 54 | none — 54 of 10,002 across 3,397 days is a busy day, not a sync |
 | dominant-folder | 954 | **1** | **954** | **954** | 2026-09-05 (**100%** of the vault) |
+| tag-organised | 891 | **1** | **891** | **891** | its generation day (**100%**) — the fourth fixture, added with `github#86` after this was written, and it behaves exactly as the dominant-folder one does |
+
+The days named here move: two of the four fixtures regenerate weekly, so a re-run reports the
+generation day rather than 2026-09-05. What is pinned is the rule, not the date.
 
 The dominant-folder row is why the share clause exists. Its generator never stamps mtime, so
 all 954 notes carry one — and with a single day in the distribution **the median is the
@@ -76,7 +80,7 @@ throughout, and a reader who is told can decide, where a reader who is shown les
 
 Three buttons beside the label: **Today**, **This week**, **Since last open**. Each haloes
 the notes whose `touched` falls in its window and dims the rest -- 0 moved, 0 pushed,
-measured on all three fixtures, the same result and for the same reason as a picked day.
+measured on all four fixtures, the same result and for the same reason as a picked day.
 
 They read **whichever date the segment names**. One date governs the whole row.
 
@@ -94,6 +98,13 @@ A chip that matches nothing shows **0** and disables itself rather than disappea
 absent reads as "this cannot be asked", zero reads as "asked, and the answer is none". Day
 granularity throughout, because `touched` is a `YYYY-MM-DD` string; "since last open" says
 *on or after* the day rather than pretending to an hour it does not have.
+
+**An armed chip is a set of ids, so anything that mints ids has to say so.** Two parts of the
+page do: a live rebuild (`github#72`) re-mints them, and a dimension switch (`github#86`) draws
+stand-in copies. The lens is therefore in the invalidation registry — re-arming against the
+reference it was armed with, never the clock — and both reads of the set go through `noteOf`,
+so a stand-in is lit by whatever lights the note it draws. Neither was visible while the two
+subsystems and this one were on separate branches; see `invariants.md` for the numbers.
 
 **Since last open is plugin-only, by construction.** It needs a timestamp only a host can
 keep (`decisions/0009` -- the page stores nothing), so the plugin passes `lastOpen` and the
