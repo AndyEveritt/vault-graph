@@ -42,6 +42,9 @@ P.createEl = function (tag, o) {
 };
 P.createDiv = function (o) { return this.createEl("div", o); };
 P.createSpan = function (o) { return this.createEl("span", o); };
+// Obsidian augments Node with these two: this node's document/window, or the global one.
+Object.defineProperty(P, "doc", { get() { return this.ownerDocument || document; } });
+Object.defineProperty(P, "win", { get() { return this.doc.defaultView || window; } });
 
 export class ItemView {
   constructor(leaf) {

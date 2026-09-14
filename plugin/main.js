@@ -100,7 +100,7 @@ function bareMap() {
 /** @typedef {Awaited<ReturnType<typeof buildData>>} BuildResult */
 
 /**
- * github#140 -- the only four settings buildData reads, frozen per render
+ * github#140 -- the only four settings buildData reads, per render
  * @typedef {Pick<Settings, "ghosts" | "templates" | "flatMonths" | "words">} BuildOptions
  */
 
@@ -751,13 +751,10 @@ class VaultGraphView extends ItemView {
     }
   }
 
-  // github#140 -- THIS view's document, not whichever one has focus
-  ownDoc() { return this.contentEl.ownerDocument || document; }
-  ownWin() { return this.ownDoc().defaultView || window; }
-
   syncTheme() {
     if (!this.page) return;
-    const want = this.ownDoc().body.classList.contains("theme-light") ? "light" : "dark";
+    // github#140 -- THIS view's document, not whichever one has focus
+    const want = this.contentEl.doc.body.classList.contains("theme-light") ? "light" : "dark";
     if (this.page.getAttribute("data-theme") === want) return;
     this.page.setAttribute("data-theme", want);
 
@@ -833,7 +830,7 @@ class VaultGraphView extends ItemView {
   async render() {
     this.teardown();
     const gen = this.renderGen;
-    // github#140 -- frozen before the await
+    // github#140 -- a snapshot, taken before the await
     /** @type {BuildOptions} */
     const opts = {
       ghosts: this.plugin.settings.ghosts,
@@ -991,7 +988,7 @@ class VaultGraphView extends ItemView {
       },
       openSettings: () => this.plugin.openSettings(),
       // github#140 -- this view's window, not whichever one has focus now
-      win: this.ownWin(),
+      win: this.contentEl.win,
       // github#6; github#140 -- render() owns the busy flag, this only declines to re-enter
       onRefresh: () => {
         if (this.rebuilding) return;
