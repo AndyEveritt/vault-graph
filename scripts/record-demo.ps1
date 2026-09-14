@@ -58,6 +58,9 @@ if (-not $Url) {
   & node (Join-Path $here '../src/build-graph.mjs') --vault $demoOut --out $demoHtml
   if ($LASTEXITCODE -ne 0) { throw "build-graph.mjs failed (exit $LASTEXITCODE)" }
   $Url = ([uri]("file:///" + ($demoHtml -replace '\\','/'))).AbsoluteUri + "?demo"
+  # github#70 -- the recent chips count from the wall clock, and the fixture's newest note is
+  # weeks old, so this one act pins the page's clock to the vault's own last day
+  if ($Act -eq 'recent') { $Url += "&today=vault" }
 }
 if (-not $Out) {
   $stamp = Get-Date -Format 'yyyy-MM-dd-HHmmss'

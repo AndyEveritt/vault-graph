@@ -29,7 +29,7 @@ Set-Location $repo
 $acts = [ordered]@{
   intro = 'intro'; folders = 'folders'; subfolders = 'subfolders'; subfoldercolor = 'subfoldercolor'
   colours = 'colours'; tags = 'tags'; unlinked = 'unlinked'; hiddenbydefault = 'hiddenbydefault'
-  collapse = 'collapse'; compactaxis = 'compactaxis'; timeline = 'timeline'; heatmap = 'heatmap'
+  collapse = 'collapse'; compactaxis = 'compactaxis'; timeline = 'timeline'; heatmap = 'heatmap'; recent = 'recent'
   note = 'note'; pin = 'pin'; hoptrail = 'hoptrail'; camera = 'camera'; live = 'live-page'
 }
 

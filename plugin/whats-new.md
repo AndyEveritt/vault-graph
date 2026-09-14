@@ -15,10 +15,11 @@
   beside the CHANGELOG entry; a PATCH leaves it as it is, and shows nothing.
   scripts/build-plugin.mjs refuses a file that breaks any of that.
 -->
-# 2.7.0
-- Click a note and the sidebar reads it. Nothing lands over the disc any more.
-- The sidebar holds two readings, Groups and Selected note. The tabs at its top switch between them, and each one keeps its own scroll position.
-- Close the note, or click empty space, and you are back on the groupings where you left them.
-- The disc fills more of the window, and a square pane gains the most.
-- Panning no longer freezes when notes arrive under it.
-> vg-tabs
+# 2.8.0
+- Three chips under the calendar band halo what you touched today, in the last seven days, or since you last had the graph open.
+- The band counts either date, Added or Touched, and every chip says which one it means.
+- The band's controls sit in one row at one height, and the fewer-more key is gone.
+- Two grey colour slots stay out of the automatic rotation, so a group is grey only on purpose.
+- The inner ring gets room in proportion to what it carries, and the outer ring's first row sits on the ring instead of crossing it.
+> vg-recent
+> vg-heatsrc
