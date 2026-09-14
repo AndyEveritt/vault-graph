@@ -2040,14 +2040,24 @@ function mountVaultGraph(root, data, deps) {
     // github#13
     var HOLE = 0.3;
     var fullTotal = geomLock && geomLock.total > 0 ? geomLock.total : planTotal;
-    var density = (spIn && typeof spIn === "object") ? (spIn.o || 1)
-      : spIn > 0 ? spIn
+    // github#13
+    // github#145 -- spIn is one parameter carrying two shapes: a bare density, or the
+    // github#145 -- previous plan's spacings to hold. Split it ONCE, here, so that SP, SP_I,
+    // github#145 -- SP_O and density are plain numbers for the eleven sites below that do
+    // github#145 -- arithmetic on them -- the union used to reach all of them, and the
+    // github#145 -- compiler had nothing to say about it because checkJs was off.
+    // github#145 -- `typeof spIn === "number"` is what the old `spIn > 0` test meant: null
+    // github#145 -- and undefined both fall to 0 and take the measured branch, and so does a
+    // github#145 -- negative, exactly as before (typeof null is "object", which is why the
+    // github#145 -- object test above it was written `spIn && ...` in the first place).
+    var given = (spIn && typeof spIn === "object") ? spIn : null;
+    var spDensity = typeof spIn === "number" ? spIn : 0;
+    var density = given ? (given.o || 1)
+      : spDensity > 0 ? spDensity
       : (planTotal > 0.0001
           ? Math.min(DENSITY_MAX, Math.sqrt(fullTotal / planTotal)) : 1);
     var SP = density;
 
-    // github#13
-    var given = (spIn && typeof spIn === "object") ? spIn : null;
     var givenRoom = given && given.room ? given.room : null;
     var SP_I = given && given.i > 0 ? given.i : SP;
     var SP_O = given && given.o > 0 ? given.o : SP;
