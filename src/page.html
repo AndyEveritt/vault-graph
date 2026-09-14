@@ -141,6 +141,10 @@
         <canvas aria-hidden="true"></canvas>
       </button>
       <div id="vg-tip" hidden></div>
+      <!-- github#144 -- a lost WebGL context must not read as an empty vault. A pill rather
+           than #vg-busy's full-stage cover: loss is per layer, so the disc is often still
+           half there and worth seeing while the browser hands the context back. -->
+      <div id="vg-glost" role="status" aria-live="polite" hidden></div>
       <!-- github#73 -->
       <div id="vg-mob" role="group" aria-label="Panels">
         <button id="vg-sheet" type="button" aria-expanded="false"

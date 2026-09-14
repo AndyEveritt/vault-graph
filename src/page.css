@@ -100,6 +100,7 @@
   .vault-graph #vg-detail[hidden],
   .vault-graph #vg-htip[hidden],
   .vault-graph #vg-logo[hidden],
+  .vault-graph #vg-glost[hidden],
   .vault-graph #vg-logoInner[hidden] { display: none; }
   .vault-graph { height: 100%; margin: 0; }
   .vault-graph {
@@ -831,6 +832,19 @@
     background: var(--surface-1); z-index: 20; font-size: 13px; color: var(--text-2);
   }
 
+  /* github#144 -- said out loud, over whatever is left of the disc. Above #vg-tip and the
+     camera cluster but under #vg-busy, which is a state this one cannot be in at the same
+     time. pointer-events: none so it never eats a click meant for the graph underneath.
+     Top centre is the empty part of the stage at this width: both control clusters are at
+     the bottom right and #vg-mob is at the top left. */
+  .vault-graph #vg-glost {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 8; max-width: min(88%, 420px); pointer-events: none;
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: 7px; padding: 7px 11px; font-size: 12px; color: var(--text-1);
+    box-shadow: 0 6px 20px rgba(0,0,0,.18); display: block; text-align: center;
+  }
+
   /* github#82 -- above the breakpoint the sidebar is a grid column, not a sheet, so folding
      it means collapsing the column to nothing and handing its width to the stage. The sheet
      treatment below is the phone's alone; a `display: none` scoped by an attribute outranks
@@ -894,6 +908,14 @@
        of the cluster -- where it sits and which way it runs -- is the base rule's, github#82. */
     .vault-graph #vg-mob { z-index: 9; }
     .vault-graph #vg-mob button { opacity: .8; width: 44px; height: 44px; }
+    /* github#144 -- the top row is three control groups at this width and the gap between
+       them is ~170px, which is not a sentence. So the notice takes the full width and the
+       row for as long as a layer is gone: it stays pointer-events: none, so every button
+       under it is still reachable, and a lost context is a broken state that outranks the
+       camera buttons while it lasts. */
+    .vault-graph #vg-glost {
+      left: 12px; right: 12px; transform: none; max-width: none; z-index: 10;
+    }
     /* The band's control row is one line of five things and the stage clips it at this
        width: the second date field and All dates were cut off and unreachable. */
     .vault-graph #vg-heat .hrow { flex-wrap: wrap; row-gap: 6px; }

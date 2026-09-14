@@ -189,6 +189,11 @@ export interface StageEvent {
   preventDefault(): void;
 }
 
+/** github#144 -- which of the three WebGL layers a context event is about */
+export interface ContextEvent {
+  layer: "edges" | "nodes" | "hoverNodes";
+}
+
 export interface RendererEvents {
   clickNode: NodeEvent;
   doubleClickNode: NodeEvent;
@@ -199,6 +204,9 @@ export interface RendererEvents {
   clickStage: StageEvent;
   doubleClickStage: StageEvent;
   afterRender: void;
+  // github#144 -- the engine says it; the page draws the notice
+  contextLost: ContextEvent;
+  contextRestored: ContextEvent;
 }
 
 export interface MouseCaptor {
