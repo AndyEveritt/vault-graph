@@ -170,7 +170,7 @@
 
 /**
  * The __vg api: what mountVaultGraph builds once its deferred init has run, and what
- * plugin/main.js and the settings UIs call. THESE 21 MEMBERS SHIP IN THE PLUGIN. The
+ * plugin/main.js and the settings UIs call. THESE 41 MEMBERS SHIP IN THE PLUGIN. The
  * standalone build adds ~70 more -- state, alpha, demo, probe and the rest of the debug
  * surface the invariant suite drives -- through Object.defineProperties inside the region
  * scripts/build-plugin.mjs strips, so they are deliberately not part of this type: nothing
@@ -201,6 +201,10 @@
  * @property {(map: SlotMap) => void} setTagColors
  * @property {(map: SlotMap) => void} setSubtagColors
  * @property {(map: Record<string, boolean>) => void} setFolderShown
+ * github#145 -- three getters that shipped undeclared
+ * @property {SlotMap} tagColors                  github#86 -- the tag colour pins
+ * @property {SlotMap} subtagColors               github#86 -- the sub-tint pins
+ * @property {Record<string, boolean>} tagShown   github#86 -- shown by default
  * @property {(v: boolean) => void} setPanEnabled
  * @property {(v: boolean) => void} setCompactAxis
  * @property {(v: boolean) => void} setUnlinkedByFolder
@@ -233,17 +237,6 @@
 function mountVaultGraph(root, data, deps) {
   "use strict";
 
-  /**
-   * A prototype-less dictionary, typed. Object.create(null) is `any` to the type program
-   * and a cast at the call site is read as the expression inside it, so this is the ONE
-   * place that any is laundered -- through unknown, once -- and every dictionary in this
-   * file declares its own shape where it is made: `@type {Record<string, number>}` on the
-   * var, `= dict()` after it. Same object as Object.create(null) gave (no prototype, so a
-   * folder named "constructor" or "toString" is just a key); nothing about behaviour
-   * changed. github#60.
-   * @template T
-   * @returns {Record<string, T>}
-   */
   // github#62
   /** @param {() => void} fn @returns {unknown} */
   function attempt(fn) {
@@ -255,6 +248,19 @@ function mountVaultGraph(root, data, deps) {
     for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) return true;
     return false;
   }
+  /**
+   * A prototype-less dictionary, typed. Object.create(null) is `any` to the type program
+   * and a cast at the call site is read as the expression inside it, so this is the ONE
+   * place that any is laundered -- through unknown, once -- and every dictionary in this
+   * file declares its own shape where it is made: `@type {Record<string, number>}` on the
+   * var, `= dict()` after it. Same object as Object.create(null) gave (no prototype, so a
+   * folder named "constructor" or "toString" is just a key); nothing about behaviour
+   * changed. github#60.
+   *
+   * github#145 -- this block sat above attempt(), so T resolved nowhere
+   * @template T
+   * @returns {Record<string, T>}
+   */
   function dict() {
     /** @type {unknown} */
     var o = Object.create(null);
@@ -425,9 +431,10 @@ function mountVaultGraph(root, data, deps) {
       slots:    SLOT_VARS.map(css),
       neutrals: ["--n1", "--n2", "--n3"].map(css),
       // github#77
-      pal: { l: readPalette("l"), d: readPalette("d") }
+      pal: { l: readPalette("l"), d: readPalette("d") },
+      // github#145 -- in the literal, not one statement after it
+      byKey: dict()
     };
-    THEME.byKey = dict();
     THEME.slots.forEach(function (hex, i) { THEME.byKey["g" + (i + 1)] = hex; });
     clearPreviewCache();
     // github#79
@@ -551,7 +558,9 @@ function mountVaultGraph(root, data, deps) {
     var out = dict();
     if (!raw || typeof raw !== "object") return out;
     Object.keys(raw).forEach(function (g) {
-      if (typeof raw[g] === "boolean") out[g] = raw[g];
+      // github#145 -- a local, so the typeof narrows it; as cleanSlotMap()
+      var v = raw[g];
+      if (typeof v === "boolean") out[g] = v;
     });
     return out;
   }
@@ -615,7 +624,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {string | null} hovered                         node id
    * @property {string | null} markDay                         heatmap cell key
    * @property {string | null} hoverDay
-   * @property {number | null} hoverYear
+   * @property {string | null} hoverYear   github#145 -- as data-yr spells it
    * @property {string} query
    * @property {number | null} until                           timeline rank, or null for all
    * @property {number | null} from                            ms, UTC midnight (heatParse)
@@ -1029,7 +1038,8 @@ function mountVaultGraph(root, data, deps) {
     buildSubOrder();
   });
 
-  var SLOT_COUNT = 12;
+  // github#118, design/0004 -- the rotation is the ten hues; the greys stay pickable
+  var HUE_SLOTS = 10;
   /** @type {Record<string, string>} */
   var groupColor = dict();
   /** @type {Record<string, string>} */
@@ -1115,7 +1125,8 @@ function mountVaultGraph(root, data, deps) {
         return;
       }
 
-      var key = "g" + ((auto++ % SLOT_COUNT) + 1);
+      // github#118
+      var key = "g" + ((auto++ % HUE_SLOTS) + 1);
       var use = picked || key;
       groupColor[g] = THEME.byKey[use];
       groupSlot[g] = use;
@@ -1205,7 +1216,8 @@ function mountVaultGraph(root, data, deps) {
    * @returns {T}
    */
   function inDim(dim, fn) {
-    if (dim === state.dim || DIMS.indexOf(dim) < 0) return fn();
+    // github#145 -- membership without a cast; DIMS narrows indexOf()
+    if (dim === state.dim || !DIMS.some(function (d) { return d === dim; })) return fn();
     var sDim = state.dim, sCounts = counts, sFolderCount = folderCount,
         sColor = groupColor, sSlot = groupSlot, sAuto = groupAutoSlot,
         sShade = subShade, sSubSlot = subSlot, sTint = unlinkedTintColors,
@@ -2032,14 +2044,18 @@ function mountVaultGraph(root, data, deps) {
     // github#13
     var HOLE = 0.3;
     var fullTotal = geomLock && geomLock.total > 0 ? geomLock.total : planTotal;
-    var density = (spIn && typeof spIn === "object") ? (spIn.o || 1)
-      : spIn > 0 ? spIn
+    // github#13
+    // github#145 -- split the density from the held spacings, once
+    // github#145 -- typeof "number" is what `spIn > 0` meant: null,
+    // github#145 -- undefined and a negative all take the measured branch
+    var given = (spIn && typeof spIn === "object") ? spIn : null;
+    var spDensity = typeof spIn === "number" ? spIn : 0;
+    var density = given ? (given.o || 1)
+      : spDensity > 0 ? spDensity
       : (planTotal > 0.0001
           ? Math.min(DENSITY_MAX, Math.sqrt(fullTotal / planTotal)) : 1);
     var SP = density;
 
-    // github#13
-    var given = (spIn && typeof spIn === "object") ? spIn : null;
     var givenRoom = given && given.room ? given.room : null;
     var SP_I = given && given.i > 0 ? given.i : SP;
     var SP_O = given && given.o > 0 ? given.o : SP;
@@ -2100,11 +2116,21 @@ function mountVaultGraph(root, data, deps) {
       });
       /** @type {Record<string, boolean>} */
       var pinnedInner = dict();
+      // github#117 -- the pin does not ask what the seed decided: smallAt is TOTAL/60, so
+      // github#117 -- a small vault seeds a 7-9 note folder OUTER and never pins it
       names.forEach(function (g) {
-        if (assign[g] && (groupNotes[g] || 0) < PIN_BELOW) pinnedInner[g] = true;
+        if ((groupNotes[g] || 0) < PIN_BELOW) { pinnedInner[g] = true; assign[g] = true; }
       });
       var movable = names.filter(function (g) { return !pinnedInner[g]; });
-      if (!movable.length) return;
+      // github#117 -- the pin above can MOVE a group, so land it on both paths out
+      var applyAssign = function () {
+        cells.forEach(function (c) { c.inner = !!assign[c.g]; });
+        inner = cells.filter(function (c) { return c.inner; });
+        outer = cells.filter(function (c) { return !c.inner; });
+        share(inner, "i"); share(outer, "o");
+        cells.forEach(function (c) { c.bandRef = c.band; });
+      };
+      if (!movable.length) { applyAssign(); return; }
 
       /** @param {Cell[]} ins @param {Cell[]} outs @param {number} rv */
       var spanFor = function (ins, outs, rv) {
@@ -2119,10 +2145,20 @@ function mountVaultGraph(root, data, deps) {
           var r = rowsNeeded(usableRef(c, rOut), c.wsum, rOut);
           if (r > oR) oR = r;
         });
+        // github#117 -- area per note over the annulus each band's own rows sweep; the
+        // github#117 -- shared pi cancels. |ln| so it is scale-free and band-symmetric
+        var nI = 0, nO = 0;
+        ins.forEach(function (c) { nI += c.wsum; });
+        outs.forEach(function (c) { nO += c.wsum; });
+        var iHi = (rv + iR * SP) * INNER_SCALE, iLo = rv * INNER_SCALE;
+        var oHi = rOut + oR * SP, oLo = rOut;
+        var rpI = nI > 0.0001 ? Math.max(0, iHi * iHi - iLo * iLo) / nI : 0;
+        var rpO = nO > 0.0001 ? Math.max(0, oHi * oHi - oLo * oLo) / nO : 0;
         return {
           inner: Math.max(0, iR - 1) * SP * INNER_SCALE,
           outer: Math.max(0, oR - 1) * SP,
           iR: iR, oR: oR,
+          room: (rpI > 1e-9 && rpO > 1e-9) ? Math.abs(Math.log(rpI / rpO)) : 0,
           holeShare: (rOut + oR * SP) > 0 ? rv / (rOut + oR * SP) : 1
         };
       };
@@ -2155,6 +2191,8 @@ function mountVaultGraph(root, data, deps) {
         for (var m = 100; m <= 300; m += 5) {
           var rv = R0_BASE * (m / 100), t = spanFor(ins, outs, rv);
           var c2 = Math.abs(t.inner - BAND_RATIO * t.outer) +
+                   // github#117 -- at THIS rv, never a fixed base
+                   ROOM_WEIGHT * t.room +
                    (t.iR > t.oR ? INVERT_WEIGHT * (t.iR - t.oR) : 0) +
                    SIZE_WEIGHT * SP * innerPeak +
                    (t.inner >= t.outer ? 1000 : 0) +
@@ -2164,6 +2202,10 @@ function mountVaultGraph(root, data, deps) {
         return { cost: bc, r0: br };
       };
       var INVERT_WEIGHT = 0.5;
+
+      // github#117 -- room parity against the BAND_RATIO thickness term; 5 is the bottom
+      // github#117 -- of a measured plateau, and does nothing without the ceil in solveBand
+      var ROOM_WEIGHT = 5;
 
       var SIZE_WEIGHT = 5.0;
       /** @param {Record<string, boolean>} a */
@@ -2196,11 +2238,7 @@ function mountVaultGraph(root, data, deps) {
         }
       }
 
-      cells.forEach(function (c) { c.inner = !!assign[c.g]; });
-      inner = cells.filter(function (c) { return c.inner; });
-      outer = cells.filter(function (c) { return !c.inner; });
-      share(inner, "i"); share(outer, "o");
-      cells.forEach(function (c) { c.bandRef = c.band; });
+      applyAssign();
 
       r0 = evaluate(assign).r0;
     })();
@@ -2223,7 +2261,10 @@ function mountVaultGraph(root, data, deps) {
       }
       var T = thick * scale, R = (base + thick / 2) * scale;
       var s = Math.sqrt(arcSpan() * R * T / n);
-      var rw = Math.round(T / s);
+      // github#117 -- ceil, and it is half the room fix, not a tidy-up: rounding DOWN
+      // github#117 -- leaves the slack RADIAL, and dotPx scales by room/pitch so the dot
+      // github#117 -- cannot grow into it. The epsilon keeps an exact integer where it is
+      var rw = Math.ceil(T / s - 0.001);
       if (rw < 1) rw = 1;
       if (rw > 200) rw = 200;
       return { sp: thick / rw, rows: rw };
@@ -2667,6 +2708,7 @@ function mountVaultGraph(root, data, deps) {
     });
 
     var scale = UNIT;
+    /** @type {Record<string, Point>} */
     var out = {};
     graph.forEachNode(function (id) {
       var q = pos[id];
@@ -2966,14 +3008,16 @@ function mountVaultGraph(root, data, deps) {
 
     renderer.on("downNode", function (e) {
       var o = e.event && e.event.original;
-      if (o && o.button !== 0) return;
+      // github#145 -- `in` narrows MouseEvent | TouchEvent; a touch still bails
+      if (o && (!("button" in o) || o.button !== 0)) return;
       nodeDrag = { id: e.node, moved: false, over: false, wasPinned: isPinned(e.node) };
       dragJustMoved = null;
     });
 
     captor.on("mousemovebody", function (e) {
       if (!nodeDrag) return;
-      if (e.original && e.original.buttons !== undefined && !(e.original.buttons & 1)) {
+      // github#145 -- `in` is the `!== undefined` test it replaces
+      if (e.original && "buttons" in e.original && !(e.original.buttons & 1)) {
         drop();
         return;
       }
@@ -3168,11 +3212,12 @@ function mountVaultGraph(root, data, deps) {
     if (el) el.textContent = rangeLabel();
     if (dateSpan) {
       var lo = isoDay(dateSpan.lo), hi = isoDay(dateSpan.hi);
-      var f = $("from"), t = $("to");
+      var f = /** @type {HTMLInputElement} */ ($("from"));
+      var t = /** @type {HTMLInputElement} */ ($("to"));
       if (f) { f.min = lo; f.max = hi; f.value = isoDay(state.from === null ? dateSpan.lo : state.from); }
       if (t) { t.min = lo; t.max = hi; t.value = isoDay(state.to === null ? dateSpan.hi : state.to); }
     }
-    var btn = $("rangeall");
+    var btn = /** @type {HTMLButtonElement} */ ($("rangeall"));
     if (btn) btn.disabled = (state.from === null && state.to === null);
     drawDateUI();
   }
@@ -3856,7 +3901,8 @@ function mountVaultGraph(root, data, deps) {
    */
   /** @typedef {{ ids: string[], a: number[], b: number[], out: Record<string, number> }} WalkPair */
   /**
-   * @param {(() => void) | null} done
+   * github#145 -- done is optional; most callers pass nothing
+   * @param {(() => void) | null} [done]
    * @param {CascadeOpts} [opts]
    */
   function cascade(done, opts) {
@@ -4067,7 +4113,8 @@ function mountVaultGraph(root, data, deps) {
     var tglDir = dict();
     /** @type {Record<string, number>} */
     var tglN = dict();
-    /** @type {Record<string, number>} */
+    // github#145 -- a flag, not a count
+    /** @type {Record<string, boolean>} */
     var tglMv = dict();
     if (opts.colToggle) (function () {
       /** @type {Record<string, number>} */
@@ -4634,12 +4681,40 @@ function mountVaultGraph(root, data, deps) {
   /**
    * The per-frame layout probe behind __vg.probe(), standalone only: one flat record per
    * sampled frame, plus the fixed set of notes it measures (see where it is captured).
-   * @typedef {Record<string, number | string | null>} ProbeSample
+   *
+   * github#145 -- was Record<string, number | string | null>, a bag
+   * @typedef {Object} ProbeSample
+   * @property {string} tag
+   * @property {number} ms
+   * @property {number} gapI
+   * @property {number} gapO
+   * @property {number} ngI
+   * @property {number} ngO
+   * @property {number} gapDegI
+   * @property {number} gapDegO
+   * @property {number} radStep
+   * @property {string | null} radId
+   * @property {number} radMean
+   * @property {number} tanStep
+   * @property {string | null} tanId
+   * @property {number} tanOver
+   * @property {number} tanMean
+   * @property {Record<string, number> | null} starts    the wedge start angles
+   * @property {Record<string, number> | null} arcs
+   * @property {Record<string, string> | null} bands
+   * @property {number} innerN
+   * @property {number} innerMin
+   * @property {number} innerMax
+   * @property {number} outerN
+   * @property {number} outerMin
+   * @property {number} outerMax
+   */
+  /**
    * @typedef {Object} Probe
    * @property {number} t0
    * @property {ProbeSample[]} samples
-   * @property {number | null} prevAng
-   * @property {number | null} prevR
+   * @property {Record<string, number> | null} prevAng   github#145 -- per note
+   * @property {Record<string, number> | null} prevR     github#145 -- per note
    * @property {Record<string, number>} set
    * @property {string} [watch]
    * @property {unknown} [watched]
@@ -5072,9 +5147,15 @@ function mountVaultGraph(root, data, deps) {
     ctx.fillText(data.label, data.x + data.size + 5, data.y + n / 3);
   }
 
-  /** @param {string} id @param {NodeAttrs} a @returns {NodeDisplayData & { haloColor?: string }} */
+  /**
+   * github#145 -- applyNodeDefaults() fills the rest
+   * @param {string} id @param {NodeAttrs} a
+   * @returns {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }}
+   */
   function nodeStyle(id, a) {
-        var r = /** @type {NodeDisplayData & { haloColor?: string }} */ (Object.assign({}, a));
+        // github#145 -- the attrs; the display fields arrive below
+        var r = /** @type {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }} */ (
+                  Object.assign({}, a));
         r.color = nodeColor(id);
         var hv = hl[id] || 0;
         if (state.markDay && graph.getNodeAttribute(id, "created") === state.markDay) {
@@ -5564,7 +5645,8 @@ function mountVaultGraph(root, data, deps) {
       nodeReducer: function (id, a) {
         var al = alpha[id] || 0;
         if (al <= 0.004) {
-          var h = /** @type {NodeDisplayData} */ (Object.assign({}, a));
+          // github#145 -- as nodeStyle()
+          var h = /** @type {NodeAttrs & Partial<NodeDisplayData>} */ (Object.assign({}, a));
           h.hidden = true;
           return h;
         }
@@ -5626,7 +5708,8 @@ function mountVaultGraph(root, data, deps) {
       // github#120 -- mirror the captor's own condition, not its events
       captor.on("mousedown", function (e) {
         var o = e && e.original;
-        if (o && o.button !== undefined && o.button !== 0) return;
+        // github#145 -- see bindNodeDrag()
+        if (o && "button" in o && o.button !== 0) return;
         dragging = true; dragStartedAt = NOW();
       });
       captor.on("mouseup", function () { dragging = false; dragEndedAt = NOW(); });
@@ -5634,7 +5717,7 @@ function mountVaultGraph(root, data, deps) {
       captor.on("mousemovebody", function (e) {
         if (!dragging) return;
         var o = e && e.original;
-        if (o && o.buttons !== undefined && !(o.buttons & 1)) { dragging = false; dragEndedAt = NOW(); }
+        if (o && "buttons" in o && !(o.buttons & 1)) { dragging = false; dragEndedAt = NOW(); }
       });
       // github#120 -- belt to that braces, for a release off-canvas
       var onDocUp = function () {
@@ -5855,6 +5938,7 @@ function mountVaultGraph(root, data, deps) {
   function setReading(which) {
     var tabs = $("tabs"), tg = $("tabgroups"), tn = $("tabnote");
     var pg = $("readgroups"), pn = $("readnote"), sb = $("sidebar");
+    // github#145 -- .disabled is a button's
     if (!tabs || !tg || !tn || !pg || !pn) return;
     var note = which === "note" && !!state.selected && !narrow();
     var next = note ? "note" : "groups";
@@ -5862,7 +5946,7 @@ function mountVaultGraph(root, data, deps) {
     reading = next;
     tg.setAttribute("aria-selected", note ? "false" : "true");
     tn.setAttribute("aria-selected", note ? "true" : "false");
-    tn.disabled = !state.selected || narrow();
+    /** @type {HTMLButtonElement} */ (tn).disabled = !state.selected || narrow();
     pg.hidden = note;
     pn.hidden = !note;
     if (sb) sb.scrollTop = readScroll[reading] || 0;
@@ -5949,8 +6033,8 @@ function mountVaultGraph(root, data, deps) {
     // github#40, design/0012
     d.setAttribute("role", "region");
     d.setAttribute("aria-label", a.label);
-    d.querySelector(".x").onclick = function () { select(null); };
-    d.querySelector(".pin").onclick = function () { togglePin(id); select(id); };
+    /** @type {HTMLElement} */ (d.querySelector(".x")).onclick = function () { select(null); };
+    /** @type {HTMLElement} */ (d.querySelector(".pin")).onclick = function () { togglePin(id); select(id); };
     Array.prototype.forEach.call(d.querySelectorAll("[data-go]"), /** @param {HTMLElement} b */ function (b) {
       b.onclick = function () { goTo(b.getAttribute("data-go")); };
     });
@@ -6277,7 +6361,7 @@ function mountVaultGraph(root, data, deps) {
         var subs = subOrder[g];
         /**
          * @param {string} col @param {string} nm @param {number} ct
-         * @param {string[]} idx  subfolder indexes this row stands for
+         * @param {number[]} idx  github#145 -- numbers at all three call sites
          * @param {number} depth @param {string | null} twAttrs @param {boolean} twOpen
          */
         var srow = function (col, nm, ct, idx, depth, twAttrs, twOpen) {
@@ -6839,7 +6923,7 @@ function mountVaultGraph(root, data, deps) {
     state.hovered = null;
     select(null);
     hideTip();
-    $("q").value = "";    $("hits").replaceChildren();
+    /** @type {HTMLInputElement} */ ($("q")).value = "";    $("hits").replaceChildren();
     state.from = null; state.to = null; state.heatEnd = null;
     rangeChrome();
     buildLegend();
@@ -7054,8 +7138,9 @@ function mountVaultGraph(root, data, deps) {
      * @param {number} x @param {number} y
      * @param {string} current                       slot key in use, "" for none
      * @param {(key: string | null) => void} onPick
-     * @param {string} autoKey                       the slot with no override, "" for none
-     * @param {boolean} visShown @param {() => void} onToggleVisible
+     * @param {string} [autoKey]                     the slot with no override, "" for none
+     * @param {boolean} [visShown] @param {() => void} [onToggleVisible]
+     *   github#145 -- optional; the sub-colour menu passes four
      * @param {boolean} [byFolderOn] @param {(() => void) | null} [onToggleByFolder]
      * @param {boolean} [tintOn] @param {(() => void) | null} [onToggleTint]
      * @param {string} [group]
@@ -7094,13 +7179,13 @@ function mountVaultGraph(root, data, deps) {
         b.onclick = function () { onPick(b.getAttribute("data-key") || null); closeCtxMenu(); };
       });
       if (onToggleVisible) {
-        el.querySelector("[data-vis]").onclick = function () { onToggleVisible(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-vis]")).onclick = function () { onToggleVisible(); closeCtxMenu(); };
       }
       if (onToggleByFolder) {
-        el.querySelector("[data-byfolder]").onclick = function () { onToggleByFolder(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-byfolder]")).onclick = function () { onToggleByFolder(); closeCtxMenu(); };
       }
       if (onToggleTint) {
-        el.querySelector("[data-tint]").onclick = function () { onToggleTint(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-tint]")).onclick = function () { onToggleTint(); closeCtxMenu(); };
       }
       el.hidden = false;
       var root0 = ROOT.getBoundingClientRect();
@@ -8132,7 +8217,7 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function heatBuild() {
-    var wrap = $("heatwrap"), cv = $("heatc");
+    var wrap = $("heatwrap"), cv = /** @type {HTMLCanvasElement} */ ($("heatc"));
     if (!wrap || !cv) return;
 
     var g = heatGeom();
@@ -8286,9 +8371,10 @@ function mountVaultGraph(root, data, deps) {
     sig.push(state.markDay || "", state.hoverDay || "", heat.cell);
     // github#86 -- while a switch runs the colours move under a steady count
     if (standIns.length) sig.push("s" + lastCascade.frames);
-    sig = sig.join(",");
-    if (sig === heatSig) return;
-    heatSig = sig;
+    // github#145 -- the joined signature is its own binding
+    var sigKey = sig.join(",");
+    if (sigKey === heatSig) return;
+    heatSig = sigKey;
 
     var dpr = window.devicePixelRatio || 1;
     var ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext("2d"));
@@ -8568,6 +8654,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [to0]
    * @property {number} [pFrom]
    * @property {number} [pTo]
+   * @property {number} [winEnd0]  github#145 -- the window end at drag start
    */
   /** @type {BrushDrag | null} */
   var brushDrag = null;
@@ -8917,7 +9004,8 @@ function mountVaultGraph(root, data, deps) {
       var el = $(which);
       if (!el) return;
       el.onchange = function () {
-        setRangeMs(fieldMs($("from")), fieldMs($("to")));
+        setRangeMs(fieldMs(/** @type {HTMLInputElement} */ ($("from"))),
+                   fieldMs(/** @type {HTMLInputElement} */ ($("to"))));
       };
     });
 
@@ -9052,7 +9140,9 @@ function mountVaultGraph(root, data, deps) {
       });
       yrHost.addEventListener("pointerover", function (ev) { hoverYear(yrOf(ev)); });
       yrHost.addEventListener("pointerout", function (ev) {
-        if (!ev.relatedTarget || !yrHost.contains(ev.relatedTarget)) hoverYear(null);
+        // github#145 -- EventTarget; contains() takes a Node
+        var to = /** @type {Node | null} */ (ev.relatedTarget);
+        if (!to || !yrHost.contains(to)) hoverYear(null);
       });
     }
 
@@ -9105,7 +9195,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {boolean} [dblclick]
    * @property {boolean} [rightclick]
    * @property {boolean} [hover]
-   * @property {boolean} [drag]
+   * @property {boolean | number[]} [drag]   github#145 -- true, or the [dx, dy]
    * @property {boolean} [touchmode]
    * @property {string} [live]       "outer" or "inner": hand the page one more note on that ring
    * @property {number} [wheel]
@@ -9152,6 +9242,7 @@ function mountVaultGraph(root, data, deps) {
    * shapes answer the three questions demoWhere asks of them, which is why they are
    * interchangeable here; DemoTarget states that duck-typed contract rather than pretending
    * one is the other.
+   * @typedef {{ left: number, top: number, width: number, height: number }} DemoRect
    * @typedef {Object} DemoTarget
    * @property {number} [left]
    * @property {number} [top]
@@ -9161,7 +9252,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [gap]
    * @property {string} [demoLabel]
    * @property {string} [id]
-   * @property {() => DOMRect} [getBoundingClientRect]
+   * @property {() => DemoRect} [getBoundingClientRect]   github#145 -- not a DOMRect
    * @property {(opts?: unknown) => void} [scrollIntoView]
    * @property {(name: string) => string | null} [getAttribute]
    * @property {(sel: string) => Element | null} [querySelector]
@@ -9261,7 +9352,7 @@ function mountVaultGraph(root, data, deps) {
     if (kind === "year") {
       var yh = $("years");
       if (!yh || !dateSpan) return null;
-      var chips = Array.from(yh.querySelectorAll("button[data-yr]"));
+      var chips = /** @type {HTMLElement[]} */ (Array.from(yh.querySelectorAll("button[data-yr]")));
       if (!chips.length) return null;
       /** @type {Record<string, number>} */
       var have = dict();
@@ -9836,9 +9927,13 @@ function mountVaultGraph(root, data, deps) {
       return [];
     }
     if (name === "intro") return beats;
-    var out = [{ settle: true, act: name, why: "start from a disc at rest" }].concat(beats);
+    /** @type {DemoBeat[]} */
+    var lead = [{ settle: true, act: name, why: "start from a disc at rest" }];
+    var out = lead.concat(beats);
     if (!beats[beats.length - 1].park) {
-      out = out.concat([{ park: true, act: name, why: "leave the final frame clean" }]);
+      /** @type {DemoBeat[]} */
+      var tailBeat = [{ park: true, act: name, why: "leave the final frame clean" }];
+      out = out.concat(tailBeat);
     }
     return out;
   }
@@ -10169,7 +10264,7 @@ function mountVaultGraph(root, data, deps) {
                       /** @type {Record<string, object>} */
                       var diffs = {};
                       /** @param {Plan} p @returns {Record<string, number>} */
-                      var rows = function (p) { /** @type {Record<string, number>} */ var m = {}; p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
+                      var rows = function (p) { /** @type {Record<string, number>} */ var m = dict(); p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
                       var rs = rows(stat), rl = rows(live);
                       Object.keys(rs).concat(Object.keys(rl)).forEach(function (k) {
                         if (rs[k] !== rl[k]) diffs[k] = { staticPlan: rs[k], livePlan: rl[k] };
@@ -10547,7 +10642,7 @@ function mountVaultGraph(root, data, deps) {
                       var padded = buildWedgePlan(true, W);
                       planKeep = save;
                       /** @param {Plan} p @returns {Record<string, number>} */
-                      var rows = function (p) { /** @type {Record<string, number>} */ var m = {}; p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
+                      var rows = function (p) { /** @type {Record<string, number>} */ var m = dict(); p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
                       var a = rows(lean), b = rows(padded), diffs = {};
                       // github#5
                       Object.keys(a).concat(Object.keys(b)).forEach(function (k) {

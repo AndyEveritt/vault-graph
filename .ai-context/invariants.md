@@ -274,25 +274,132 @@ that does cluster. Realised: **24% of the tail clusters at three leading charact
 clusters**, against the real vault's 20% in 6. The generator prints both figures.
 
 What it now exposes, and what is **not** fixed by github#107: 101 of the 122 groups hold three
-notes or fewer, so the inner ring fills with wedges of one or two dots each. Separately, the
-palette resolves **12 distinct colours across 122 groups**, 22 of which read as grey — measured on
-the real vault too, 12 colours across 76 groups. Both have their own issues.
+notes or fewer, so the inner ring fills with wedges of one or two dots each (github#119).
+Separately, the palette resolved **12 distinct colours across 122 groups**, 22 of which read as
+grey — measured on the real vault too, 12 colours across 76 groups (github#118). Both have their
+own issues; the grey half of the second is fixed below.
 
-### The real cause is the band split, and it is not fixed here
+### A working group is never handed a grey by where it sorts (github#118)
 
-Neither change touches why the inner lattice is tighter in the first place. `balanceBands()`
-optimises ring **thickness** — its cost is `|inner − BAND_RATIO · outer|`, `BAND_RATIO = 0.55` —
-not room per note, so on the demo vault the inner ring gets **20% of the disc's area for 31% of
-its weight**. Relative to its own room an inner dot was already sized like an outer one before
-github#107 (`2·dot/step` 0.31 against 0.34); the dots were small because the room was.
+`buildColors` cycled all twelve slots, and the last two are the greys. So slot 11 and slot 12 went
+to whichever groups sorted eleventh and twelfth, then twenty-first and twenty-second, and so on —
+a group made grey by its position in the sort rather than by anyone choosing it. design/0004 puts
+the greys in the palette to be *picked* ("this folder should recede" is a real thing to want), and
+says in the same breath that grey "stopped being a punishment for being thirteenth"; it had not
+stopped being one for the eleventh.
 
-Two facts to carry into any attempt at that. Band membership is seeded by folder **size**
-(`c.wsum < smallAt`), not by how well-linked a folder is — on the demo vault the inner band's
-median link weight is **5.7 against the outer band's 6.40**, so the inner ring is not where the
-best-connected notes land. And membership is per **group**: `c.inner = groupInner[c.g]` and
-`takeGeom()` stores `bandLock[c.g]`, so a folder cannot span both rings and "the best-connected
-*notes* inner" is not reachable without dismantling the wedge. Within a wedge the notes are
-already ordered by link weight along the serpentine.
+Invisible while only folder dimensions were looked at, because a folder dimension rarely reaches
+eleven groups. A tag dimension reaches it at once. On `shape-vault`'s tag dimension the rotation
+laps twelve times, so **g11 carried 12 groups and g12 carried 10 — 20 working groups grey by sort
+position**, which with `(untagged)` and `(unlinked)` is the 22 the issue reported.
+
+The rotation is now `HUE_SLOTS = 10`. Both greys stay pickable, `g11` stays `ARCHIVE_SLOT`, an
+archive still never advances the counter, and `groupSlot` / `groupAutoSlot` / pins / persistence
+are untouched. `SLOT_COUNT` had exactly one use and went with it.
+
+| fixture · dimension | groups | distinct colours | greyish |
+|---|---|---|---|
+| `shape-vault` · tag | 122 | 12 → **11** | 22 → **2** |
+| `shape-vault` · folder | 7 | 7 → 7 | 1 → 1 |
+| demo mirror · folder | 18 | 12 → **11** | 3 → **1** |
+| demo mirror · tag | 14 | 12 → **11** | 4 → **2** |
+
+"Greyish" is max(r,g,b) − min(r,g,b) < 26 on the resolved hex, the issue's own measure. The two
+that remain are `(untagged)` and `(unlinked)`, which are meant to be grey. **Distinct colours
+falling by one is the intent, not a regression** — the twelfth colour was a grey nobody picked.
+
+```bash
+node scripts/smoke.mjs --only "handed a grey by where it sorts"      # all four fixtures
+```
+
+It reads both dimensions through `__vg.groupsOf(dim)`, which runs `inDim()` — so it reaches the
+dimension that is not on screen without switching to it, and has no cascade to settle. Verified to
+have teeth: with the rotation put back to twelve it fails on **all four** fixtures — the demo
+mirror at 2 folders and 2 tags, `tag-vault` at 2 tags, and `shape-vault` at **20 tags**.
+
+**The other half of github#118 is deliberately still open**: 122 groups now share ten colours
+rather than twelve. Merging tiny groups does not answer it — spiked, `SMALL_GROUP` 0 → 4 pooling
+the 101 groups of three notes or fewer moved neither number (still 122 groups, 12 distinct, 22
+greyish), because `ringsMerged` / `MERGED` / `smallIds` are layout-only and a merged group keeps
+its place in `order[state.dim]`. design/0004 carries the reasoning and the price of the two
+options that remain.
+
+### The real cause is the band split — fixed in github#117, in two halves
+
+Neither github#107 change touched why the inner lattice was tighter in the first place.
+`balanceBands()` optimised ring **thickness** — its cost was `|inner − BAND_RATIO · outer|`,
+`BAND_RATIO = 0.55` — with nothing in it aware of how much each ring was carrying. Room per
+note, inner over outer, measured over the annulus each band's own rows sweep:
+
+| fixture | before | after github#117 | median inner dot | median outer dot |
+|---|---|---|---|---|
+| demo | 0.708 | **0.817** | +36% | +3% |
+| 10k synthetic | 0.569 | **0.588** | 0% | −0% |
+| dominant-folder | 0.729 | **0.891** | +22% | −3% |
+| tag-organised | 0.810 | **0.906** | +15% | −1% |
+
+## Room parity between the rings, and why one term was not enough
+
+github#117. Two changes, and **neither delivers anything without the other** — this is the
+part to carry forward, because the first one alone looks like a win on the metric and is a
+regression on the screen.
+
+**`ROOM_WEIGHT = 5`, the room-parity term.** `spanFor()` returns `room`, the `|ln|` of one
+band's area per note over the other's, and `evaluate()`'s cost gains `ROOM_WEIGHT * t.room`.
+Three things about it were measured rather than chosen:
+
+- **Scored at the candidate `r0`, never a fixed one.** Hoisting it to `R0_BASE` so it cannot
+  buy parity by inflating the hub was tried and reverted: it scores geometry the search does
+  not choose, and takes the tag vault to **0.786, below the 0.810 it starts at**.
+- **5 is the bottom of a plateau**, not a knife edge. 5 and 10 give the identical layout on
+  all four fixtures; 2 is inert on the 10k; 20 and up let the term beat the thickness term
+  outright and the inner ring collapses to 3 rows with parity overshooting past 1.
+- **`BAND_RATIO` survives it.** The measured thickness ratio moves 0.52 → 0.51 (demo),
+  0.49 → 0.48 (10k), and not at all on the other two. The term trades against the thickness
+  term by construction and in practice barely bends it.
+
+**`Math.ceil` in `solveBand()`, which is the half that reaches the dot.** `s` is the square
+cell side, so `T / s` is the row count that makes a cell square, and the old `Math.round`
+rounded *down* whenever the fraction fell under a half. That leaves the cell radially taller
+than wide, and **the dot cannot grow into radial slack** — `dotPx` scales by `room / pitch`,
+so a coarser pitch makes the dot a smaller fraction of its own row. Measured with the room
+term in and `Math.round` left alone: parity improves on all four fixtures and the median
+**inner dot falls 8% on the dominant-folder vault and 12% on the tag vault**, because the
+inner band drops 5 rows to 4 and spends the whole gain on pitch. The trip is not the hub —
+holding `r0` fixed and letting only membership move reproduces it exactly. It is a
+quantisation: one row out of five is a 20–25% step, which is why the 10k vault's 16-row
+inner band never shows it and the small-ring fixtures always do. Rounding up leaves the
+slack *angular* instead, which the dot does use.
+
+**Two facts that survive, for anyone going further.** Membership is per **group**:
+`c.inner = groupInner[c.g]` and `takeGeom()` stores `bandLock[c.g]`, so a folder cannot span
+both rings and "the best-connected *notes* inner" is not reachable without dismantling the
+wedge. Within a wedge the notes are already ordered by link weight along the serpentine.
+
+**Seeding `groupInner` by link weight instead of size is inert — measured, not argued.**
+This was github#117's other candidate and it cannot work. `balanceBands()` searches
+**exhaustively** on all four fixtures (`movable` 13, 13, 4, 14, all within
+`EXHAUSTIVE_UP_TO` 14), so it re-decides every movable group from cost alone and the seed
+reaches the outcome through one channel only: `pinnedInner`. With the pin made
+seed-independent, a link-weight seed gives a layout **identical to the size seed on all four
+fixtures** — same parity, same areas, same inner set, same hole share. Left as it is, the
+link-weight seed only *empties* the pin set, which pushes demo and the 10k past
+`EXHAUSTIVE_UP_TO` into hill-climbing: demo parity goes **0.708 → 0.539**, the inner set
+collapses to one folder, and four small folders land outer — a straight failure of *band
+assignment obeys its two hard rules*.
+
+**`pinnedInner` no longer asks what the seed decided**, and that is a safety rail for the
+room term rather than a tidy-up. `smallAt` is `TOTAL / 60`, so on a vault under ~600 notes a
+folder of 7–9 notes is seeded *outer*, never pinned, and the room term is happy to leave it
+there — a stray. On all four fixtures `smallAt` is already past `PIN_BELOW` (23.4, 166.7,
+15.9, 14.9), so every such group was seeded inner anyway and nothing moves.
+
+**The hub grows, and the drift invariant does not notice.** `holeShare` goes 0.263 → 0.342
+(demo), 0.304 → 0.353 (10k), 0.273 → 0.292 (dominant-folder), 0.290 → 0.353 (tag, in the
+folder dimension) — under the cost's own `HOLE_MAX` ceiling of 0.36, which is what holds it.
+*The hub stays the same share of the disc as it is filtered* reads **drift 0.000 on every
+fixture that asserts it**, before and after, because `balanceBands()` runs only when
+`bandLock` is null: a filter re-packs inside rings it does not re-choose.
 
 ## The hub stays the same share of the disc
 
@@ -2463,8 +2570,9 @@ large outer-ring dots in a two-note ring (42–74 px) are `DOT_ROOM_MAX` doing w
 
 ## A folder that holds notes keeps its row, its slot and its colour
 
-The twelve automatic colour slots are handed out by POSITION in `order[state.dim]`
-(`buildColors`), so while that list was built only from groups currently holding a member,
+The automatic colour slots are handed out by POSITION in `order[state.dim]`
+(`buildColors`) — **ten of them, the hues, since github#118; the two greys are pickable but
+out of the rotation** — so while that list was built only from groups currently holding a member,
 anything that emptied a group renumbered every group behind it — each one inheriting the
 colour of the one in front. `computeOrder` now seeds the list from where notes are **filed**
 (each node's own `folder`), so every folder that holds a note keeps its row and its slot
@@ -4388,3 +4496,67 @@ drops -- so a live rebuild that deleted one pinned note silently cost every pin.
 check, which reads what the **host** ended up holding rather than what the page believes it stored:
 `["2"]` before, `["\u0000vault-graph:pins:2","C.md"]` after. Both writes go through `persistPins()`,
 and `savePinned` has exactly one call site so a third one cannot quietly appear.
+## The JavaScript's own contracts are compiler-checked, and the gate proves it (github#145)
+
+**`npm run lint` holds `src/page.js` and `plugin/main.js` at ZERO compiler diagnostics with
+`checkJs` on, and rejects a probe that assigns `42` to a `VaultData`-annotated binding.**
+
+```bash
+node scripts/check-js-contracts.mjs      # or npm run lint, which calls it
+```
+
+Two `tsc` runs against `tsconfig.contracts.json`, about 1.3s together. The first is the real
+check. The second is the reason this is a check and not a setting: it writes a copy of
+`src/page.js` with `var DATA = data` replaced by `/** @type {VaultData} */ var DATA = 42` and
+**fails if that copy comes back clean**.
+
+**Why the second run exists.** Before github#145, `tsconfig.json` set `checkJs: false` -- it is
+typescript-eslint's program, and the compiler's own check ran over `src/engine/**/*.ts` alone.
+Every annotation in 13k lines of JavaScript was a comment nothing read, and the exact mutation
+above drew **zero errors and zero warnings** from the whole gate. That is a green gate worth
+nothing, and it stays green forever unless something asserts a known defect *is* caught. So the
+probe runs every time.
+
+**Numbers, measured 2026-09-14 on the tree at `45d28f5`** (the github#81 review's figures were
+taken on `deca048` and do not match this code): the same program with `checkJs: true` and **no
+added strictness** reported **138 diagnostics -- 136 page, two plugin -- over 105 lines**. All
+138 are fixed at their source. The bar is zero.
+
+**Zero, not a baseline.** github#145 allows a baseline *if the work is phased*, tracked **by
+identity and never by total** -- a count lets one new error silently replace one old one. It was
+not phased, so there is no ledger: zero cannot drift. The check still prints every diagnostic
+with its file, position, code and message, so a failure names itself.
+
+### What may not be done to make this pass
+
+**A diagnostic is fixed where it is caused.** A cast that widens, an `any`, a `@ts-ignore`, or
+an exclusion over a file leaves the gate exactly as untrustworthy as github#145 found it, and
+the probe cannot tell the difference -- it only proves the compiler is reading *something*.
+A narrow cast at a site that genuinely knows more than the accessor does is fine and is the
+file's own documented convention (`$()` returns `HTMLElement` and tells a caller wanting an
+input's `.value` to say so at its own site); widening a return type so a wrong call type-checks
+is not.
+
+**A measured constant still changes `invariants.md` in the same commit.** This section does not
+exempt anything.
+
+### The three ways it was verified to have teeth
+
+Tried against the finished check, each one made it fail:
+
+| Weakening | What catches it |
+|---|---|
+| `checkJs` back to `false` in `tsconfig.contracts.json` | the probe is no longer rejected |
+| `plugin/main.js` dropped from the `include` | `--listFiles` says it is not in the program |
+| the probe's anchor renamed away in `src/page.js` | a hard failure, never a skip -- a probe testing nothing is the failure this prevents |
+
+The fourth, dropping `src/page.js` from the `include`, does **not** fail, and correctly: it
+stays in the program as `plugin/main.js`'s import and stays checked. That was measured too, by
+reintroducing a real defect with the file out of the include and watching 22 diagnostics arrive.
+`tsconfig.json` names it explicitly anyway, so the program is stated rather than inherited.
+
+### Not covered
+
+`strictNullChecks` over the JavaScript -- github#145 calls it a separate, later, measured step,
+and github#55's ratchet owns it. `src/build-graph.mjs` and `scripts/**` are in no type program
+today; widening the program is its own measurement.

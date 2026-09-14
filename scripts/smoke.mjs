@@ -3936,6 +3936,31 @@ check("overriding one folder recolours exactly one group", async (p) => {
                        (ok ? "" : ` (${r.moved.slice(0, 6).join(", ")}${r.moved.length > 6 ? ", ..." : ""})`) };
 });
 
+// github#118, design/0004
+check("no working group is handed a grey by where it sorts", async (p) => {
+  const r = await p.j(`(function(){
+    var GREYS = { g11: 1, g12: 1 }, out = [];
+    ["folder", "tag"].forEach(function (dim) {
+      // github#86 -- groupsOf() runs inDim(), so the off-screen dimension needs no switch
+      var rows = __vg.groupsOf(dim);
+      var working = rows.filter(function (row) {
+        return !__vg.isArchiveGroup(row.name) && row.name.charAt(0) !== "(";
+      });
+      out.push({ dim: dim, groups: rows.length, working: working.length,
+                 greyed: working.filter(function (row) { return GREYS[row.autoSlot]; })
+                              .map(function (row) { return row.name; }) });
+    });
+    return out;
+  })()`);
+  return {
+    ok: r.every((d) => !d.greyed.length),
+    detail: r.map((d) => `${d.dim} ${d.working}/${d.groups} working` +
+                         (d.greyed.length ? ` -- ${d.greyed.length} greyed by position (` +
+                           d.greyed.slice(0, 4).join(", ") + (d.greyed.length > 4 ? ", ..." : "") + ")"
+                                          : " -- none greyed")).join("; ")
+  };
+}, { on: "all" });
+
 // github#50
 // github#48
 check("a folder keeps its slot across the membership toggle", async (p) => {

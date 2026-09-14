@@ -50,17 +50,49 @@ slots, the six-degree minimum wedge, the fifty-two-week heatmap window. Each has
 measurement behind it, and the recurring failure mode in this repo is reasoning about the
 code instead of measuring it.
 
-Four commands, and all four are gates rather than suggestions:
+Sixteen commands, and every one of them is a gate rather than a suggestion. They all run
+from `.githooks/pre-push`, in this order, on a push to `develop` or `main` — a feature-branch
+push runs none of them, so a green branch push is not evidence of anything:
 
 ```bash
-npm run lint                    # tsc --noEmit on the engine, then typescript-eslint on our own code; every finding is held at zero
-node scripts/smoke.mjs          # the invariant suite: four fixtures, each check on the ones its assertion is about
-node scripts/check-scope.mjs    # the page cannot style, or be styled by, its host
-node scripts/check-network.mjs  # nothing shipped can make a network request
-node scripts/check-notice.mjs   # the Sigma notice opens a fresh main.js and a fresh exported page
-node scripts/check-comments.mjs # comments are pointers; the count of prose lines only goes down
-node scripts/check-data-escape.mjs # a note's frontmatter cannot close the exported data script
+node scripts/check-pii.mjs              # this repo is public; no skip flag, ever
+node scripts/check-scope.mjs            # the page cannot style, or be styled by, its host
+node scripts/check-network.mjs          # nothing shipped can make a network request
+node scripts/check-notice.mjs           # the Sigma notice opens a fresh main.js and a fresh exported page
+node scripts/check-comments.mjs         # comments are pointers; the count of prose lines only goes down
+node scripts/check-generator-determinism.mjs   # a fixture vault does not depend on the day it was generated
+node scripts/check-build-order-determinism.mjs # nor on the order the filesystem enumerated it
+node scripts/check-data-escape.mjs      # a note's frontmatter cannot close the exported data script
+node scripts/update-note-selftest.mjs   # the update note's grammar and decision table (design/0016)
+node scripts/smoke-runner-selftest.mjs  # a check that threw is scored as a failure (github#146)
+node scripts/check-link-resolution.mjs  # both producers agree where a link points (github#141)
+node scripts/code-map.mjs --check       # the generated map and index still match the source
+node scripts/gallery-nav.mjs --check    # the gallery's "New in" strip still matches the feature pages
+node scripts/check-ci-parity.mjs        # every gate above also runs in CI, where a merge boundary can see it (github#147)
+npm run lint                            # tsc --noEmit on the engine, then on the JavaScript's own annotations, then typescript-eslint; every finding is held at zero
+node scripts/smoke.mjs                  # the invariant suite: four fixtures, each check on the ones its assertion is about
 ```
+
+**Only the last one has a skip flag.** `SKIP_SMOKE=1 git push` skips the suite; the fifteen
+above it do not have one and are not meant to — most of them are cheap, and what they prevent
+is damage to somebody else's software, somebody else's licence, or somebody else's name.
+
+While iterating, `node scripts/smoke.mjs --only <substring>` is the loop. The full suite
+belongs to the push that merges.
+
+`npm run lint` runs `scripts/check-js-contracts.mjs` as part of that first line, and it is
+worth knowing what it does before you meet it failing. The JavaScript's JSDoc annotations are
+compiler-checked (`tsconfig.contracts.json`, `checkJs` on) and held at **zero** diagnostics --
+and the same run re-injects the defect github#145 was filed over, a copy of `src/page.js` with
+`/** @type {VaultData} */ var DATA = 42`, and fails if that copy comes back **clean**. Before
+github#145 that mutation drew zero errors and zero warnings from this whole list.
+
+**Fix a diagnostic where it is caused.** A cast that widens, an `any`, a `@ts-ignore` or an
+exclusion makes the gate green again and worth exactly what it was worth before the ticket --
+and the probe cannot tell the difference, since it only proves the compiler is reading
+something. A *narrowing* cast at a site that knows more than the accessor does is the file's own
+convention and is fine: `$()` returns `HTMLElement` and tells a caller wanting an input's
+`.value` to say so at its own site. `.ai-context/invariants.md` has the rest.
 
 Three more are manual, because each launches a real browser or a real Obsidian and takes a
 minute or two. Run the first if you touch the view's lifecycle — `onOpen`, `currentView`,

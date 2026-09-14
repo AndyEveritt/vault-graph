@@ -549,7 +549,7 @@ class VaultGraphView extends ItemView {
     /** @type {MountHandle | null} */
     this.handle = null;
     // github#140 -- teardown() drops it, so it is declared here
-    /** @type {Element | null} */
+    /** @type {HTMLElement | null} */
     this.page = null;
     /** @type {BuildResult | null} */
     this.lastData = null;
@@ -871,7 +871,8 @@ class VaultGraphView extends ItemView {
     this.lastData = data;
 
     const parsed = new DOMParser().parseFromString(PAGE_HTML, "text/html");
-    const page = parsed.body.firstElementChild;
+    // github#145 -- PAGE_HTML's root is a div; the narrow claim is made here
+    const page = /** @type {HTMLElement | null} */ (parsed.body.firstElementChild);
     if (!page) throw new Error("page markup did not parse to an element");
     root.appendChild(page);
 
