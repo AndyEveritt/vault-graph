@@ -17,9 +17,23 @@ const BLOCK_START = '-z "$gated_push"';
 const BLOCK_END = '-n "$SKIP_SMOKE"';
 
 // github#147 -- a hook gate CI genuinely cannot run, by normalised key
+/** @type {string[]} */
 const LOCAL_ONLY = [];
 
-const read = (p) => readFileSync(join(ROOT, p), "utf8");
+/**
+ * github#147
+ * @param {string} p
+ * @returns {string}
+ */
+function read(p) {
+  try {
+    return readFileSync(join(ROOT, p), "utf8");
+  } catch {
+    console.error("check-ci-parity: FAIL");
+    console.error(`  FAIL ${p} is missing -- both halves of the gate have to exist`);
+    process.exit(1);
+  }
+}
 
 /**
  * github#147
@@ -28,10 +42,10 @@ const read = (p) => readFileSync(join(ROOT, p), "utf8");
  */
 function key(cmd) {
   if (/\bnpm\s+run\s+lint\b/.test(cmd)) return "npm run lint";
-  const script = /(?:\$root\/|[\s"'])?(scripts\/[\w.-]+\.mjs)/.exec(cmd);
+  const script = /scripts\/[\w.-]+\.mjs/.exec(cmd);
   if (!script) return null;
   const flags = (cmd.slice(script.index + script[0].length).match(/--[\w-]+/g) || []).sort();
-  return [script[1], ...flags].join(" ");
+  return [script[0], ...flags].join(" ");
 }
 
 /**
@@ -58,11 +72,12 @@ function hookGates(hook) {
       if (line.trim() === heredoc) heredoc = null;
       continue;
     }
-    const opens = /<<-?\s*'?([A-Za-z_][\w]*)'?/.exec(line);
-    if (opens) { heredoc = opens[1]; continue; }
-    if (/^\s*#/.test(line)) continue;
-    const k = key(line);
-    if (k && !found.includes(k)) found.push(k);
+    if (!/^\s*#/.test(line)) {
+      const k = key(line);
+      if (k && !found.includes(k)) found.push(k);
+    }
+    const opens = /<<-?\s*'?([A-Za-z_]\w*)'?/.exec(line);
+    if (opens) heredoc = opens[1];
   }
   if (heredoc !== null) {
     console.error("check-ci-parity: FAIL");

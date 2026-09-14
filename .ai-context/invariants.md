@@ -3836,6 +3836,54 @@ green run" cannot say which tree it saw. While it runs, both gates hold the mach
 `suite` lock (`scripts/lock.mjs`) and release it on every exit path; a lock that cannot be had
 blocks the push and names the holder rather than running on top of it.
 
+## The merge boundary runs the gates the hook runs
+
+`.githooks/pre-push` is a file in an installed checkout. It runs where somebody ran `git
+config core.hooksPath .githooks`, on whichever machine happened to push, and it is **never a
+server-side proof about a commit** — so for as long as it was the only place the quality gates
+ran, merge eligibility on `main` turned on one status, `main only accepts develop`, which
+asserts where a commit came from and nothing about whether it is any good. Read-only ruleset
+inspection on 2026-09-08 confirmed that was the only required context. The gap was widening
+rather than closing: github#141 put `check-link-resolution` in the hook and github#146 put
+`smoke-runner-selftest` there, so each fix moved more of what protects this repo somewhere a
+pull request cannot read (github#147, A3 of the github#81 architecture follow-up).
+
+`.github/workflows/quality.yml` runs the hook's **unskippable static block** — every check
+between the hook's `gated_push` early exit and its `SKIP_SMOKE` line, plus `npm run lint` —
+against the checked-out commit, on a pull request into `develop` or `main` and on a push to
+either. **The push trigger is the one that matters most**: work lands on `develop` here by a
+direct `git push`, not through a pull request, so without it the common path would produce no
+status at all. Feature branches are absent for the reason the hook also skips them.
+
+**The list is derived, not curated, and then guarded.** `scripts/check-ci-parity.mjs` parses
+the hook's static block and the workflow and fails on any gate the workflow does not run.
+That is not a hypothetical: `release.yml` keeps a hand-written copy of the same set and it has
+already drifted — `check-generator-determinism`, `check-build-order-determinism`,
+`check-data-escape`, `check-link-resolution` and `gallery-nav --check` are all absent from it.
+A list nobody checks becomes a list that lies. Fifteen gates on the tree that added the check,
+about 30 s of check time locally, of which `npm run lint` is 21 s — so lint runs last, and a
+broken tree says so before the toolchain has finished. The check holds three things, each
+measured failing before it was committed: a gate present in the hook and absent from the
+workflow, the job's `name:` (`quality gates` — a job name **is** the required-status context,
+so renaming it silently drops whatever the ruleset requires), and the two markers it anchors
+on still being in the hook. It parses the hook's heredoc refusal messages as prose, not as
+invocations; three of them name a script in a sentence.
+
+**Two things the workflow states rather than implies, because a green status must not be read
+as more than it is.** `scripts/smoke.mjs` is not in CI: it has no headless path — it spawns
+Chrome with `--app=`, `--window-position` and `--window-size` and takes a lock named after a
+monitor — and its frame-sensitive lane (446 s of the hook's measured 587 s) was tuned against
+one machine's Chrome, so a required status built on it would flake, and a required status that
+flakes is one that gets bypassed. And `check-pii.mjs` is **patterns-only on a runner**:
+`.pii-names` is gitignored on purpose, so a fresh checkout has no name list, the check prints
+`NO NAME LIST`, tests its five patterns and exits 0. CI proves the patterns; the twelve names
+are proved by the hook on a configured checkout. Read the step's output, not its exit code.
+
+**Creating the workflow does not require the status.** The `quality gates` context has to be
+added to `main`'s ruleset alongside `main only accepts develop`, which is a repository
+settings change no commit can make. `CONTRIBUTING.md` ("Branches, and how work reaches main")
+says what is required today rather than what ought to be.
+
 ## A colour slot is previewed as the dots it will draw, on both grounds
 
 A swatch used to be a filled square. The disc draws that colour as **dots**, and on the
