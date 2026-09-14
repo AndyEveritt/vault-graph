@@ -4123,3 +4123,38 @@ inside fast checks that no longer wait for anything — `filtered to the bone` (
 four fixtures) and `the disc's density follows the notes on screen` (17.5 s) alone are 59 s
 of sleeping under reduced motion. Converting those waits to `settle()` plus one frame is the
 next cut, taken separately so each check's own numbers are re-read when it changes.
+
+## A pin names its note, and the stored format says which format it is
+
+github#143, decisions/0014 (finding 9 of github#81). A graph id comes from input order --
+`String(nextId++)` in `ingest()` -- so persisting `state.pinned` persisted a *position*. The
+stored value is now versioned and keyed by the note's own path; a ghost's is the canonical full
+destination github#141 landed.
+
+```bash
+node scripts/smoke.mjs --only "a pin is stored by the note"
+```
+
+The check builds two vaults with the same vault NAME -- so both read one `localStorage` key -- and
+drives the ticket's own reproduction. Measured before and after on the same scenario, ghosts on:
+
+| | version 1 (develop) | version 2 |
+|---|---|---|
+| pinned in a vault of `B.md`, `C.md` | `B.md`, `ghost:Missing` | same |
+| stored | `["0","2"]` | `["\u0000vault-graph:pins:2","B.md","ghost:Missing"]` |
+| reopened after `A.md` was inserted ahead | **`A.md`, `C.md`** | `B.md`, `ghost:Missing` |
+
+`B.md` moves from id `0` to `1` across that rebuild, and id `0` now names `A.md` -- which is the
+whole defect in one line, and what the check asserts rather than describes. The restore is read
+**through the host**: the two-note build's `localStorage` write is what the rebuild mounts from,
+so the exported page's whole persistence path is exercised, not just the mapping. (The mapping is
+asserted separately via `__vg.pinsFrom`, so the check still means something where `localStorage`
+throws on `file://` -- see decisions/0009.)
+
+The same run covers the rest of what github#143 required: a version-1 store restores **0** pins, an
+unknown path **0**, `[B, B, C]` dedupes to `[B.md, C.md]`, and 20 valid paths cap at **13**
+(`PIN_MAX`). The plugin host's half is in `scripts/obsidian-smoke.mjs`'s right-click check, which
+asserts `settings.pinned` holds the note's **path** and not its runtime id.
+
+**A version-1 store is dropped in full, and the empty version-2 store written back over it** -- once,
+not at every mount. decisions/0014 has why there is no recovery and why the marker leads with a NUL.

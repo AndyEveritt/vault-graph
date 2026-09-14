@@ -2841,11 +2841,12 @@ function mountVaultGraph(root, data, deps) {
   function pinsFrom(want) {
     /** @type {string[]} */
     var out = [];
-    if (!Array.isArray(want) || want[0] !== PIN_FORMAT) return out;
+    var list = /** @type {unknown[]} */ (want || []);
+    if (typeof list.length !== "number" || list[0] !== PIN_FORMAT) return out;
     /** @type {Record<string, number>} */
     var seen = dict();
-    for (var i = 1; i < want.length && out.length < PIN_MAX; i++) {
-      var path = want[i];
+    for (var i = 1; i < list.length && out.length < PIN_MAX; i++) {
+      var path = list[i];
       if (typeof path !== "string") continue;
       var id = idOfPath[path];
       if (id === undefined || seen[id] || !graph.hasNode(id)) continue;
@@ -2865,7 +2866,7 @@ function mountVaultGraph(root, data, deps) {
     var want = deps.pinned;
     state.pinned = pinsFrom(want);
     // github#143, decisions/0014 -- drop it once, not once per mount
-    if (Array.isArray(want) && want.length && want[0] !== PIN_FORMAT) persistPins();
+    if (want && want.length && want[0] !== PIN_FORMAT) persistPins();
   }
 
   /**
