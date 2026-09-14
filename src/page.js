@@ -4658,12 +4658,46 @@ function mountVaultGraph(root, data, deps) {
   /**
    * The per-frame layout probe behind __vg.probe(), standalone only: one flat record per
    * sampled frame, plus the fixed set of notes it measures (see where it is captured).
-   * @typedef {Record<string, number | string | null>} ProbeSample
+   *
+   * ProbeSample WAS `Record<string, number | string | null>` until github#145 -- a bag with
+   * the right keys and no shape, which is what a record written once and read once tends to
+   * become. probeReport() then did arithmetic on `string | number | null` at 24 sites, every
+   * one of them reported the moment checkJs went on. The fields are all known at the single
+   * push site in probeSample(), so they are written down here instead.
+   * @typedef {Object} ProbeSample
+   * @property {string} tag
+   * @property {number} ms
+   * @property {number} gapI
+   * @property {number} gapO
+   * @property {number} ngI
+   * @property {number} ngO
+   * @property {number} gapDegI
+   * @property {number} gapDegO
+   * @property {number} radStep
+   * @property {string | null} radId
+   * @property {number} radMean
+   * @property {number} tanStep
+   * @property {string | null} tanId
+   * @property {number} tanOver
+   * @property {number} tanMean
+   * @property {Record<string, number> | null} starts    the wedge start angles, as lastStart holds them
+   * @property {Record<string, number> | null} arcs
+   * @property {Record<string, string> | null} bands
+   * @property {number} innerN
+   * @property {number} innerMin
+   * @property {number} innerMax
+   * @property {number} outerN
+   * @property {number} outerMin
+   * @property {number} outerMax
+   */
+  /**
    * @typedef {Object} Probe
    * @property {number} t0
    * @property {ProbeSample[]} samples
-   * @property {number | null} prevAng
-   * @property {number | null} prevR
+   * @property {Record<string, number> | null} prevAng   the previous frame's angle per note
+   * @property {Record<string, number> | null} prevR     and its radius; both were declared
+   *                                                     `number | null` and have always held
+   *                                                     a dictionary (github#145)
    * @property {Record<string, number>} set
    * @property {string} [watch]
    * @property {unknown} [watched]
