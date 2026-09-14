@@ -2914,6 +2914,129 @@ node scripts/obsidian-smoke.mjs --only live      # a real Obsidian, throwaway co
 node scripts/live-growth-check.mjs --view open --pan    # github#120, minutes not seconds
 ```
 
+## A render that is no longer the current one mounts nothing
+
+github#140. `render()` tears down synchronously and then awaits `buildData()`, and until this
+there was nothing in that gap a later teardown or a newer render could reach into. Everything
+after the await -- `lastData`, the appended page, `mountVaultGraph()`, `subscribeLive()` -- ran
+unconditionally, on whatever view state existed by the time the build came back.
+
+**`teardown()` bumps a monotonic `renderGen`, and that is the only place it moves.** Every way a
+mount ends routes through it -- a newer render, `onClose()`, an explicit teardown -- so there is no
+fourth call site to forget, and `teardown()` stays idempotent. `render()` captures the generation
+immediately after its own teardown call, snapshots the four settings `buildData` reads
+(`BuildOptions`, a type now rather than a sentence in a comment), and re-reads the
+generation on the far side of the await. A superseded render
+returns having written **nothing**: no `lastData`, no markup, no mount, no registration -- and its
+error and `finally` paths are guarded identically, because the current render's handle and busy
+state are not an old request's to clear.
+
+`this.rebuilding` moved into `render()` with it. It had guarded the Refresh button alone, which
+left settings rebuilds, the rebuild command and the initial open unguarded; `teardown()` clears it,
+without which a view closed mid-build keeps a busy flag no later render would ever clear.
+
+```bash
+node scripts/render-race-check.mjs      # headless, ~10s, no display and no screen lock
+```
+
+The harness bundles the **real** `VaultGraphView` against stubbed `obsidian`, `src/page.js` and
+`src/engine/index`, runs it in headless Chrome over `cdp.mjs`, and holds the first `vault.adapter`
+read of each build on a latch it releases by name -- which is the one thing the Obsidian harnesses
+cannot offer, since the only way to delay `buildData()` there is to monkeypatch it over CDP and
+measure the patch. Real browser rather than a DOM shim, because `render()` parses `src/page.html`
+with `DOMParser` and a shim that is subtly wrong hides the defect instead of showing it. Twenty-three
+checks, four scenarios, measured on either side of the fix:
+
+| | before | after |
+|---|---|---|
+| A and B overlap, **B resolves first** — pages in the root | 2 | **1** |
+| — live mounts | 2 (`B`, `A`) | **1 (`B`)** |
+| — `this.handle` / `lastData` | `A` / `A` | **`B` / `B`** |
+| the view is closed mid-build — mounts created | 1 | **0** |
+| — pages in the root / `this.handle` | 1 / `C` | **0 / `null`** |
+| — `rebuilding` left behind | true | **false** |
+| three rapid rebuilds resolving **3, 1, 2** — pages in the root | 3 | **1** |
+| — live mounts | 3 (`r3`, `r1`, `r2`) | **1 (`r3`)** |
+| — `this.handle` | `r2`, the last to *resolve* | **`r3`, the newest *started*** |
+| two Refresh clicks already dispatched — new mounts | 1 | 1 (**regression guard**) |
+| the mount's `win`, with `activeWindow` naming another window | the **other** window | **the view's own** |
+| the page's `data-theme`, that other document being light | `light` | **`dark`, its own document's** |
+
+**13 of 23 checks failed before, 23 of 23 pass after.** The first row is the leak the issue names:
+the second assignment to `this.handle` orphaned the first mount rather than replacing it, so it
+stayed alive and unreachable and the later teardown destroyed only one of the two. github#120 holds
+through all of it -- **six view event refs across three renders, not eighteen**, which the harness
+asserts so the two fixes cannot quietly undo each other.
+
+**The last two rows are the popout, modelled.** A single-window harness cannot tell `activeWindow` from the view's own window, so it would have asserted the fix while proving nothing. The harness builds an iframe, points `activeWindow` / `activeDocument` at it, and gives it the *opposite* theme -- at which point reading the active one instead of the view's own is a wrong `win` on the mount and a page painted `light` inside a dark document, which is exactly what the pre-fix run reports.
+
+**The four Obsidian and Chrome harnesses the issue names, as regression cover**, all against a
+throwaway copy of the demo fixture with this build installed:
+
+```bash
+node scripts/obsidian-smoke.mjs                       # 21/21
+node scripts/teardown-check.mjs --vault <copy>        # clean, 4 cycles
+node scripts/deferred-check.mjs --vault <copy>        # 10/10
+node scripts/refresh-check.mjs  --vault <copy>        # 8/9, and the 9th fails on develop too
+```
+
+The rows that speak to this change: **closing and reopening the view six times grew nothing** (heap
+34.5 -> 35.3 MB at 0.16 MB/cycle, DOM nodes 9,379 -> 9,379, listeners 1,930 -> 1,930), **Refresh
+remounted and destroyed the old mount** (6,169 ms, build 15 ms, mount 8 ms, old api gone, 0 errors),
+and `teardown-check` held flat over four destroy+remount cycles (nodes 683 -> 684, listeners 186 ->
+186). `deferred-check` covers the other end of the lifecycle -- a leaf restored **deferred**, where
+`leaf.view.render` does not exist -- and stays 10/10.
+
+**The popout pair is the part that matters for `contentEl.win`**, and it is measured rather than
+argued: **the view mounts in a popout and tears down with it** (popout document true, window true,
+1200x860 at -2498,70, 6 canvases, stage 912x550, ready in 509 ms, 0 errors, popout windows left open
+0), and **the hop trail survives a view moved out to a popout** with its back arrow still stepping
+there. So popout behaviour is preserved by the switch away from `activeWindow`. What is still *not*
+measured is the benefit: both windows here sit at 1x on one display, so the wrong-`devicePixelRatio`
+and throttled-frame-clock cases need two displays at different scaling and this branch has no number
+for them.
+
+**One check fails, and it fails on `origin/develop` too.** `refresh-check`'s "the graph has NOT
+noticed it on its own" asserts the *absence* of live refresh -- it is github#6's complaint, written
+before github#72 made live refresh the default -- so the graph now picks the note up on its own
+before Refresh is ever clicked and the check reports 1404 where it wants 1403. Confirmed by running
+the same harness against `origin/develop`'s `plugin/main.js`: same 8/9, same check. Stale harness,
+not a regression, and out of scope here.
+
+**The fourth scenario passes on both sides, deliberately.** It drives the real `onRefresh` callback
+the view handed its own page, capturing it *before* the render tears the button out -- the only way
+a second click can arrive at all -- and checks that the second is declined. That guard worked before
+and still works, which is the point: `this.rebuilding` moved owner, and the one thing it did do had
+to keep doing it.
+
+**Two things read across the await that were reading the wrong window.** `win:` on the mount deps
+and `syncTheme()`'s theme probe both used `activeWindow` / `activeDocument`, which name whichever
+window has **focus**, not the one the view lives in. Both go through Obsidian's own `contentEl.win`
+/ `contentEl.doc` now (documented as "the window this node belongs to, or the global window"), read
+at the point of use rather than captured, because a leaf can be moved between windows and the
+element always knows where it is.
+
+**The two are not equally consequential, and saying so matters more than the fix reading well.**
+`activeDocument === document` was measured **false** with a popout focused, so the wrong-window read
+is real and routine -- but Obsidian **mirrors** the theme classes onto every window, measured in a
+real Obsidian with a leaf popped out: **main `theme-dark` / popout `theme-dark`, and on Moonstone
+main `theme-light` / popout `theme-light`**. The two documents therefore always agree about the
+theme, so `syncTheme()` reading the wrong one was wrong in principle and produced no visible defect.
+It is corrected because the next person to add a per-document read should find the right idiom next
+to it, not because a user could see it.
+
+`win` is the one that bites. The page drives `requestAnimationFrame`, `setTimeout`,
+`devicePixelRatio` and `matchMedia` off `deps.win` across **81 call sites**, and all four are
+genuinely per-window: a popout on a display with different scaling takes the main window's
+`devicePixelRatio` into its canvas sizing, and its cascade runs on the main window's frame clock --
+which is throttled when that window is occluded. That measurement was **not** taken here: it needs
+two displays at different scale factors, and this branch has no number for it.
+
+`liveRebuild()`'s own `github#62` handle-identity guard is **untouched and still required**: it
+stops an old *live* result reaching a replacement graph, which is a different race in a different
+method. Finding 4 of github#81 (host registrations accumulating per render) is not this -- github#120
+fixed it in `73c62ca`, and the two stay apart.
+
 ## Word counts land by path, and an index stopped meaning a node
 
 github#72. The host reads word counts in the background after the mount and applies them one at a

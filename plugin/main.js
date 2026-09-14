@@ -100,6 +100,11 @@ function bareMap() {
 /** @typedef {Awaited<ReturnType<typeof buildData>>} BuildResult */
 
 /**
+ * github#140 -- the only four settings buildData reads, per render
+ * @typedef {Pick<Settings, "ghosts" | "templates" | "flatMonths" | "words">} BuildOptions
+ */
+
+/**
  * The page's own boundary types, declared where the object is built (src/page.js, the
  * `types` section): what mountVaultGraph returns, and the __vg api it builds. Every member
  * `VgApi` names ships in the plugin; the debug surface the standalone adds is not in it.
@@ -320,7 +325,7 @@ async function readFolders(app) {
  */
 /**
  * @param {App} app
- * @param {Settings} opts   only the four build settings are read
+ * @param {BuildOptions} opts   only the four build settings are read
  * @param {string} [version]   github#108 -- this.plugin.manifest.version, shown in the stats line
  */
 async function buildData(app, opts, version) {
@@ -538,6 +543,9 @@ class VaultGraphView extends ItemView {
     this.plugin = plugin;
     /** @type {MountHandle | null} */
     this.handle = null;
+    // github#140 -- teardown() drops it, so it is declared here
+    /** @type {Element | null} */
+    this.page = null;
     /** @type {BuildResult | null} */
     this.lastData = null;
     this.mountMs = 0;
@@ -559,6 +567,10 @@ class VaultGraphView extends ItemView {
     this.cssRef = null;
     /** @type {EventRef[] | null} */
     this.liveRefs = null;
+    // github#140 -- the current render; only teardown() moves it
+    this.renderGen = 0;
+    // github#140 -- render() owns this now, not the Refresh button
+    this.rebuilding = false;
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -573,14 +585,19 @@ class VaultGraphView extends ItemView {
     this.teardown();
   }
 
-  // github#62
+  // github#62; github#140 -- the one place a render is invalidated
   teardown() {
+    this.renderGen++;
+    // github#140 -- nothing is current after this, so nothing is busy
+    this.rebuilding = false;
     // github#72
     this.cancelLive();
     if (this.handle) {
       attempt(() => this.handle.destroy());
     }
     this.handle = null;
+    // github#140 -- never hold a reference to a removed element
+    this.page = null;
     this.contentEl.empty();
   }
 
@@ -736,7 +753,8 @@ class VaultGraphView extends ItemView {
 
   syncTheme() {
     if (!this.page) return;
-    const want = activeDocument.body.classList.contains("theme-light") ? "light" : "dark";
+    // github#140 -- THIS view's document, not whichever one has focus
+    const want = this.contentEl.doc.body.classList.contains("theme-light") ? "light" : "dark";
     if (this.page.getAttribute("data-theme") === want) return;
     this.page.setAttribute("data-theme", want);
 
@@ -807,13 +825,44 @@ class VaultGraphView extends ItemView {
     await this.plugin.recordVersion();
   }
 
+  // github#140 -- a superseded render writes nothing, on every path
+  // github#140 -- and render() owns `rebuilding`, not just Refresh
   async render() {
     this.teardown();
+    const gen = this.renderGen;
+    // github#140 -- a snapshot, taken before the await
+    /** @type {BuildOptions} */
+    const opts = {
+      ghosts: this.plugin.settings.ghosts,
+      templates: this.plugin.settings.templates,
+      flatMonths: this.plugin.settings.flatMonths,
+      words: this.plugin.settings.words,
+    };
+    this.rebuilding = true;
+    try {
+      await this.renderPass(gen, opts);
+    } catch (e) {
+      // github#140 -- clean up, but only while still the current one
+      if (this.renderGen === gen) this.teardown();
+      throw e;
+    } finally {
+      if (this.renderGen === gen) this.rebuilding = false;
+    }
+  }
+
+  /**
+   * github#140 -- one render's body; the bookkeeping above stays short
+   * @param {number} gen
+   * @param {BuildOptions} opts
+   */
+  async renderPass(gen, opts) {
     const root = this.contentEl;
     root.addClass("vault-graph-view");
     this.mountNote();
 
-    const data = await buildData(this.app, this.plugin.settings, this.plugin.manifest.version);
+    const data = await buildData(this.app, opts, this.plugin.manifest.version);
+    // github#140 -- THE CHECK: everything below writes view state
+    if (this.renderGen !== gen) return;
     this.lastData = data;
 
     const parsed = new DOMParser().parseFromString(PAGE_HTML, "text/html");
@@ -938,14 +987,13 @@ class VaultGraphView extends ItemView {
         await this.plugin.saveSettings();
       },
       openSettings: () => this.plugin.openSettings(),
-      win: activeWindow,
-      // github#6
+      // github#140 -- this view's window, not whichever one has focus now
+      win: this.contentEl.win,
+      // github#6; github#140 -- render() owns the busy flag, this only declines to re-enter
       onRefresh: () => {
         if (this.rebuilding) return;
-        this.rebuilding = true;
         this.render()
-          .catch(/** @param {Error} e */ (e) => new Notice("Vault Graph: rebuild failed -- " + e.message))
-          .finally(() => { this.rebuilding = false; });
+          .catch(/** @param {Error} e */ (e) => new Notice("Vault Graph: rebuild failed -- " + e.message));
       },
     });
     this.mountMs = Math.round(performance.now() - t0);
