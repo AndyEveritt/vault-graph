@@ -97,6 +97,15 @@ legible.
 | `vendor/ sigma, graphology` | Gone. Both bundles were replaced by our own engine in github#58 — `decisions/0012` |
 | "a zero-`npm install` project: no package manager, node built-ins only" | No longer true, of any of it. The gates need eslint and tsc, `.githooks/pre-push` **fails closed** without `node_modules` rather than skipping lint, and the exporter itself now imports esbuild to bundle `src/engine` — so even `build-graph.mjs` no longer runs on a bare Node |
 
+**The link-resolution sentence in the Decision block above is also out of date**, and it is
+the one worth flagging rather than leaving for a reader to trip on. "Resolve `[[wikilinks]]`
+the way Obsidian does — basename, then alias, then full path" describes the order github#141
+reversed: it is now `<source folder>/<dest>` exact, then vault-relative exact, then the
+ambiguous basename/alias index, and the first two read a separate map so a path can never
+resolve to an unrelated basename. Reading body *and* frontmatter and skipping fenced code
+blocks is unchanged. The rules are shared by both producers in `src/links.mjs`, and the one
+deliberate divergence from Obsidian is named in `invariants.md` under *Link resolution*.
+
 Vault location has also grown from two routes to four: explicit (`--vault`,
 `VAULT_GRAPH_VAULT`, `OBSIDIAN_VAULT`), Obsidian's own `obsidian.json` registry
 (`--vault-name`, the sole known vault, or the sole open one), then walking up. Every one of

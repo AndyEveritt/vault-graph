@@ -40,7 +40,7 @@ numbers stay and the index spells them out.
 | `0005-vault-agnostic-source-in-repo-output-in-vault` | Nothing about a vault is hardcoded; source here, output in the vault |
 | `0006-zero-weight-members-must-cost-nothing` | Why a fading note must change nothing, and the gap count that broke it |
 | `0007-the-demo-drives-real-input` | Why `?demo` clicks through CDP and not `el.click()`, and the cursor that was removed |
-| `0008-zero-network-calls` | Why the vendored bundles are stripped at read time rather than patched, forked or disclosed |
+| `0008-zero-network-calls` | **Superseded by `0012`.** Why the vendored bundles were stripped at read time rather than patched, forked or disclosed — the promise still holds and `check-network.mjs` still gates it, but the bundles it stripped are gone |
 | `0009-the-host-persists-settings-not-the-page` | Settings go in and come back out; the page stores nothing, and only one host gets a gear |
 | `0010-one-browser-per-run` | Why the suite takes a free port per run, and how a lost race read as a flaky renderer |
 | `0011-a-live-rebuild-retakes-the-geometry-lock-at-rest` | Where the geometry lock's step goes when the note set changes, and the two routes rejected (github#72) |
