@@ -41,4 +41,4 @@ commit — that's what `release.ps1`'s staleness check reads.
 | | |
 |---|---|
 | **Introduced in** | `2.4.0 (github#72)` |
-| **Last re-recorded** | `2.7.0 — 2026-09-12` — 11.9 s at 1000x1000, encoded at 1000 px (1.14 MB) |
+| **Last re-recorded** | `2.8.0 — 2026-09-14` — 12.4 s at 1000x1000, encoded at 1000 px (1.14 MB) |

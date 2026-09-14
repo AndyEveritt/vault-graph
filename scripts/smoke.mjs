@@ -1,5 +1,9 @@
 
 import { attach, json } from "./cdp.mjs";
+// github#146
+import { makeErrorLog, runChecks } from "./smoke-runner.mjs";
+// github#142
+import { pngCaptureJs, pngCarriesGraph, pngCaptureDetail } from "./png-capture.mjs";
 import { buildPayloadVault, PAYLOAD, NOTE_COUNT } from "./check-data-escape.mjs";
 import { findChrome } from "./chrome.mjs";
 import { leftmostScreen, leftWindowPos } from "./screen.mjs";
@@ -1209,6 +1213,348 @@ check("a marked heatmap day recolours its notes", async (p) => {
   }
   return { ok: n > 0 && changed === n && restored === n,
            detail: `${pick.key}: ${changed}/${n} recoloured, ${restored}/${n} back to their own hue` };
+}, { on: "all" });
+
+/*
+ * github#70 -- the recent lens.
+ *
+ */
+const newestDay = (p) => p.j(`(function(){
+  // The date the band is currently counting, through the page's own accessor -- the chips
+  // follow the segment, so a reference taken from the other date would light the wrong notes.
+  var newest = ""; __vg.graph.forEachNode(function(i,a){
+    var d = __vg.heatDateOf(a); if (d && d > newest) newest = d; });
+  return newest ? { key: newest,
+                    ms: Date.UTC(+newest.slice(0,4), +newest.slice(5,7)-1, +newest.slice(8,10)) }
+                : null;
+})()`);
+
+check("the 7-day chip spans seven days on every weekday, Today included", async (p) => {
+  // github#70
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const r = await p.j(`(function(){
+    var DAY = 86400000, WD = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], bad = [], span = {};
+    // Seven consecutive reference days ending at the newest day this vault holds, so every
+    // weekday is covered whatever weekday that newest day happens to be.
+    for (var k = 6; k >= 0; k--) {
+      var at = ${ref.ms} - k * DAY;
+      var wd = WD[(new Date(at).getUTCDay() + 6) % 7];
+      var w = __vg.recentWindow("week", at), t = __vg.recentWindow("today", at);
+      if (!w || !t) { bad.push(wd + ": no window"); continue; }
+      var lo = Date.UTC(+w.lo.slice(0,4), +w.lo.slice(5,7)-1, +w.lo.slice(8,10));
+      var hi = Date.UTC(+w.hi.slice(0,4), +w.hi.slice(5,7)-1, +w.hi.slice(8,10));
+      var days = Math.round((hi - lo) / DAY) + 1;
+      span[wd] = days;
+      if (days !== 7) bad.push(wd + ": " + days + " day" + (days === 1 ? "" : "s"));
+      // Today must sit inside it on every one of the seven, which is what makes the pair a
+      // narrowing rather than two chips that sometimes agree.
+      if (!(t.lo >= w.lo && t.hi <= w.hi)) bad.push(wd + ": Today " + t.lo + " outside " + w.lo + ".." + w.hi);
+    }
+    // And on the real data, at the one reference the fixture can speak to: a strict superset.
+    __vg.setRecent("today", ${ref.ms});
+    var day = {}, nDay = 0;
+    __vg.graph.forEachNode(function(i){ if (__vg.isHighlighted(i)) { day[i] = true; nDay++; } });
+    __vg.setRecent("week", ${ref.ms});
+    var nWeek = 0, missing = 0;
+    __vg.graph.forEachNode(function(i){
+      if (!__vg.isHighlighted(i)) { if (day[i]) missing++; return; }
+      nWeek++;
+    });
+    __vg.setRecent(null);
+    return { bad: bad, span: span, nDay: nDay, nWeek: nWeek, missing: missing };
+  })()`);
+  await settle(p);
+  const spans = Object.keys(r.span).map((d) => `${d} ${r.span[d]}`).join(", ");
+  return { ok: r.bad.length === 0 && r.missing === 0 && r.nWeek >= r.nDay,
+           detail: `${spans}; Today ${r.nDay} of the 7-day chip's ${r.nWeek}` +
+                   (r.missing ? `, ${r.missing} of Today's notes NOT in it` : "") +
+                   (r.bad.length ? `  <- ${r.bad.join("; ")}` : "") };
+}, { on: "all" });
+
+check("a recent chip haloes but never pushes", async (p) => {
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const r = await p.j(`(function(){
+    var pos = {}; __vg.graph.forEachNode(function(i,a){ pos[i] = a.x.toFixed(4)+','+a.y.toFixed(4); });
+    __vg.setRecent("week", ${ref.ms});
+    var lit = 0; __vg.graph.forEachNode(function(i){ if (__vg.isHighlighted(i)) lit++; });
+    var moved = 0; __vg.graph.forEachNode(function(i,a){
+      if (pos[i] !== a.x.toFixed(4)+','+a.y.toFixed(4)) moved++; });
+    var rep = __vg.pushReport();
+    var win = __vg.recentWindow("week", ${ref.ms});
+    __vg.setRecent(null);
+    return { lit: lit, moved: moved, pushed: rep.pushedCount, lo: win.lo, hi: win.hi };
+  })()`);
+  // github#70, github#113
+  await settle(p);
+  return { ok: r.lit > 0 && r.pushed === 0 && r.moved === 0,
+           detail: `${r.lo}..${r.hi}: ${r.lit} haloed, ${r.pushed} pushed, ${r.moved} moved` };
+}, { on: "all" });
+
+check("a recent chip dims what it did not match, and gives it back", async (p) => {
+  await settle(p);
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const pick = await p.j(`(function(){
+    __vg.setRecent("week", ${ref.ms});
+    var out = null;
+    __vg.graph.forEachNode(function(i){
+      if (out || __vg.isHighlighted(i) || (__vg.alpha[i]||0) < 0.9) return; out = i; });
+    __vg.setRecent(null);
+    return out;
+  })()`);
+  if (!pick) {
+    // github#70
+    return { ok: true, detail: "NOT ASSERTED: every visible note matched this window, so " +
+                               "this vault has no non-match to dim" };
+  }
+  const before = await p.j(`__vg.renderer.getNodeDisplayData(${JSON.stringify(pick)}).color`);
+  await p.eval(`__vg.setRecent("week", ${ref.ms}); void 0`);
+  await settle(p);
+  const during = await p.j(`__vg.renderer.getNodeDisplayData(${JSON.stringify(pick)}).color`);
+  await p.eval(`__vg.setRecent(null); void 0`);
+  await settle(p);
+  const after = await p.j(`__vg.renderer.getNodeDisplayData(${JSON.stringify(pick)}).color`);
+  return { ok: during !== before && after === before,
+           detail: `#${pick} ${before} -> ${during} -> ${after}` +
+                   (during === before ? "  <- never dimmed" : "") +
+                   (after === before ? "" : "  <- did not come back") };
+}, { on: "all" });
+
+check("a lit note stays lit while a dimension switch draws it as a stand-in", async (p) => {
+  // github#70, github#86
+  await clearRange(p);
+  await settle(p);
+  await camSettle(p);
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const armed = await p.j(`(function(){
+    __vg.setRecent("week", ${ref.ms});
+    var lit = 0; __vg.graph.forEachNode(function(i){ if (__vg.isHighlighted(i)) lit++; });
+    var side = document.querySelector('#vg-dim button[data-dim="tag"]');
+    if (!side) return { lit: lit, switched: false };
+    side.click();
+    return { lit: lit, switched: true };
+  })()`);
+  if (!armed.switched) return { ok: false, detail: "no #vg-dim to switch with" };
+  let samples = 0, standInFrames = 0, disagreed = 0, litStandIns = 0, example = "";
+  const t0 = Date.now();
+  for (;;) {
+    const s = await p.j(`(function(){
+      var seen = 0, wrong = 0, lit = 0, ex = "";
+      __vg.graph.forEachNode(function (id, a) {
+        if (!a.dupOf) return;
+        seen++;
+        var mine = __vg.isHighlighted(id), note = __vg.isHighlighted(__vg.noteOf(id));
+        if (mine) lit++;
+        if (mine !== note) { wrong++; if (!ex) ex = "#" + id + " " + (mine ? "lit" : "dark") +
+                                                    " while its note is " + (note ? "lit" : "dark"); }
+      });
+      return { seen: seen, wrong: wrong, lit: lit, ex: ex, busy: __vg.demo.busy() };
+    })()`);
+    samples++;
+    standInFrames += s.seen;
+    disagreed += s.wrong;
+    litStandIns += s.lit;
+    if (s.wrong && !example) example = s.ex;
+    if (!s.busy && samples > 3) break;
+    if (Date.now() - t0 > 20000) break;
+  }
+  await p.j(`(function(){ __vg.setDim("folder"); __vg.setRecent(null); return true; })()`);
+  await settle(p);
+  await camSettle(p);
+  // github#70
+  return { ok: disagreed === 0 && litStandIns > 0 && samples > 3,
+           detail: `${armed.lit} lit before the switch; ${samples} samples, ` +
+                   `${standInFrames} stand-in frames of which ${litStandIns} lit, ` +
+                   `${disagreed} disagreeing with their own note` +
+                   (example ? ` (e.g. ${example})` : "") +
+                   (litStandIns ? "" : "  <- NOTHING ASSERTED: no stand-in was ever lit") };
+}, { on: ["demo-vault", "tag-vault"], clock: "real" });
+
+check("the band counts the date it names", async (p) => {
+  const r = await p.j(`(function(){
+    var pos = {}; __vg.graph.forEachNode(function(i,a){ pos[i] = a.x.toFixed(4)+','+a.y.toFixed(4); });
+    // Both positions are always rendered; the pressed one is what the band claims to count.
+    var shown = function () {
+      var on = document.querySelector('#vg-heatsrc button[aria-pressed="true"]');
+      var all = document.querySelectorAll("#vg-heatsrc button[data-src]");
+      return { word: on ? on.textContent : "(none)", positions: all.length,
+               pressed: document.querySelectorAll('#vg-heatsrc button[aria-pressed="true"]').length };
+    };
+    var a = { label: shown(), inWindow: __vg.heatReport().inWindow,
+              src: __vg.state.heatSource };
+    __vg.setHeatSource("touched");
+    var t = { label: shown(), inWindow: __vg.heatReport().inWindow,
+              src: __vg.state.heatSource };
+    // Every note in a tile must carry the date that tile is keyed by, or the square counts
+    // one date while naming another -- which is design/0010's whole argument.
+    var h = __vg.heat, wrong = 0, checked = 0;
+    h.keys.forEach(function(k){
+      h.days[k].ids.forEach(function(id){
+        checked++;
+        if (__vg.graph.getNodeAttribute(id, "touched") !== k) wrong++;
+      });
+    });
+    __vg.setHeatSource("created");
+    var moved = 0; __vg.graph.forEachNode(function(i,x){
+      if (pos[i] !== x.x.toFixed(4)+','+x.y.toFixed(4)) moved++; });
+    return { a: a, t: t, wrong: wrong, checked: checked, moved: moved,
+             back: __vg.state.heatSource };
+  })()`);
+  // github#70
+  const ok = r.a.label.word === "Added" && r.t.label.word === "Touched" &&
+             r.a.label.positions === 2 && r.a.label.pressed === 1 && r.t.label.pressed === 1 &&
+             r.a.src === "created" && r.t.src === "touched" && r.back === "created" &&
+             r.wrong === 0 && r.moved === 0;
+  return { ok, detail: `"${r.a.label.word}" ${r.a.inWindow} -> "${r.t.label.word}" ${r.t.inWindow} in window, ` +
+                       `${r.a.label.pressed} of ${r.a.label.positions} pressed, ` +
+                       `${r.checked} tiled notes carry their tile's date (${r.wrong} wrong), ` +
+                       `${r.moved} moved` };
+}, { on: "all" });
+
+check("a picked day marks exactly the notes that tile counted", async (p) => {
+  const r = await p.j(`(function(){
+    var out = [];
+    ["created", "touched"].forEach(function(src){
+      __vg.setHeatSource(src);
+      var h = __vg.heat, b = null;
+      h.keys.forEach(function(k){ var d = h.days[k]; if (!b || d.n > b.n) b = d; });
+      if (!b || !b.ids.length) { out.push({ src: src, skip: true }); return; }
+      __vg.state.markDay = b.key; __vg.renderer.refresh();
+      var inTile = {}; b.ids.forEach(function(i){ inTile[i] = true; });
+      var wrong = 0;
+      __vg.graph.forEachNode(function(i){
+        if (!!__vg.isHighlighted(i) !== !!inTile[i]) wrong++; });
+      out.push({ src: src, day: b.key, tile: b.ids.length, wrong: wrong });
+      __vg.state.markDay = null; __vg.renderer.refresh();
+    });
+    __vg.setHeatSource("created");
+    return out;
+  })()`);
+  const bad = r.filter((x) => !x.skip && x.wrong > 0);
+  return { ok: bad.length === 0,
+           detail: r.map((x) => x.skip ? `${x.src}: no day to pick`
+                                       : `${x.src} ${x.day}: ${x.tile} in tile, ${x.wrong} mismatched`)
+                    .join("; ") };
+}, { on: "all" });
+
+check("a bulk day is named rather than hidden", async (p) => {
+  const r = await p.j(`(function(){
+    __vg.setHeatSource("touched");
+    var h = __vg.heat, rep = __vg.heatReport();
+    // Recompute the rule here from the day counts alone. A check that asked the page for its
+    // own answer would agree with any rule at all, including a broken one.
+    var counts = [], total = 0, all = {};
+    __vg.graph.forEachNode(function(i,a){
+      var k = a.touched; if (!k) return; all[k] = (all[k]||0)+1; });
+    for (var k in all) { counts.push(all[k]); total += all[k]; }
+    counts.sort(function(x,y){ return x - y; });
+    var med = counts.length ? counts[Math.floor(counts.length/2)] : 0;
+    var want = [];
+    h.keys.forEach(function(key){
+      var n = h.days[key].ids.length;
+      if (n >= 25 && ((med > 0 && n >= 20*med) || (total > 0 && n >= 0.15*total))) want.push(key);
+    });
+    // A named day is still a painted day: its tile keeps every note it counted.
+    var dropped = 0;
+    rep.bulk.forEach(function(key){
+      if (h.days[key].parts.length !== Math.round(h.days[key].n)) dropped++; });
+    var note = document.getElementById("vg-heatnote").textContent;
+    __vg.setHeatSource("created");
+    return { got: rep.bulk, want: want, median: med, total: total, dropped: dropped,
+             said: /bulk day/.test(note) };
+  })()`);
+  const same = r.got.join(",") === r.want.join(",");
+  const ok = same && r.dropped === 0 && (r.got.length > 0) === r.said;
+  return { ok, detail: `flagged [${r.got.join(" ")}] want [${r.want.join(" ")}] ` +
+                       `(median ${r.median} of ${r.total} dated), ${r.dropped} tiles thinned, ` +
+                       `readout ${r.said ? "says so" : "silent"}` };
+}, { on: "all" });
+
+check("the band's control row does not move when its state changes", async (p) => {
+  // github#70
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const r = await p.j(`(function(){
+    var sel = { source: "#vg-heatsrc",
+                today: '#vg-recent [data-kind="today"]', week: '#vg-recent [data-kind="week"]',
+                readout: "#vg-heatnote", compact: "#vg-compact",
+                range: "#vg-rangebox", band: "#vg-heatc" };
+    var snap = function () {
+      var o = {};
+      for (var k in sel) {
+        var e = document.querySelector(sel[k]);
+        if (e) { var b = e.getBoundingClientRect();
+                 o[k] = [Math.round(b.left), Math.round(b.width)]; }
+      }
+      return o;
+    };
+    var seen = [snap()];
+    __vg.setRecent("week", ${ref.ms});           seen.push(snap());
+    __vg.setRecent(null);                        seen.push(snap());
+    __vg.setHeatSource("touched");               seen.push(snap());
+    __vg.setRecent("today", ${ref.ms});          seen.push(snap());
+    __vg.setRecent(null); __vg.setHeatSource("created");
+    seen.push(snap());
+    var worst = 0, who = "";
+    for (var k in seen[0]) {
+      for (var i = 1; i < seen.length; i++) {
+        if (!seen[i][k]) continue;
+        var dx = Math.abs(seen[i][k][0] - seen[0][k][0]);
+        var dw = Math.abs(seen[i][k][1] - seen[0][k][1]);
+        var d = Math.max(dx, dw);
+        if (d > worst) { worst = d; who = k + " (dx " + dx + ", dw " + dw + ")"; }
+      }
+    }
+    return { worst: worst, who: who, states: seen.length,
+             countCh: getComputedStyle(document.getElementById("vg-recent"))
+                        .getPropertyValue("--vg-count-ch").trim() };
+  })()`);
+  return { ok: r.worst === 0,
+           detail: `${r.states} states, worst shift ${r.worst}px` +
+                   (r.worst ? `  <- ${r.who}` : "") + `, count slot ${r.countCh}` };
+}, { on: "all" });
+
+check("every control in the band's row is the same height", async (p) => {
+  // github#70
+  const r = await p.j(`(function(){
+    var sel = { segment: "#vg-heatsrc", today: '#vg-recent [data-kind="today"]',
+                week: '#vg-recent [data-kind="week"]', compact: "#vg-compact",
+                from: "#vg-from", to: "#vg-to", all: "#vg-rangeall" };
+    var want = parseFloat(getComputedStyle(document.querySelector("#vg-heat .hrow"))
+                            .getPropertyValue("--vg-hrow-h"));
+    var got = {}, off = [];
+    for (var k in sel) {
+      var e = document.querySelector(sel[k]);
+      if (!e) { off.push(k + " absent"); continue; }
+      var h = Math.round(e.getBoundingClientRect().height * 10) / 10;
+      got[k] = h;
+      // Sub-pixel only: a border or a rounded line box may land a tenth either side of the
+      // declared height, and a tenth is not what this check exists to catch.
+      if (Math.abs(h - want) > 0.5) off.push(k + " " + h);
+    }
+    // And the key that could never hold a row height is gone rather than exempted.
+    var scale = document.getElementById("vg-heatscale");
+    return { want: want, got: got, off: off, scale: !!scale };
+  })()`);
+  return { ok: r.off.length === 0 && !r.scale,
+           detail: `${r.want}px declared, ${Object.keys(r.got).length} controls measured` +
+                   (r.off.length ? `  <- off: ${r.off.join(", ")}` : " at it") +
+                   (r.scale ? "  <- #vg-heatscale is still in the row" : "") };
+}, { on: "all" });
+
+check("the exported page offers no since-last-open chip", async (p) => {
+  const r = await p.j(`(function(){
+    var box = document.getElementById("vg-recent");
+    return Array.prototype.map.call(box.querySelectorAll("button[data-kind]"), function(x){
+      return { kind: x.getAttribute("data-kind"), n: (x.querySelector(".n")||{}).textContent,
+               off: !!x.disabled }; });
+  })()`);
+  // github#70
+  const ok = r.map((c) => c.kind).join(",") === "today,week";
+  return { ok, detail: `chips: ${r.map((c) => `${c.kind}=${c.n}${c.off ? " (off)" : ""}`).join(", ")}` };
 }, { on: "all" });
 
 check("hovering a note ramps in and releases at zero", async (p) => {
@@ -2853,7 +3199,7 @@ check("the last frame of a cascade is the resting layout", async (p) => {
   await sleep(200);
 
   const sampler = `(function (trigger) {
-    window.__LF = { last: null, rest: null, frames: 0 };
+    window.__LF = { prev: null, last: null, rest: null, frames: 0 };
     var snap = function () {
       var a0 = __vg.renderer.graphToViewport({ x: 0, y: 0 });
       var b0 = __vg.renderer.graphToViewport({ x: 160, y: 0 });
@@ -2870,7 +3216,7 @@ check("the last frame of a cascade is the resting layout", async (p) => {
     };
     var tick = function () {
       if (__vg.demo.busy()) {
-        window.__LF.last = snap(); window.__LF.frames++;
+        window.__LF.prev = window.__LF.last; window.__LF.last = snap(); window.__LF.frames++;
         requestAnimationFrame(tick);
       } else {
         // SNAP ON THE TRANSITION TOO, or last is the second-to-last animated frame.
@@ -2887,7 +3233,8 @@ check("the last frame of a cascade is the resting layout", async (p) => {
         // This is still BEFORE the final assignment, which is the frame the check wants: the
         // beat below exists because busy() clears before that assignment lands, so snapping
         // the instant it clears captures the last ANIMATED frame and not the resting one.
-        window.__LF.last = snap(); window.__LF.frames++;
+        // github#159 -- keep the last busy frame too, and assert sizes across it
+        window.__LF.prev = window.__LF.last; window.__LF.last = snap(); window.__LF.frames++;
         // A BEAT: busy() clears before the final assignment lands. Without this the check
         // measures its own stopwatch -- see the note in animation.md.
         setTimeout(function () { window.__LF.rest = snap(); }, 320);
@@ -2904,8 +3251,15 @@ check("the last frame of a cascade is the resting layout", async (p) => {
       await sleep(100);
     }
     return await p.j(`(function () {
-      var L = window.__LF.last, R = window.__LF.rest;
+      var L = window.__LF.last, R = window.__LF.rest, P = window.__LF.prev;
       if (!L || !R) return { frames: window.__LF.frames, n: 0 };
+      // github#159 -- the size step ON the landing frame, prev -> last
+      var ddT = 0, worstT = "";
+      if (P) Object.keys(L).forEach(function (id) {
+        if (!P[id] || !(P[id].dot > 0.01)) return;
+        var sT = Math.abs(L[id].dot - P[id].dot) / P[id].dot;
+        if (sT > ddT) { ddT = sT; worstT = id; }
+      });
       var dr = 0, dt = 0, dd = 0, n = 0, worst = "";
       Object.keys(R).forEach(function (id) {
         if (!L[id]) return;
@@ -2922,19 +3276,28 @@ check("the last frame of a cascade is the resting layout", async (p) => {
       });
       return { frames: window.__LF.frames, n: n, worst: worst,
                dr: Math.round(dr * 10) / 10, dt: Math.round(dt * 10) / 10,
-               dd: Math.round(dd * 1000) / 10 };
+               dd: Math.round(dd * 1000) / 10,
+               ddT: Math.round(ddT * 1000) / 10, worstT: worstT };
     })()`).then((r) => ({ label, ...r }));
   };
 
   const out = [];
   // github#50
-  const g = (await p.j(`__vg.groupOrder().filter(function (x) { return __vg.groupCount(x) > 0; })`))[0];
-  out.push(await run("folder toggle", `document.querySelector('[data-eye="' +
-    ${JSON.stringify(g)}.replace(/"/g, String.fromCharCode(92) + '"') + '"]').click();`));
-  await p.eval(`document.querySelector('[data-eye="' +
-    ${JSON.stringify(g)}.replace(/"/g, String.fromCharCode(92) + '"') + '"]').click(); void 0`);
-  await settle(p);
-  await sleep(200);
+  const groups = await p.j(`__vg.groupOrder().filter(function (x) { return __vg.groupCount(x) > 0; })
+                             .map(function (x) { return [x, __vg.groupCount(x)]; })`);
+  const g = groups[0][0];
+  // github#159 -- and the largest group: the release needs a big toggle
+  const gBig = groups.reduce((a, b) => (b[1] > a[1] ? b : a), groups[0])[0];
+  const eye = (name) => `document.querySelector('[data-eye="' +
+    ${JSON.stringify("NAME")}.replace(/"/g, String.fromCharCode(92) + '"') + '"]').click();`
+    .replace(JSON.stringify("NAME"), JSON.stringify(name));
+  for (const [label, name] of gBig === g ? [["folder toggle", g]]
+                                        : [["folder toggle", g], ["largest folder toggle", gBig]]) {
+    out.push(await run(label, eye(name)));
+    await p.eval(eye(name) + " void 0");
+    await settle(p);
+    await sleep(200);
+  }
 
   const span = await p.j(`(function () { var f = document.querySelector("#vg-from");
     return f ? { min: f.min, max: f.max } : null; })()`);
@@ -2946,12 +3309,13 @@ check("the last frame of a cascade is the resting layout", async (p) => {
   }
   await clearRange(p);
 
-  const bad = out.filter((r) => !r.n || r.dr > 16 || r.dt > 16 || r.dd > 5);
+  const bad = out.filter((r) => !r.n || r.dr > 16 || r.dt > 16 || r.dd > 5 || r.ddT > 5);
   return {
     ok: !bad.length,
     detail: out.map((r) => r.n
       ? `${r.label}: ${r.frames}f, ${r.n} notes, dr ${r.dr} dtan ${r.dt}` +
-        (r.dt > 1 ? ` (${r.worst})` : "") + ` dot ${r.dd}%`
+        (r.dt > 1 ? ` (${r.worst})` : "") + ` dot ${r.dd}%` +
+        ` landing-frame dot ${r.ddT}%` + (r.ddT > 5 ? ` (${r.worstT})` : "")
       : `${r.label}: nothing sampled`).join(" | "),
   };
 }, { on: WALK, clock: "real" });
@@ -3932,6 +4296,31 @@ check("overriding one folder recolours exactly one group", async (p) => {
                        (ok ? "" : ` (${r.moved.slice(0, 6).join(", ")}${r.moved.length > 6 ? ", ..." : ""})`) };
 });
 
+// github#118, design/0004
+check("no working group is handed a grey by where it sorts", async (p) => {
+  const r = await p.j(`(function(){
+    var GREYS = { g11: 1, g12: 1 }, out = [];
+    ["folder", "tag"].forEach(function (dim) {
+      // github#86 -- groupsOf() runs inDim(), so the off-screen dimension needs no switch
+      var rows = __vg.groupsOf(dim);
+      var working = rows.filter(function (row) {
+        return !__vg.isArchiveGroup(row.name) && row.name.charAt(0) !== "(";
+      });
+      out.push({ dim: dim, groups: rows.length, working: working.length,
+                 greyed: working.filter(function (row) { return GREYS[row.autoSlot]; })
+                              .map(function (row) { return row.name; }) });
+    });
+    return out;
+  })()`);
+  return {
+    ok: r.every((d) => !d.greyed.length),
+    detail: r.map((d) => `${d.dim} ${d.working}/${d.groups} working` +
+                         (d.greyed.length ? ` -- ${d.greyed.length} greyed by position (` +
+                           d.greyed.slice(0, 4).join(", ") + (d.greyed.length > 4 ? ", ..." : "") + ")"
+                                          : " -- none greyed")).join("; ")
+  };
+}, { on: "all" });
+
 // github#50
 // github#48
 check("a folder keeps its slot across the membership toggle", async (p) => {
@@ -4197,6 +4586,144 @@ check("a pin hidden by a filter is skipped, not released", async (p) => {
                        `filtered out (still ${whileHidden} held) -> ${drawnBack} back, ` +
                        `${after} held` };
 }, { on: "all" });
+
+// github#12 -- PIN_MAX in src/page.js; a change there changes this
+const PIN_MAX = 13;
+
+// github#143
+let pinBuilds = null;
+function pinIdentityBuilds() {
+  if (pinBuilds) return pinBuilds;
+  pinBuilds = (async () => {
+    const root = mkdtempSync(join(tmpdir(), "vg-smoke-pins-"));
+    process.on("exit", () => { try { rmSync(root, { recursive: true, force: true }); } catch {} });
+    const B = "# B\n\nA link to [[Missing]] and to [[C]].\n";
+    const C = "# C\n\nBack to [[B]].\n";
+    const build = (label, notes) => {
+      // github#143 -- one vault NAME, so both builds read the same settings key
+      const dir = join(root, label, "pin-vault");
+      mkdirSync(join(dir, ".obsidian"), { recursive: true });
+      for (const [name, body] of notes) writeFileSync(join(dir, name), body);
+      const out = join(root, label + ".html");
+      const b = spawnSync(process.execPath,
+                          [join(HERE, "..", "src", "build-graph.mjs"),
+                           "--vault", dir, "--out", out, "--ghosts"],
+                          { encoding: "utf8" });
+      if (b.status !== 0) throw new Error("build-graph.mjs failed on " + label + ":\n" + (b.stderr || ""));
+      return pathToFileURL(out).href + "?rest";
+    };
+    return {
+      // github#143 -- the ticket's own reproduction: B.md is id "0" here
+      before: build("before", [["B.md", B], ["C.md", C]]),
+      // github#143 -- A.md inserted ahead of it, and enough notes to pass PIN_MAX
+      after: build("after", [["A.md", "# A\n\nTo [[B]].\n"], ["B.md", B], ["C.md", C]].concat(
+        Array.from({ length: 16 }, (_, i) => [`N${String(i).padStart(2, "0")}.md`, `# N${i}\n\nTo [[B]].\n`]))),
+    };
+  })();
+  return pinBuilds;
+}
+
+// github#143
+check("a pin is stored by the note's path, not by its position", async (p, ctx) => {
+  const home = await p.eval("location.href");
+  const READY = "!!(window.__vg && __vg.heat && __vg.state.until === null)";
+  const goto = async (url, budget) => {
+    await p.send("Page.navigate", { url });
+    for (const until = Date.now() + budget; ;) {
+      const ok = await p.eval(`location.href === ${JSON.stringify(url)} && ${READY}`).catch(() => false);
+      if (ok) return true;
+      if (Date.now() > until) return false;
+      await sleep(200);
+    }
+  };
+  const PATHS = `(function(){ var m = {};
+    __vg.graph.forEachNode(function (id, a) { m[id] = a.path; }); return m; })()`;
+  const v = await pinIdentityBuilds();
+  const mark = ctx.errors.length;
+  let one = null, two = null, live = null, back = false, why = "";
+  try {
+    if (!(await goto(v.before, 20000))) why = "the two-note build never came up";
+    if (!why) {
+      one = await p.j(`(function(){
+        var pathOf = ${PATHS}, byPath = {};
+        for (var k in pathOf) byPath[pathOf[k]] = k;
+        __vg.clearPins();
+        __vg.pin(byPath["B.md"]);
+        __vg.pin(byPath["ghost:Missing"]);
+        var live = false;
+        try { window.localStorage.setItem("vg-probe", "1");
+              live = window.localStorage.getItem("vg-probe") === "1";
+              window.localStorage.removeItem("vg-probe"); } catch (e) { live = false; }
+        return { bId: byPath["B.md"], live: live,
+                 paths: __vg.pinned().map(function (i) { return pathOf[i]; }),
+                 stored: __vg.pinsStored() };
+      })()`);
+      if (!(await goto(v.after, 25000))) why = "the rebuild never came up";
+    }
+    if (!why) {
+      two = await p.j(`(function(){
+        var pathOf = ${PATHS}, byPath = {};
+        for (var k in pathOf) byPath[pathOf[k]] = k;
+        var all = Object.keys(byPath), marker = __vg.pinsStored()[0];
+        var name = function (ids) { return ids.map(function (i) { return pathOf[i]; }); };
+        return {
+          seeded: name(__vg.pinned()),
+          carried: name(__vg.pinsFrom(${JSON.stringify(one.stored)})),
+          bId: byPath["B.md"], ordinalNames: pathOf[${JSON.stringify(one.bId)}],
+          legacy: __vg.pinsFrom([${JSON.stringify(one.bId)}]).length,
+          unknown: __vg.pinsFrom([marker, "Nope.md"]).length,
+          deduped: name(__vg.pinsFrom([marker, "B.md", "B.md", "C.md"])),
+          capped: __vg.pinsFrom([marker].concat(all)).length,
+          nodes: all.length
+        };
+      })()`);
+      // github#143 -- the other boundary: a live rebuild that drops a pinned note
+      await p.eval(LIVE_JS);
+      live = await p.j(`(function(){
+        var byPath = {};
+        __vg.graph.forEachNode(function (id, a) { byPath[a.path] = id; });
+        __vg.clearPins(); __vg.pin(byPath["B.md"]); __vg.pin(byPath["C.md"]);
+        var nodes = __vg.data().nodes, at = -1;
+        for (var i = 0; i < nodes.length; i++) if (nodes[i].id === "B.md") at = i;
+        var res = __vg.applyData(window.__live.without(at));
+        return { applied: !!res.applied, host: (function(){
+          try { return JSON.parse(window.localStorage.getItem("vault-graph:settings:pin-vault") || "{}").pinned || []; }
+          catch (e) { return null; }
+        })() };
+      })()`);
+    }
+  } finally {
+    ctx.errors.splice(mark);
+    // github#105 -- home is ?rest: a full re-mount, the size of the fixture
+    back = await goto(home, 30000);
+    // github#143 -- leave the fixture's own store as this check found it
+    if (back) { await p.eval(`__vg.clearPins(); void 0`); await settle(p); }
+  }
+  if (why) return { ok: false, detail: why };
+  const want = ["B.md", "ghost:Missing"];
+  const same = (a) => a.join("|") === want.join("|");
+  // github#143 -- pruning a dropped pin must write the FORMAT, not the raw ids
+  const pruned = !one.live || !live.host ||
+                 (live.applied && live.host.length === 2 && live.host[0] === one.stored[0] &&
+                  live.host[1] === "C.md");
+  const ok = pruned && same(one.paths) && same(two.carried) && (!one.live || same(two.seeded)) &&
+             one.stored.length === 3 && one.stored[1] === "B.md" && one.stored[2] === "ghost:Missing" &&
+             two.bId !== one.bId && two.ordinalNames === "A.md" &&
+             two.legacy === 0 && two.unknown === 0 &&
+             two.deduped.join("|") === "B.md|C.md" && two.capped === PIN_MAX && two.nodes > PIN_MAX &&
+             back;
+  return { ok, detail:
+    `pinned [${one.paths}] in the 2-note build -> stored [${one.stored.slice(1)}]; ` +
+    `reopened the rebuild (B.md ${one.bId} -> ${two.bId}, ${one.bId} now names ${two.ordinalNames}) ` +
+    `with [${two.carried}] carried` +
+    (one.live ? ` and [${two.seeded}] restored through localStorage` : "; localStorage blocked, not asserted") +
+    `; a version-1 store restores ${two.legacy}, an unknown path ${two.unknown}, ` +
+    `[B,B,C] dedupes to [${two.deduped}], ${two.nodes} paths cap at ${two.capped}; ` +
+    (one.live && live.host
+      ? `a live rebuild dropping a pinned B.md left the host holding ${JSON.stringify(live.host)}`
+      : "the host's store was unreadable, pruning not asserted") +
+    (back ? "" : "; DID NOT GET BACK to the fixture") };
+});
 
 // github#3
 // github#3
@@ -5682,7 +6209,7 @@ check("a rebuild waits for a drag, and a right-click is not a drag", async (p) =
 check("the invalidation registry names every cache a live rebuild stales", async (p) => {
   const names = await p.j("__vg.invalidations()");
   const want = ["timeline", "heatmap tally", "hop trail", "selection, hover and pins", "search hits",
-                "tag filing and sub order"];
+                "tag filing and sub order", "recent lens"];
   const missing = want.filter((w) => !names.includes(w));
   return { ok: missing.length === 0,
            detail: missing.length ? `MISSING: ${missing.join(", ")}` : `${names.length}: ${names.join("; ")}` };
@@ -5719,6 +6246,49 @@ check("a live rebuild lands on the layout a fresh relayout gives", async (p) => 
                        `${after.d.bands} band flip(s); the add moved ${moved.moved} of ${start.n} ` +
                        `notes, worst ${moved.worst}; restored to ${back.moved} off original` };
 }, { on: WALK, clock: "real" });
+
+check("a live rebuild re-arms the chip, so a note that arrives inside its window is lit", async (p) => {
+  // github#70, github#72
+  await settle(p);
+  await p.eval(LIVE_JS);
+  const ref = await newestDay(p);
+  if (!ref) return { ok: false, detail: "no note in this vault carries the date the band counts" };
+  const r = await p.j(`(function(){
+    var PATH = "__live/Zz Recent Probe.md";
+    __vg.setRecent("today", ${ref.ms});
+    var before = 0;
+    __vg.graph.forEachNode(function(i){ if (__vg.isHighlighted(i)) before++; });
+    var d = window.__live.clone();
+    var host = d.nodes[Math.floor(d.nodes.length / 2)];
+    d.nodes.push({ id: PATH, label: "Zz Recent Probe", folder: host.folder,
+                   dirs: (host.dirs || []).slice(), sub: host.sub || "", type: "note",
+                   tags: (host.tags || []).slice(), created: ${JSON.stringify(ref.key)},
+                   touched: ${JSON.stringify(ref.key)}, words: 0, deg: 0 });
+    var res = __vg.applyData(d);
+    var lit = 0, probe = null;
+    __vg.graph.forEachNode(function(i, a){
+      if (__vg.isHighlighted(i)) lit++;
+      if (a.path === PATH) probe = i;
+    });
+    return { applied: !!res.applied, reason: res.reason, before: before, lit: lit,
+             probe: probe, probeLit: probe !== null && __vg.isHighlighted(probe) };
+  })()`);
+  // github#70
+  await p.j(`(function(){
+    __vg.setRecent(null);
+    var d = window.__live.clone();
+    var at = -1;
+    d.nodes.forEach(function(n, i){ if (n.id === "__live/Zz Recent Probe.md") at = i; });
+    return at >= 0 ? !!__vg.applyData(window.__live.without(at)).applied
+                   : !!__vg.applyData(d).applied;
+  })()`);
+  await settle(p);
+  const ok = r.applied && r.probe !== null && r.probeLit && r.lit === r.before + 1;
+  return { ok, detail: r.applied
+    ? `${ref.key}: ${r.before} lit -> ${r.lit} after one arrival on that day, ` +
+      `probe ${r.probe === null ? "NOT IN THE GRAPH" : (r.probeLit ? "lit" : "DARK -- the set went stale")}`
+    : `rebuild refused: ${r.reason}` };
+}, { on: "all" });
 
 check("word counts land by path, which is the only thing a live rebuild keeps", async (p) => {
   await settle(p);
@@ -5760,6 +6330,21 @@ check("word counts land by path, which is the only thing a live rebuild keeps", 
       `one (${r.landed}), the note at that index kept ${r.bystander}; a deleted path returns false`
     : `index and id never diverged -- this check cannot see the defect it exists for` };
 }, { on: WALK, clock: "real" });
+
+// github#142
+check("an idle PNG export carries the graph, not just the background and the logo", async (p) => {
+  await camReset(p);
+  await settle(p);
+  // github#142
+  await sleep(1200);
+  await p.eval(`new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); })`);
+  const r = await p.eval(pngCaptureJs({
+    api: "__vg", button: "document.querySelector('#vg-png')",
+    logo: "document.querySelector('#vg-logo')", stage: "document.querySelector('#vg-graph')",
+  }));
+  return { ok: pngCarriesGraph(r), detail: pngCaptureDetail(r) };
+});
+
 
 async function settle(p, ms = 6000) {
   const deadline = Date.now() + ms;
@@ -5860,14 +6445,8 @@ async function runOne(vault, work) {
     }
     // github#104
     if (!BROWSER) { try { BROWSER = (await json(PORT, "/json/version")).Browser; } catch { void 0; } }
-    const errors = [];
-    await page.send("Runtime.enable").catch(() => {});
-    page.on((msg) => {
-      if (msg.method === "Runtime.exceptionThrown") {
-        const d = msg.params?.exceptionDetails;
-        errors.push(d?.exception?.description || d?.text || "exception");
-      }
-    });
+    // github#146 -- the list the checks see, and may edit
+    const errorLog = makeErrorLog(page);
 
     let at = "";
     for (const wait = Date.now() + 8000; ;) {
@@ -5913,85 +6492,26 @@ async function runOne(vault, work) {
         "backgrounding the off-screen window; the launch flags above are what prevent it."
       );
     }
-    const ctx = { errors };
+    const ctx = { get errors() { return errorLog.errors; } };
 
     // github#113
     const nativeClock = await page.j("__vg.timeScale").catch(() => 1.25);
 
     // github#113
-    const stillBusy = async () => {
-      const why = await page.j("__vg.demo.busyWhy()").catch(() => null);
-      return why ? Object.keys(why).filter((k) => why[k]) : [];
-    };
-
-    // github#113
     await settle(page, 20000);
 
-    let failed = 0;
-    const timings = [];
-    for (const c of mine) {
-      if (page.lost) {
-        log(`\n  !! CDP connection lost (${page.lost}) -- ` +
-                    `${mine.length - timings.length} check(s) not run`);
-        if (chromeGone) log(`     chrome process: ${chromeGone}`);
-        if (chromeSaid.length) {
-          log("     chrome said:");
-          for (const l of chromeSaid.slice(-12)) log("       " + l);
-        }
-        failed += mine.length - timings.length;
-        break;
-      }
-      try {
-        await page.eval("1");
-      } catch (e) {
-        const last = timings.length ? timings[timings.length - 1].name : "(before the first check)";
-        log(`\n  !! the page stopped answering after "${last}" -- ${e.message}`);
-        if (chromeGone) log(`     chrome process: ${chromeGone}`);
-        if (chromeSaid.length) {
-          log("     chrome said:");
-          for (const l of chromeSaid.slice(-12)) log("       " + l);
-        }
-        log(`     ${mine.length - timings.length} check(s) not run`);
-        failed += mine.length - timings.length;
-        break;
-      }
-      let r;
-      const t0 = Date.now();
-      // github#113
-      const fast = c.clock !== "real";
-      if (fast) {
-        await page.send("Emulation.setEmulatedMedia",
-                        { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }).catch(() => {});
-        await page.eval(`__vg.timeScale = ${FAST_CLOCK}; void 0`).catch(() => {});
-      }
-      try { r = await c.fn(page, ctx); }
-      catch (e) { r = { ok: false, detail: "threw: " + e.message }; }
-      // github#113, github#112
-      const left = await stillBusy();
-      if (left.length) {
-        const tb = Date.now();
-        const done = await settle(page, 20000);
-        r = { ok: false,
-              detail: `${r.detail || ""} | left the page busy: ${left.join(", ")} -- ` +
-                      (done ? `settled in ${((Date.now() - tb) / 1000).toFixed(1)}s`
-                            : "STILL busy after 20s") };
-      }
-      if (fast) {
-        await page.eval(`__vg.timeScale = ${nativeClock}; void 0`).catch(() => {});
-        await page.send("Emulation.setEmulatedMedia", { features: [] }).catch(() => {});
-      }
-      const ms = Date.now() - t0;
-      timings.push({ name: c.name, ms });
-      if (!r.ok) failed++;
-      const secs = ms >= 1000 ? ` ${(ms / 1000).toFixed(1)}s` : "";
-      log(`${r.ok ? "  ok  " : " FAIL "} ${c.name}${secs}\n         ${r.detail}`);
-    }
+    // github#146
+    const { failed, ran, timings } = await runChecks({
+      checks: mine, page, ctx, log, settle,
+      chromeState: () => ({ gone: chromeGone, said: chromeSaid }),
+      fastClock: FAST_CLOCK, nativeClock
+    });
 
     const total = timings.reduce((a, t) => a + t.ms, 0);
     const slow = timings.slice().sort((a, b) => b.ms - a.ms).slice(0, 5);
-    log(`\n${mine.length - failed}/${mine.length} passed in ${(total / 1000).toFixed(0)}s`);
+    log(`\n${ran - failed}/${ran} passed in ${(total / 1000).toFixed(0)}s`);
     log("slowest: " + slow.map((t) => `${t.name} ${(t.ms / 1000).toFixed(1)}s`).join(", "));
-    return { failed, ran: mine.length, lines, timings };
+    return { failed, ran, lines, timings };
   } finally {
     try { if (page) await page.send("Browser.close"); } catch { }
     if (page) page.close();

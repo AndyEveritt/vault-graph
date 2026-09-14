@@ -34,29 +34,13 @@ imported below; if you are a contributor, its absence is normal and nothing here
   the push to `develop` whose tree it has not measured yet (the pre-push hook; see
   `scripts/suite-stamp.mjs`); do not run it by hand unless asked.
 - **Two things may not run twice at once, and `scripts/lock.mjs` is how you know.** Several
-  agents work this repo in parallel worktrees, and they collide over two different resources.
-
-  **A screen.** `record-demo.ps1` captures with `gdigrab -i desktop` — it copies a *region of the
-  display*, so anything else drawn there lands in the take and ruins it silently: the file exists
-  and looks plausible. A recording is not the only claimant — `smoke.mjs` parks every Chrome
-  window it opens on one fixed display, and `spike-check.mjs` puts Obsidian there — so the
-  lock is named after the **screen**, not the job: `screen-left`, `screen-right`,
-  `screen-primary`. **Every harness that places a window takes its own screen lock and releases
-  it on every way out** — `smoke.mjs`, `spike-check.mjs`, `record-demo.ps1` — so you do not have
-  to remember, and so the claim names the physical display rather than the activity (github#87).
-
-  **The shared fixture store.** Two full-suite runs do *not* fight over ports — ports are
-  allocated free and each run gets its own Chrome profile. They fight over `.fixtures/`: a run that
-  regenerates deletes every `<name>-*` directory there, including the one a concurrent run is
-  reading. That is the `suite` lock, and **it is only about `.fixtures/`** — the display is a
-  separate claim under its own name. It bites only when a fixture is stale, which is why it is
-  rare and reads as a regression in your branch.
-
-  Keeping them separate is what lets `pre-push` hold `suite` while the `smoke.mjs` it spawns
-  holds `screen-left`: two names, two resources, no nesting. Aliasing the two instead — which
-  this repo tried first — deadlocks that exact pair, because `aliasHold` blocks on whoever holds
-  the alias, the asker included. A sister plugin hit the same deadlock and reached the same design
-  independently.
+  agents work this repo in parallel worktrees, and they collide over two different resources: a
+  **screen** (`smoke.mjs`, `spike-check.mjs`, `record-demo.ps1` each place a window, so the lock
+  is named after the monitor — `screen-left`, `screen-right`, `screen-primary` — not the job), and
+  the **shared fixture store** (`.fixtures/`, under the name `suite`) that a regenerating run
+  deletes out from under a concurrent one. The two names are deliberately not aliased — the
+  deadlock that taught us that, and the github issues behind each one, are in
+  `.ai-context/locking.md`.
 
   ```powershell
   node scripts/lock.mjs acquire screen-right --owner "#77 palette"   # blocks; exit 1 = give up
@@ -65,24 +49,13 @@ imported below; if you are a contributor, its absence is normal and nothing here
   ```
 
   You need those two by hand only for something that seizes a display and is **not** one of the
-  three harnesses — a manual Chrome you are driving yourself, say. Never wrap one of the three:
-  `smoke.mjs` takes `screen-left` itself, so an outer hold makes its own acquire wait out your
-  stale window. `--no-lock` exists for the one caller that legitimately already holds it.
-
-  The lock lives in the OS temp dir, not the worktree, so **every worktree shares one** — and the
-  root (`obsidian-vault-locks`) is shared with a sister Obsidian plugin, so if you work on both,
-  their jobs contend with each other, not just their own (github#92). A `mkdir` is the lock — atomic, and it survives a
-  killed session as a stale entry (20 min) rather than a permanent one. **`make-hero.ps1` needs no
-  lock**: it is an ffmpeg file-to-file transcode, not a capture. Screenshots need none either:
-  `shoot.mjs` captures over CDP, so overlapping windows are harmless — but pass your own `--port`.
-
-  **`.githooks/pre-push` takes the `suite` lock itself, around its own run, and releases it on
-  every way out (github#92).** Do not also wrap a `git push` in an outer acquire/release, of
-  **either** name: the hook takes `suite` and the `smoke.mjs` it spawns takes `screen-left`, so
-  an outer hold of either one blocks the hook's own attempt and the push hangs until your stale
-  window expires. A plain `git push origin develop`/`main` is correctly gated on its own, and so
-  is a `smoke.mjs` run you drive directly — neither needs wrapping any more. A plain `git push origin develop`/`main` is correctly gated on its own; the wrapping
-  above is only for a `smoke.mjs` run *you* are driving directly, never for a push.
+  three harnesses (`smoke.mjs`, `spike-check.mjs`, `record-demo.ps1`) — **never wrap one of
+  them**, since its own acquire would wait out your stale hold; `--no-lock` exists for the one
+  caller that already holds it. **Never wrap a `git push` either**: `.githooks/pre-push` takes
+  `suite` itself around its own run, so an outer hold blocks the hook's own attempt and the push
+  hangs until your stale window expires. A plain `git push origin develop`/`main`, or a
+  `smoke.mjs` run you drive directly, is correctly gated on its own. `make-hero.ps1` and
+  `shoot.mjs` need no lock (a transcode and a CDP capture — pass `shoot.mjs` its own `--port`).
 - **Never serve Chrome unlabeled.** Any vault-graph page opened in Chrome from this worktree
   — `smoke.mjs`, `shoot.mjs`, a manual review build — sets the page's own top-left title to
   `<worktree/feature> — <what it's showing>`, e.g. `tag-grouping — demo vault`, instead of the
@@ -90,45 +63,10 @@ imported below; if you are a contributor, its absence is normal and nothing here
   title is a review aid, and several builds from different branches and vaults sit in tabs at
   once, so an unlabeled one is judged against the wrong build.
 - **A vault Obsidian has not been told to trust opens in restricted mode, and the plugin does not
-  load at all.** Any fixture or generated vault is "untrusted" on its first open: Obsidian puts up **"Trust
-  author and enable plugins?"** and opens its Settings window behind it. Until that is confirmed
-  *and* Settings is closed, `app.plugins.getPlugin("vault-graph")` is null, the ribbon icon and the
-  `vault-graph:open` command do nothing, and **a perfectly good plugin reads as broken** -- the
-  trap is that it looks like a code fault, so it gets diagnosed as one.
-
-  **Driving over CDP, do not click the dialog -- enable it programmatically**, which is what the
-  harnesses already do (`obsidian-smoke.mjs`, `spike-check.mjs`) and what any new one should copy:
-
-  ```javascript
-  if (!app.plugins.getPlugin(id)) {
-    await app.plugins.setEnable(true);          // leave restricted mode
-    await app.plugins.enablePluginAndSave(id);  // then enable ours
-  }
-  ```
-
-  Judge nothing about the plugin's behaviour until `getPlugin(id)` is truthy. By hand: confirm the
-  prompt, close Settings, then look.
-
-- `git push` and merging into `develop` are separate asks, every time. `main` only ever
-  receives `develop`.
-- **Which session you are is decided by the checkout you are in, not by what you were asked to
-  do.** The primary checkout — the one `git worktree list` names first — is the **orchestrator**:
-  one session, the only one that pushes to `develop`, merges branches down, or cuts a release.
-  Every other checkout, i.e. any tree whose `git rev-parse --show-toplevel` is not that path, is a
-  **dispatched worker**, whatever its branch says. Settle this before the first write:
-  `git rev-parse --show-toplevel` and `git worktree list` answer it in one call. Which paths those
-  are on this machine, and what the orchestrator session calls itself, are in `CLAUDE.local.md`.
-- **Only the orchestrator session pushes to `develop` or cuts a release.** A dispatched ticket
-  worktree implements, runs its own gates, and stops at its own branch — it never pushes past
-  that branch, never merges into `develop`, and never runs `release.ps1`, no matter how clean the
-  result. Integrating finished branches and shipping them is the orchestrator's job alone, so one
-  place is answerable for what's actually on `develop` and what a release contains.
-- **The orchestrator dispatches a ticket; it never implements one.** Work that comes up gets its
-  own worktree with its own chatable session, one ticket per checkout, so a ticket's branch, plan,
-  review and gates all belong to one place instead of being tangled into whatever the coordinating
-  session was doing. The session manager used here, the exact spawn command, and the ceiling on how
-  many may run at once are in `CLAUDE.local.md` — the ceiling is real: fanning out past it starved
-  CPU and disk enough to force a hard restart once.
+  load at all** — it reads as a broken plugin rather than an unconfirmed dialog. The CDP workaround
+  and the full trap are in `.ai-context/obsidian-trust-mode.md`.
+- `git push` and merging into `develop` are separate asks, every time; only the primary checkout
+  pushes to `develop` or cuts a release. `main` only ever receives `develop`.
 - **Every issue filed here carries a label, and "unsure" is a question for the maintainer, not
   a reason to skip it.** `gh issue create` without `--label` silently succeeds, so an unlabelled
   issue is never caught at filing time — and unlabelled is what half this backlog was until it was

@@ -50,8 +50,6 @@ stopping again.
 - **The clip review (step 8) and the update strip (step 9).** He looks at what was recorded
   before it is committed, and at the strip rendered, before either ships. These catch a capture
   that grabbed the wrong window and a strip nobody has seen — neither of which any gate sees.
-- **The `develop` -> `main` PR (step 12).** Merge it yourself if you can; the ruleset requires a
-  PR, not a human.
 - **Anything that fails.** A red gate, a failing check, a workflow that goes red: stop, fix it,
   say what it was. Never route around a gate to keep the run moving.
 - **Anything genuinely new.** A decision the questions above did not cover, or a finding that
@@ -92,7 +90,7 @@ apply to this release; add one row per this release's own polish/fix asks at the
 | 8 | **Render the update strip and show it** (MINOR/MAJOR only) — a real screenshot, not the markdown | |
 | 9 | Merge `release/<version>` → `develop` (local) | |
 | 10 | **One** plain `git push origin develop` | |
-| 11 | PR/merge `develop` → `main` | |
+| 11 | Merge `develop` → `main` and push (no PR required since 2026-09-13) | |
 | 12 | Draft the release body, publish as an Artifact, get an explicit go-ahead | |
 | 13 | `release.ps1` on `main` — gates, tag, push | |
 | 14 | GitHub Actions publishes the release — automatic once tagged | |
@@ -227,10 +225,15 @@ this version. 2.6.0 shipped the strip without anyone having looked at it rendere
 how the Got it button's placement (github#126) was first noticed *after* the release.
 
 ```bash
+node scripts/build-plugin.mjs                       # the check copies the ROOT main.js; it does not build
 node scripts/lock.mjs acquire screen-left --owner "release <version>"
 node scripts/update-note-check.mjs --out <scratchpad>/strip
 node scripts/lock.mjs release screen-left --owner "release <version>"
 ```
+
+**Build first, every time.** `update-note-check.mjs` installs whatever `main.js` sits at the repo
+root into its Obsidian; it never builds. Cutting 2.8.0, two runs measured a build from before the
+fix they were meant to prove, and read as the fix not working.
 
 It mounts the plugin in a real Obsidian, upgrades a vault from a `data.json` without
 `lastSeenVersion`, and writes `01-strip-up.png` (the strip as a user first sees it),
@@ -297,12 +300,17 @@ don't assume flake without isolating the specific check first.
 
 ## 13. Merge `develop` → `main`
 
-On the website: open the PR, merge it. The ruleset requires this and has no bypass for a direct
-push (github#94). The only required check is the branch-policy job.
+No PR required since 2026-09-13 — merge locally and push directly, gated by
+`branch-policy.yml`'s push job (`develop` must already be an ancestor of the pushed commit):
 
 ```bash
 git switch main && git pull --ff-only
+git merge --no-ff develop
+git push origin main
 ```
+
+(The website route — open `develop` → `main` as a PR and merge it — still works too; the only
+required check either way is the branch-policy job.)
 
 ## 14. Review the release body — before the tag, not after
 
@@ -387,14 +395,20 @@ gh release view <version> --json tagName,name,assets,isDraft
 
 Once the Release exists (step 16), post an update at ko-fi.com/luke321. **Do it yourself with the
 Claude in Chrome tools** -- he is signed in there; do not hand him a link and a block of text to
-paste. The flow, as measured on 2.6.0:
+paste.
 
-- `ko-fi.com/Manage` -> the **Add something** button, then **Image** in the modal (not "Write a
-  quick update", which has no title field).
-- `read_page` gives the Title and Description fields; `form_input` fills them.
-- **The image needs `find`, not `read_page`.** The dropzone's `<input type=file>` is not in the
-  accessibility tree, and clicking **Add +** opens nothing useful. `find` for "hidden file input
-  for uploading post images (dropzone)" returns it, then `file_upload` attaches the PNG.
+**The mechanics live in the user-level `post-to-kofi` skill -- read it before touching the page.**
+It is shared with vault-shelf and the second machine because the traps belong to Ko-fi rather than
+to this plugin, and one of them is destructive:
+
+- **A page-wide `find` for the post's file input also returns the COVER image input.** Uploading to
+  it replaces the page's cover with no confirm step and no undo -- Ko-fi's cover dialog offers only
+  upload and remove, and keeps no history. That destroyed the cover cutting 2.7.0. Open the **Add
+  image** dialog first, scope the search to it, and screenshot straight after uploading: the
+  dropzone must read **`1 of 8 images`**. A dialog that closed, or a counter still at `0 of 8`,
+  means you hit the cover -- stop and say so.
+- Entry point is the **Feed card's `Add` button** -> **Image** (not "Write a quick update", which
+  has no title field).
 - Screenshot the filled dialog, confirm the exact wording with him, then click **Post image** --
   that publishes publicly and is the one click in this step that needs a yes.
 

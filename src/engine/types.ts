@@ -44,6 +44,8 @@ export interface NodeAttrs {
   ghost: boolean;
   /** github#86, design/0015 -- set only on a satellite: the note it copies */
   dupOf?: string;
+  /** github#86, design/0015, github#145 -- a stand-in's leaving note */
+  standIn?: string;
 }
 
 export interface EdgeAttrs {
@@ -132,7 +134,8 @@ export interface EdgeDisplayData {
   zIndex?: number;
 }
 
-export type NodeReducer = (id: string, attrs: NodeAttrs) => NodeDisplayData;
+/** github#145 -- what applyNodeDefaults() takes, as EdgeReducer already said */
+export type NodeReducer = (id: string, attrs: NodeAttrs) => Partial<NodeDisplayData> & Point;
 export type EdgeReducer = (id: string, attrs: EdgeAttrs) => EdgeAttrs & Partial<EdgeDisplayData>;
 
 /* ------------------------------------------------------------- settings */
@@ -189,6 +192,11 @@ export interface StageEvent {
   preventDefault(): void;
 }
 
+/** github#144 -- which of the three WebGL layers a context event is about */
+export interface ContextEvent {
+  layer: "edges" | "nodes" | "hoverNodes";
+}
+
 export interface RendererEvents {
   clickNode: NodeEvent;
   doubleClickNode: NodeEvent;
@@ -199,6 +207,9 @@ export interface RendererEvents {
   clickStage: StageEvent;
   doubleClickStage: StageEvent;
   afterRender: void;
+  // github#144 -- the engine says it; the page draws the notice
+  contextLost: ContextEvent;
+  contextRestored: ContextEvent;
 }
 
 export interface MouseCaptor {

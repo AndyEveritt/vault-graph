@@ -19,7 +19,7 @@
  * plugin/main.js's buildData from Obsidian's metadata cache. Nothing checked the two agreed
  * before this typedef; now the plugin's buildData is read against it.
  * @typedef {Object} VaultNode
- * @property {string} id           vault-relative path with "/" separators, or "ghost:<name>"
+ * @property {string} id           vault-relative path with "/" separators, or "ghost:<destination>"
  * @property {string} label        the note's basename
  * @property {string} folder       first path segment; "(vault root)" or "(unresolved)"
  * @property {string[]} dirs       the named folders below it, month folders handled
@@ -131,7 +131,8 @@
  * @property {boolean} [fitCap]               github#41, design/0011
  * @property {boolean} [sheetOpen]            github#82 -- absent means "decide from the width"
  * @property {boolean} [bandOpen]             github#82
- * @property {string[]} [pinned]
+ * @property {number} [lastOpen]              github#70 -- ms, when the host last had the graph
+ * @property {string[]} [pinned]            github#143 -- the marker, then one note path per slot
  * @property {boolean} [settingsUI]
  * @property {() => void} [openSettings]
  * @property {(map: SlotMap) => void | Promise<void>} [onFolderColors]
@@ -148,7 +149,7 @@
  * @property {(v: boolean) => void | Promise<void>} [onSheetOpen]
  * @property {(v: boolean) => void | Promise<void>} [onBandOpen]
  * @property {(v: boolean) => void | Promise<void>} [onCountBars]
- * @property {(ids: string[]) => void | Promise<void>} [onPinned]
+ * @property {(v: string[]) => void | Promise<void>} [onPinned]   github#143 -- store it verbatim
  * @property {() => void} [onRefresh]
  */
 
@@ -170,7 +171,7 @@
 
 /**
  * The __vg api: what mountVaultGraph builds once its deferred init has run, and what
- * plugin/main.js and the settings UIs call. THESE 21 MEMBERS SHIP IN THE PLUGIN. The
+ * github#61
  * standalone build adds ~70 more -- state, alpha, demo, probe and the rest of the debug
  * surface the invariant suite drives -- through Object.defineProperties inside the region
  * scripts/build-plugin.mjs strips, so they are deliberately not part of this type: nothing
@@ -201,6 +202,10 @@
  * @property {(map: SlotMap) => void} setTagColors
  * @property {(map: SlotMap) => void} setSubtagColors
  * @property {(map: Record<string, boolean>) => void} setFolderShown
+ * github#145 -- three getters that shipped undeclared
+ * @property {SlotMap} tagColors                  github#86 -- the tag colour pins
+ * @property {SlotMap} subtagColors               github#86 -- the sub-tint pins
+ * @property {Record<string, boolean>} tagShown   github#86 -- shown by default
  * @property {(v: boolean) => void} setPanEnabled
  * @property {(v: boolean) => void} setCompactAxis
  * @property {(v: boolean) => void} setUnlinkedByFolder
@@ -212,6 +217,10 @@
  * @property {(v: boolean) => void} setFitCap
  * @property {() => void} applyHiddenDefaults
  * @property {() => void} heatBuild
+ * @property {(a: NodeAttrs) => string} heatDateOf
+ * @property {(kind: string | null, refMs?: number) => { lo: string, hi: string, label: string } | null} recentWindow
+ * @property {(kind: string | null, refMs?: number) => void} setRecent
+ * @property {(src: string) => void} setHeatSource
  * @property {() => PlanParityReport} checkPlanParity
  * @property {() => unknown} checkFocusWeb
  * @property {() => unknown} debugDump
@@ -233,17 +242,6 @@
 function mountVaultGraph(root, data, deps) {
   "use strict";
 
-  /**
-   * A prototype-less dictionary, typed. Object.create(null) is `any` to the type program
-   * and a cast at the call site is read as the expression inside it, so this is the ONE
-   * place that any is laundered -- through unknown, once -- and every dictionary in this
-   * file declares its own shape where it is made: `@type {Record<string, number>}` on the
-   * var, `= dict()` after it. Same object as Object.create(null) gave (no prototype, so a
-   * folder named "constructor" or "toString" is just a key); nothing about behaviour
-   * changed. github#60.
-   * @template T
-   * @returns {Record<string, T>}
-   */
   // github#62
   /** @param {() => void} fn @returns {unknown} */
   function attempt(fn) {
@@ -255,6 +253,13 @@ function mountVaultGraph(root, data, deps) {
     for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) return true;
     return false;
   }
+  /**
+   * file declares its own shape where it is made: `@type {Record<string, number>}` on the
+   *
+   * github#145 -- this block sat above attempt(), so T resolved nowhere
+   * @template T
+   * @returns {Record<string, T>}
+   */
   function dict() {
     /** @type {unknown} */
     var o = Object.create(null);
@@ -425,9 +430,10 @@ function mountVaultGraph(root, data, deps) {
       slots:    SLOT_VARS.map(css),
       neutrals: ["--n1", "--n2", "--n3"].map(css),
       // github#77
-      pal: { l: readPalette("l"), d: readPalette("d") }
+      pal: { l: readPalette("l"), d: readPalette("d") },
+      // github#145 -- in the literal, not one statement after it
+      byKey: dict()
     };
-    THEME.byKey = dict();
     THEME.slots.forEach(function (hex, i) { THEME.byKey["g" + (i + 1)] = hex; });
     clearPreviewCache();
     // github#79
@@ -481,6 +487,10 @@ function mountVaultGraph(root, data, deps) {
   var onSheetOpen = typeof deps.onSheetOpen === "function" ? deps.onSheetOpen : null;
   var bandOpen = typeof deps.bandOpen === "boolean" ? deps.bandOpen : true;
   var onBandOpen = typeof deps.onBandOpen === "function" ? deps.onBandOpen : null;
+
+  // github#70, decisions/0009 -- the host owns the clock. The page never writes this back:
+  var lastOpen = typeof deps.lastOpen === "number" && isFinite(deps.lastOpen)
+    ? deps.lastOpen : null;
 
   // github#3
   var unlinkedByFolder = deps.unlinkedByFolder === false ? false : true;
@@ -551,7 +561,9 @@ function mountVaultGraph(root, data, deps) {
     var out = dict();
     if (!raw || typeof raw !== "object") return out;
     Object.keys(raw).forEach(function (g) {
-      if (typeof raw[g] === "boolean") out[g] = raw[g];
+      // github#145 -- a local, so the typeof narrows it; as cleanSlotMap()
+      var v = raw[g];
+      if (typeof v === "boolean") out[g] = v;
     });
     return out;
   }
@@ -615,7 +627,9 @@ function mountVaultGraph(root, data, deps) {
    * @property {string | null} hovered                         node id
    * @property {string | null} markDay                         heatmap cell key
    * @property {string | null} hoverDay
-   * @property {number | null} hoverYear
+   * @property {string | null} hoverYear   github#145 -- as data-yr spells it
+   * @property {string} heatSource                             "created" | "touched"; github#70
+   * @property {string | null} recent                          "today" | "week" | "open"; github#70
    * @property {string} query
    * @property {number | null} until                           timeline rank, or null for all
    * @property {number | null} from                            ms, UTC midnight (heatParse)
@@ -643,6 +657,9 @@ function mountVaultGraph(root, data, deps) {
     markDay: null,
     hoverDay: null,
     hoverYear: null,
+    // github#70
+    heatSource: "created",
+    recent: null,
     query: "",
     until: null,
     from: null,
@@ -1029,7 +1046,8 @@ function mountVaultGraph(root, data, deps) {
     buildSubOrder();
   });
 
-  var SLOT_COUNT = 12;
+  // github#118, design/0004 -- the rotation is the ten hues; the greys stay pickable
+  var HUE_SLOTS = 10;
   /** @type {Record<string, string>} */
   var groupColor = dict();
   /** @type {Record<string, string>} */
@@ -1115,7 +1133,8 @@ function mountVaultGraph(root, data, deps) {
         return;
       }
 
-      var key = "g" + ((auto++ % SLOT_COUNT) + 1);
+      // github#118
+      var key = "g" + ((auto++ % HUE_SLOTS) + 1);
       var use = picked || key;
       groupColor[g] = THEME.byKey[use];
       groupSlot[g] = use;
@@ -1205,7 +1224,8 @@ function mountVaultGraph(root, data, deps) {
    * @returns {T}
    */
   function inDim(dim, fn) {
-    if (dim === state.dim || DIMS.indexOf(dim) < 0) return fn();
+    // github#145 -- membership without a cast; DIMS narrows indexOf()
+    if (dim === state.dim || !DIMS.some(function (d) { return d === dim; })) return fn();
     var sDim = state.dim, sCounts = counts, sFolderCount = folderCount,
         sColor = groupColor, sSlot = groupSlot, sAuto = groupAutoSlot,
         sShade = subShade, sSubSlot = subSlot, sTint = unlinkedTintColors,
@@ -1302,6 +1322,9 @@ function mountVaultGraph(root, data, deps) {
 
   // github#13
   var DENSITY_MAX = 2.6;
+
+  // github#157 -- the stretch ceiling; the 1.5 window is in changelog-detail
+  var CELL_FILL_MAX = 1.5;
 
   /**
    * One of the two bands the disc is laid out in.
@@ -2032,14 +2055,18 @@ function mountVaultGraph(root, data, deps) {
     // github#13
     var HOLE = 0.3;
     var fullTotal = geomLock && geomLock.total > 0 ? geomLock.total : planTotal;
-    var density = (spIn && typeof spIn === "object") ? (spIn.o || 1)
-      : spIn > 0 ? spIn
+    // github#13
+    // github#145 -- split the density from the held spacings, once
+    // github#145 -- typeof "number" is what `spIn > 0` meant: null,
+    // github#145 -- undefined and a negative all take the measured branch
+    var given = (spIn && typeof spIn === "object") ? spIn : null;
+    var spDensity = typeof spIn === "number" ? spIn : 0;
+    var density = given ? (given.o || 1)
+      : spDensity > 0 ? spDensity
       : (planTotal > 0.0001
           ? Math.min(DENSITY_MAX, Math.sqrt(fullTotal / planTotal)) : 1);
     var SP = density;
 
-    // github#13
-    var given = (spIn && typeof spIn === "object") ? spIn : null;
     var givenRoom = given && given.room ? given.room : null;
     var SP_I = given && given.i > 0 ? given.i : SP;
     var SP_O = given && given.o > 0 ? given.o : SP;
@@ -2100,11 +2127,26 @@ function mountVaultGraph(root, data, deps) {
       });
       /** @type {Record<string, boolean>} */
       var pinnedInner = dict();
+      // github#117
       names.forEach(function (g) {
-        if (assign[g] && (groupNotes[g] || 0) < PIN_BELOW) pinnedInner[g] = true;
+        if ((groupNotes[g] || 0) < PIN_BELOW) { pinnedInner[g] = true; assign[g] = true; }
       });
       var movable = names.filter(function (g) { return !pinnedInner[g]; });
-      if (!movable.length) return;
+      // github#117 -- the pin above can MOVE a group, so land it on both paths out
+      var applyAssign = function () {
+        cells.forEach(function (c) { c.inner = !!assign[c.g]; });
+        inner = cells.filter(function (c) { return c.inner; });
+        outer = cells.filter(function (c) { return !c.inner; });
+        share(inner, "i"); share(outer, "o");
+        cells.forEach(function (c) { c.bandRef = c.band; });
+      };
+      if (!movable.length) {
+        // github#117 -- no outer band: flip to all outer, as the seed guard does
+        if (names.every(function (g) { return assign[g]; })) {
+          names.forEach(function (g) { assign[g] = false; });
+        }
+        applyAssign(); return;
+      }
 
       /** @param {Cell[]} ins @param {Cell[]} outs @param {number} rv */
       var spanFor = function (ins, outs, rv) {
@@ -2119,10 +2161,19 @@ function mountVaultGraph(root, data, deps) {
           var r = rowsNeeded(usableRef(c, rOut), c.wsum, rOut);
           if (r > oR) oR = r;
         });
+        // github#117
+        var nI = 0, nO = 0;
+        ins.forEach(function (c) { nI += c.wsum; });
+        outs.forEach(function (c) { nO += c.wsum; });
+        var iHi = (rv + iR * SP) * INNER_SCALE, iLo = rv * INNER_SCALE;
+        var oHi = rOut + oR * SP, oLo = rOut;
+        var rpI = nI > 0.0001 ? Math.max(0, iHi * iHi - iLo * iLo) / nI : 0;
+        var rpO = nO > 0.0001 ? Math.max(0, oHi * oHi - oLo * oLo) / nO : 0;
         return {
           inner: Math.max(0, iR - 1) * SP * INNER_SCALE,
           outer: Math.max(0, oR - 1) * SP,
           iR: iR, oR: oR,
+          room: (rpI > 1e-9 && rpO > 1e-9) ? Math.abs(Math.log(rpI / rpO)) : 0,
           holeShare: (rOut + oR * SP) > 0 ? rv / (rOut + oR * SP) : 1
         };
       };
@@ -2155,6 +2206,8 @@ function mountVaultGraph(root, data, deps) {
         for (var m = 100; m <= 300; m += 5) {
           var rv = R0_BASE * (m / 100), t = spanFor(ins, outs, rv);
           var c2 = Math.abs(t.inner - BAND_RATIO * t.outer) +
+                   // github#117 -- at THIS rv, never a fixed base
+                   ROOM_WEIGHT * t.room +
                    (t.iR > t.oR ? INVERT_WEIGHT * (t.iR - t.oR) : 0) +
                    SIZE_WEIGHT * SP * innerPeak +
                    (t.inner >= t.outer ? 1000 : 0) +
@@ -2164,6 +2217,9 @@ function mountVaultGraph(root, data, deps) {
         return { cost: bc, r0: br };
       };
       var INVERT_WEIGHT = 0.5;
+
+      // github#117
+      var ROOM_WEIGHT = 5;
 
       var SIZE_WEIGHT = 5.0;
       /** @param {Record<string, boolean>} a */
@@ -2196,11 +2252,7 @@ function mountVaultGraph(root, data, deps) {
         }
       }
 
-      cells.forEach(function (c) { c.inner = !!assign[c.g]; });
-      inner = cells.filter(function (c) { return c.inner; });
-      outer = cells.filter(function (c) { return !c.inner; });
-      share(inner, "i"); share(outer, "o");
-      cells.forEach(function (c) { c.bandRef = c.band; });
+      applyAssign();
 
       r0 = evaluate(assign).r0;
     })();
@@ -2223,10 +2275,19 @@ function mountVaultGraph(root, data, deps) {
       }
       var T = thick * scale, R = (base + thick / 2) * scale;
       var s = Math.sqrt(arcSpan() * R * T / n);
-      var rw = Math.round(T / s);
+      // github#117
+      var rw = Math.ceil(T / s - 0.001);
       if (rw < 1) rw = 1;
       if (rw > 200) rw = 200;
-      return { sp: thick / rw, rows: rw };
+      // github#157 -- rows at the square pitch; the rest is margin, not stretch
+      var pit = thick / rw;
+      var q = rw * s / T;
+      if (rw > 1 && q * q > CELL_FILL_MAX) {
+        var square = s / scale;
+        pit *= q * q / CELL_FILL_MAX;
+        if (pit > square) pit = square;
+      }
+      return { sp: pit, rows: rw };
     };
 
     var thickI = geomLock ? (geomLock.rOuter - geomLock.r0) * INNER_FILL : 0;
@@ -2252,6 +2313,8 @@ function mountVaultGraph(root, data, deps) {
       SP_O = so.sp; outerRows = so.rows;
       outer.forEach(function (c) { c.rows = c.wsum > 0.0001 ? outerRows : 0; });
       maxR = rOuter + outerRows * SP_O;
+      // github#157 -- take back only the overshoot; fitRatio frames by maxR
+      if (maxR > geomLock.maxR) maxR = geomLock.maxR;
     } else {
       outer.forEach(function (c) {
         c.rows = rowsNeeded(usableRef(c, rOuter), c.wsum, rOuter, SP_O);
@@ -2667,6 +2730,7 @@ function mountVaultGraph(root, data, deps) {
     });
 
     var scale = UNIT;
+    /** @type {Record<string, Point>} */
     var out = {};
     graph.forEachNode(function (id) {
       var q = pos[id];
@@ -2686,6 +2750,31 @@ function mountVaultGraph(root, data, deps) {
     };
     if (!roomNow) {
       bandOf("i").room = pick(pool.i); bandOf("o").room = pick(pool.o);
+    }
+    // github#160 -- shift the outer band out by row 0's largest dot radius
+    // github#35 -- the inner band keeps HUB_ROW0_FRAC of the hub on purpose
+    var insetO = 0;
+    var roomO = roomNow ? roomNow.o : bandOf("o").room;
+    if (plan.sp > 0 && plan.rows && plan.rows.o > 0 && roomO > 1) {
+      var pitO = UNIT * plan.sp;
+      var hiO = DOT_OF_PITCH * Math.min(pitO, UNIT * DOT_MAX_SPREAD);
+      var fO = Math.min(roomO * 0.92 / pitO, DOT_ROOM_MAX);
+      insetO = hiO * fO / UNIT;
+      var slackO = (plan.maxR - plan.rOuter) - (plan.rows.o - 1) * plan.sp - 2 * insetO;
+      if (slackO < 0) insetO = Math.max(0, insetO + slackO);
+      if (insetO > 0) {
+        plan.cells.forEach(function (c) {
+          if (c.inner) return;
+          c.list.forEach(function (id) {
+            var q = out[id];
+            if (!q) return;
+            var rq = Math.hypot(q.x, q.y);
+            if (!(rq > 1e-9)) return;
+            var kq = (rq + insetO * UNIT) / rq;
+            q.x *= kq; q.y *= kq;
+          });
+        });
+      }
     }
     if (trace) {
       tracePut({ what: "passEnd", roomOut_i: bandOf("i").room, roomOut_o: bandOf("o").room,
@@ -2817,24 +2906,56 @@ function mountVaultGraph(root, data, deps) {
     pinnedPlan = null;
     applyLayout(!!animate, releaseHover);
     placeLogo();
-    if (savePinned) savePinned(state.pinned.slice());
+    persistPins();
   }
 
-  // github#12
-  function seedPins() {
-    var want = deps.pinned;
-    if (!want || !want.length || typeof want.length !== "number") return;
-    /** @type {Record<string, number>} */
-    var seen = dict();
+  // github#143, decisions/0014 -- version 1 was the runtime ids, which move
+  // github#86, github#143 -- a NUL cannot occur in a vault path, so no note forges this
+  var PIN_FORMAT = "\u0000vault-graph:pins:2";
+
+  // github#143, decisions/0014
+  /** @returns {string[]} the marker, then one note path per slot, in slot order */
+  function pinsStored() {
+    /** @type {string[]} */
+    var out = [PIN_FORMAT];
+    state.pinned.forEach(function (id) {
+      // github#141 -- a ghost's path is its canonical full destination
+      if (graph.hasNode(id)) out.push(String(graph.getNodeAttribute(id, "path")));
+    });
+    return out;
+  }
+
+  // github#143, decisions/0014
+  /** @param {unknown} want @returns {string[]} the runtime ids it names, in slot order */
+  function pinsFrom(want) {
     /** @type {string[]} */
     var out = [];
-    for (var i = 0; i < want.length && out.length < PIN_MAX; i++) {
-      var id = want[i];
-      if (typeof id !== "string" || seen[id] || !graph.hasNode(id)) continue;
+    var list = /** @type {unknown[]} */ (want || []);
+    if (typeof list.length !== "number" || list[0] !== PIN_FORMAT) return out;
+    /** @type {Record<string, number>} */
+    var seen = dict();
+    for (var i = 1; i < list.length && out.length < PIN_MAX; i++) {
+      var path = list[i];
+      if (typeof path !== "string") continue;
+      var id = idOfPath[path];
+      if (id === undefined || seen[id] || !graph.hasNode(id)) continue;
       seen[id] = 1;
       out.push(id);
     }
-    state.pinned = out;
+    return out;
+  }
+
+  // github#143
+  function persistPins() {
+    if (savePinned) savePinned(pinsStored());
+  }
+
+  // github#12; github#143, decisions/0014 -- an unmarked store is version 1's ordinals
+  function seedPins() {
+    var want = deps.pinned;
+    state.pinned = pinsFrom(want);
+    // github#143, decisions/0014 -- drop it once, not once per mount
+    if (want && want.length && want[0] !== PIN_FORMAT) persistPins();
   }
 
   /**
@@ -2934,14 +3055,16 @@ function mountVaultGraph(root, data, deps) {
 
     renderer.on("downNode", function (e) {
       var o = e.event && e.event.original;
-      if (o && o.button !== 0) return;
+      // github#145 -- `in` narrows MouseEvent | TouchEvent; a touch still bails
+      if (o && (!("button" in o) || o.button !== 0)) return;
       nodeDrag = { id: e.node, moved: false, over: false, wasPinned: isPinned(e.node) };
       dragJustMoved = null;
     });
 
     captor.on("mousemovebody", function (e) {
       if (!nodeDrag) return;
-      if (e.original && e.original.buttons !== undefined && !(e.original.buttons & 1)) {
+      // github#145 -- `in` is the `!== undefined` test it replaces
+      if (e.original && "buttons" in e.original && !(e.original.buttons & 1)) {
         drop();
         return;
       }
@@ -3136,11 +3259,12 @@ function mountVaultGraph(root, data, deps) {
     if (el) el.textContent = rangeLabel();
     if (dateSpan) {
       var lo = isoDay(dateSpan.lo), hi = isoDay(dateSpan.hi);
-      var f = $("from"), t = $("to");
+      var f = /** @type {HTMLInputElement} */ ($("from"));
+      var t = /** @type {HTMLInputElement} */ ($("to"));
       if (f) { f.min = lo; f.max = hi; f.value = isoDay(state.from === null ? dateSpan.lo : state.from); }
       if (t) { t.min = lo; t.max = hi; t.value = isoDay(state.to === null ? dateSpan.hi : state.to); }
     }
-    var btn = $("rangeall");
+    var btn = /** @type {HTMLButtonElement} */ ($("rangeall"));
     if (btn) btn.disabled = (state.from === null && state.to === null);
     drawDateUI();
   }
@@ -3150,21 +3274,139 @@ function mountVaultGraph(root, data, deps) {
     cascade();
   }
 
-  var TODAY = (function () {
-    var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; };
+  /** @param {number} ms */
+  function localKey(ms) {
+    var d = new Date(ms), p = function (n) { return (n < 10 ? "0" : "") + n; };
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+  }
+  // github#70 -- ?today=YYYY-MM-DD or ?today=vault pins the clock for a demo
+  var TODAY = (function () {
+    var q = String(WIN.location ? WIN.location.search : "") + " " +
+            String(WIN.location ? WIN.location.hash : "");
+    var m = /(^|[?&#])today=([^&#\s]+)/.exec(q);
+    var v = m ? decodeURIComponent(m[2]) : "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    if (v === "vault") {
+      var newest = "";
+      (data.nodes || []).forEach(function (n) {
+        if (!n.ghost && (n.created || "") > newest) newest = n.created;
+      });
+      if (newest) return newest;
+    }
+    return localKey(Date.now());
   })();
+
+  /**
+   * github#70
+   * @param {NodeAttrs} a
+   */
+  function heatDateOf(a) {
+    return (state.heatSource === "touched" ? a.touched : a.created) || "";
+  }
 
   /** @param {string} id */
   function isMarkedDay(id) {
     if (!state.markDay && !state.hoverDay && state.hoverYear === null) return false;
-    var c = graph.getNodeAttribute(id, "created");
+    var c = heatDateOf(graph.getNodeAttributes(id));
     if (c === state.markDay || c === state.hoverDay) return true;
     return state.hoverYear !== null && !!c && c.slice(0, 4) === state.hoverYear;
   }
 
+  /* --------------------------------------------------------- the recent lens */
+
+  /**
+   * github#70
+   * @type {Record<string, boolean>}
+   */
+  var recentSet = dict();
+  // github#70 -- what the dim reads; on a disarm it outlives recentSet
+  /** @type {Record<string, boolean>} */
+  var recentDim = recentSet;
+  /** github#70 */
+  var recentT = 0;
+  /**
+   * github#70
+   * @type {number | null}
+   */
+  var recentRef = null;
+
+  /**
+   * github#70
+   * @param {string | null} kind @param {number} [refMs]
+   * @returns {{ lo: string, hi: string, label: string } | null}
+   */
+  function recentWindow(kind, refMs) {
+    var ref = typeof refMs === "number" && isFinite(refMs) ? refMs : heatParse(TODAY);
+    if (!isFinite(ref)) return null;
+    var hi = heatKey(ref);
+    // github#70
+    var v = state.heatSource === "touched" ? "touched" : "added";
+    if (kind === "today") return { lo: hi, hi: hi, label: v + " today" };
+    if (kind === "week") {
+      // github#70
+      var lo = heatKey(ref - 6 * DAY_MS);
+      return { lo: lo, hi: hi, label: v + " in the last 7 days, since " + lo };
+    }
+    if (kind === "open" && lastOpen !== null) {
+      // github#70 -- the host's clock is local time, like TODAY; heatKey is UTC
+      var lk = localKey(lastOpen);
+      // github#70
+      return { lo: lk, hi: hi > lk ? hi : lk, label: v + " on or after " + lk };
+    }
+    return null;
+  }
+
+  /**
+   * github#70
+   * @param {string | null} kind @param {number} [refMs]
+   */
+  function setRecent(kind, refMs) {
+    var win = kind ? recentWindow(kind, refMs) : null;
+    state.recent = win ? kind : null;
+    recentRef = win && typeof refMs === "number" && isFinite(refMs) ? refMs : null;
+    recentSet = dict();
+    if (win) {
+      graph.forEachNode(function (id, a) { if (inRecent(win, a)) recentSet[id] = true; });
+      recentDim = recentSet;
+    }
+  }
+
+  /*
+   // github#70
+   */
+  invalidatesOnData("recent lens", function () {
+    if (state.recent) setRecent(state.recent, recentRef === null ? undefined : recentRef);
+  });
+
+  /**
+   * github#70
+   * @param {{ lo: string, hi: string }} win @param {NodeAttrs} a
+   */
+  function inRecent(win, a) {
+    var t = heatDateOf(a);
+    return !!t && t >= win.lo && t <= win.hi;
+  }
+
+  /** @param {string} src "created" or "touched" */
+  function setHeatSource(src) {
+    var want = src === "touched" ? "touched" : "created";
+    if (state.heatSource === want) return;
+    state.heatSource = want;
+    // github#70, design/0010
+    state.markDay = null;
+    state.hoverDay = null;
+    // github#70
+    if (state.recent) setRecent(state.recent, recentRef === null ? undefined : recentRef);
+    heatBuild();
+    syncRecentUI();
+    hlSync();
+    renderer.refresh();
+  }
+
   /** @param {string} id */
   function isHighlighted(id) {
+    // github#70, github#86
+    if (recentSet[noteOf(id)]) return true;
     if (isMarkedDay(id)) return true;
     var g = groupOf(id);
     if (state.highlight[g]) return true;
@@ -3693,6 +3935,9 @@ function mountVaultGraph(root, data, deps) {
   var fitVer = -1;
   /** @type {Record<string, number> | null} */
   var fitNow = null;
+  // github#159 -- an endpoint's clearance from its OWN positions
+  /** @type {Record<string, Point> | null} */
+  var fitPos = null;
 
   var FIT_GRID_MAX = 1 << 20;
   function measureFit() {
@@ -3708,8 +3953,10 @@ function mountVaultGraph(root, data, deps) {
       var al = alpha[id];
       if (al === undefined) al = 1;
       if (al < 0.35) return;
-      if (!(isFinite(a.x) && isFinite(a.y))) return;
-      ids.push(id); xs.push(a.x); ys.push(a.y);
+      // github#159
+      var q = fitPos && fitPos[id] ? fitPos[id] : a;
+      if (!(isFinite(q.x) && isFinite(q.y))) return;
+      ids.push(id); xs.push(q.x); ys.push(q.y);
     });
     /** @type {Record<string, number>} */
     var map = dict();
@@ -3824,7 +4071,8 @@ function mountVaultGraph(root, data, deps) {
    */
   /** @typedef {{ ids: string[], a: number[], b: number[], out: Record<string, number> }} WalkPair */
   /**
-   * @param {(() => void) | null} done
+   * github#145 -- done is optional; most callers pass nothing
+   * @param {(() => void) | null} [done]
    * @param {CascadeOpts} [opts]
    */
   function cascade(done, opts) {
@@ -4035,7 +4283,8 @@ function mountVaultGraph(root, data, deps) {
     var tglDir = dict();
     /** @type {Record<string, number>} */
     var tglN = dict();
-    /** @type {Record<string, number>} */
+    // github#145 -- a flag, not a count
+    /** @type {Record<string, boolean>} */
     var tglMv = dict();
     if (opts.colToggle) (function () {
       /** @type {Record<string, number>} */
@@ -4285,11 +4534,14 @@ function mountVaultGraph(root, data, deps) {
         traceTag(keepTag);
         // github#66
         measureSizeScale();
+        // github#159, github#66, github#41 -- the endpoint's own frame for the fit
+        fitPos = outPos; fitVer = -1;
         /** @type {Record<string, number>} */
         var sizes = dict();
         graph.forEachNode(function (id, at) {
           if ((alpha[id] || 0) > 0.004) sizes[id] = dotPx(at.size, id);
         });
+        fitPos = null; fitVer = -1;
         var got = { i: bandOf("i").room, o: bandOf("o").room, pos: outPos,
                     cells: cellRoom, edges: edgeCap, sizes: sizes };
         roomNow = saved; cellNow = savedCell; edgeNow = savedEdge;
@@ -4602,12 +4854,40 @@ function mountVaultGraph(root, data, deps) {
   /**
    * The per-frame layout probe behind __vg.probe(), standalone only: one flat record per
    * sampled frame, plus the fixed set of notes it measures (see where it is captured).
-   * @typedef {Record<string, number | string | null>} ProbeSample
+   *
+   * github#145 -- was Record<string, number | string | null>, a bag
+   * @typedef {Object} ProbeSample
+   * @property {string} tag
+   * @property {number} ms
+   * @property {number} gapI
+   * @property {number} gapO
+   * @property {number} ngI
+   * @property {number} ngO
+   * @property {number} gapDegI
+   * @property {number} gapDegO
+   * @property {number} radStep
+   * @property {string | null} radId
+   * @property {number} radMean
+   * @property {number} tanStep
+   * @property {string | null} tanId
+   * @property {number} tanOver
+   * @property {number} tanMean
+   * @property {Record<string, number> | null} starts    the wedge start angles
+   * @property {Record<string, number> | null} arcs
+   * @property {Record<string, string> | null} bands
+   * @property {number} innerN
+   * @property {number} innerMin
+   * @property {number} innerMax
+   * @property {number} outerN
+   * @property {number} outerMin
+   * @property {number} outerMax
+   */
+  /**
    * @typedef {Object} Probe
    * @property {number} t0
    * @property {ProbeSample[]} samples
-   * @property {number | null} prevAng
-   * @property {number | null} prevR
+   * @property {Record<string, number> | null} prevAng   github#145 -- per note
+   * @property {Record<string, number> | null} prevR     github#145 -- per note
    * @property {Record<string, number>} set
    * @property {string} [watch]
    * @property {unknown} [watched]
@@ -4908,7 +5188,9 @@ function mountVaultGraph(root, data, deps) {
            Object.keys(state.highlightSub).join(",") + "|" +
            (state.markDay || "") + "|" + (state.hoverDay || "") + "|" +
            (state.hoverGroup || "") + "|" + Object.keys(state.hoverSub).join(",") + "|" +
-           (state.hoverYear || "");
+           (state.hoverYear || "") + "|" +
+           // github#70
+           (state.recent || "") + "|" + state.heatSource;
   }
 
   function hlWalk() {
@@ -4919,6 +5201,15 @@ function mountVaultGraph(root, data, deps) {
       hlPrev = now;
       var adv = Math.min(dt, TWEEN_MS) / (TWEEN_MS * TIME_SCALE);
       var moving = false;
+      // github#70
+      var rAim = state.recent ? 1 : 0;
+      if (recentT !== rAim) {
+        recentT += rAim > recentT ? adv : -adv;
+        if (recentT > 1) recentT = 1;
+        if (recentT < 0) recentT = 0;
+        if (recentT !== rAim) moving = true;
+        else if (rAim === 0) recentDim = recentSet;
+      }
       graph.forEachNode(function (id) {
         var aim = isHighlighted(id) ? 1 : 0, v = hl[id] || 0;
         if (v === aim) return;
@@ -5040,12 +5331,18 @@ function mountVaultGraph(root, data, deps) {
     ctx.fillText(data.label, data.x + data.size + 5, data.y + n / 3);
   }
 
-  /** @param {string} id @param {NodeAttrs} a @returns {NodeDisplayData & { haloColor?: string }} */
+  /**
+   * github#145 -- applyNodeDefaults() fills the rest
+   * @param {string} id @param {NodeAttrs} a
+   * @returns {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }}
+   */
   function nodeStyle(id, a) {
-        var r = /** @type {NodeDisplayData & { haloColor?: string }} */ (Object.assign({}, a));
+        // github#145 -- the attrs; the display fields arrive below
+        var r = /** @type {NodeAttrs & Partial<NodeDisplayData> & { haloColor?: string }} */ (
+                  Object.assign({}, a));
         r.color = nodeColor(id);
         var hv = hl[id] || 0;
-        if (state.markDay && graph.getNodeAttribute(id, "created") === state.markDay) {
+        if (state.markDay && heatDateOf(a) === state.markDay) {
           r.color = mixHex(r.color, THEME.today, hv);
           r.zIndex = 3;
         }
@@ -5054,6 +5351,13 @@ function mountVaultGraph(root, data, deps) {
           r.haloColor = mixHex(nodeColor(id), THEME.today, hv);
           r.size = (r.size || a.size) * (1 + (0.3 + HL_GROW) * hv);
           r.zIndex = 4;
+        }
+        // github#70
+        if (recentT > 0.004 && !recentDim[noteOf(id)] &&
+            id !== state.hovered && id !== state.selected) {
+          r.color = mixHex(r.color || nodeColor(id), THEME.dim, recentT);
+          r.label = "";
+          r.zIndex = 0;
         }
 
         if (state.query) {
@@ -5453,6 +5757,64 @@ function mountVaultGraph(root, data, deps) {
     return out >= 0 ? mag : -mag;
   }
 
+  /* ------------------------------------------------ github#144, a lost context */
+
+  // github#144 -- a driver reset restores in a frame or two
+  var GLOST_STALL_MS = 4000;
+  var glostGone = dict();
+  var glostStalled = false;
+  /** @type {number | null} */
+  var glostTimer = null;
+
+  function glostCount() { return Object.keys(glostGone).length; }
+
+  // github#144 -- host-neutral wording: the tab and the view alike
+  function glostPaint() {
+    var el = $("glost"), n = glostCount(), stalled = glostStalled;
+    if (!n) { el.hidden = true; el.textContent = ""; return; }
+    var one = n === 1;
+    var what = (one ? "A graphics layer was" : n + " graphics layers were") + " lost";
+    el.textContent = stalled
+      ? what + " and " + (one ? "has" : "have") +
+        " not come back. Reload or reopen the graph to rebuild it."
+      : what + " — restoring...";
+    el.hidden = false;
+  }
+
+  function glostStopTimer() {
+    if (glostTimer !== null) { WIN.clearTimeout(glostTimer); glostTimer = null; }
+  }
+
+  /** @param {string} layer */
+  function glostLost(layer) {
+    glostGone[layer] = true;
+    // github#144 -- a layer going now is news; the wait starts again
+    glostStalled = false;
+    glostPaint();
+    glostStopTimer();
+    // github#144 -- escalates the wording only; the restore is what clears it
+    glostTimer = WIN.setTimeout(function () {
+      glostTimer = null;
+      if (!glostCount()) return;
+      glostStalled = true;
+      glostPaint();
+    }, GLOST_STALL_MS);
+  }
+
+  /** @param {string} layer */
+  function glostRestored(layer) {
+    delete glostGone[layer];
+    // github#144 -- one back is no promise about the rest; the wording holds
+    if (!glostCount()) { glostStopTimer(); glostStalled = false; }
+    glostPaint();
+  }
+
+  onDestroy.push(function () {
+    glostStopTimer();
+    glostGone = dict();
+    glostStalled = false;
+  });
+
   function makeRenderer() {
     renderer = new RendererCls(graph, $("graph"), {
       win: WIN,
@@ -5474,7 +5836,8 @@ function mountVaultGraph(root, data, deps) {
       nodeReducer: function (id, a) {
         var al = alpha[id] || 0;
         if (al <= 0.004) {
-          var h = /** @type {NodeDisplayData} */ (Object.assign({}, a));
+          // github#145 -- as nodeStyle()
+          var h = /** @type {NodeAttrs & Partial<NodeDisplayData>} */ (Object.assign({}, a));
           h.hidden = true;
           return h;
         }
@@ -5536,7 +5899,8 @@ function mountVaultGraph(root, data, deps) {
       // github#120 -- mirror the captor's own condition, not its events
       captor.on("mousedown", function (e) {
         var o = e && e.original;
-        if (o && o.button !== undefined && o.button !== 0) return;
+        // github#145 -- see bindNodeDrag()
+        if (o && "button" in o && o.button !== 0) return;
         dragging = true; dragStartedAt = NOW();
       });
       captor.on("mouseup", function () { dragging = false; dragEndedAt = NOW(); });
@@ -5544,7 +5908,7 @@ function mountVaultGraph(root, data, deps) {
       captor.on("mousemovebody", function (e) {
         if (!dragging) return;
         var o = e && e.original;
-        if (o && o.buttons !== undefined && !(o.buttons & 1)) { dragging = false; dragEndedAt = NOW(); }
+        if (o && "buttons" in o && !(o.buttons & 1)) { dragging = false; dragEndedAt = NOW(); }
       });
       // github#120 -- belt to that braces, for a release off-canvas
       var onDocUp = function () {
@@ -5599,6 +5963,10 @@ function mountVaultGraph(root, data, deps) {
       // github#79
       ovSync();
     });
+
+    // github#144 -- the engine says which layer went; the page says it out loud
+    renderer.on("contextLost", function (e) { glostLost(e.layer); });
+    renderer.on("contextRestored", function (e) { glostRestored(e.layer); });
 
     renderer.on("enterNode", function (e) {
       state.hovered = e.node;
@@ -5738,7 +6106,8 @@ function mountVaultGraph(root, data, deps) {
     var pins = state.pinned.filter(function (id) { return graph.hasNode(id); });
     if (pins.length !== state.pinned.length) {
       state.pinned = pins;
-      if (savePinned) savePinned(pins.slice());
+      // github#143 -- the store is versioned; never hand the host raw ids
+      persistPins();
     }
   });
 
@@ -5760,6 +6129,7 @@ function mountVaultGraph(root, data, deps) {
   function setReading(which) {
     var tabs = $("tabs"), tg = $("tabgroups"), tn = $("tabnote");
     var pg = $("readgroups"), pn = $("readnote"), sb = $("sidebar");
+    // github#145 -- .disabled is a button's
     if (!tabs || !tg || !tn || !pg || !pn) return;
     var note = which === "note" && !!state.selected && !narrow();
     var next = note ? "note" : "groups";
@@ -5767,7 +6137,7 @@ function mountVaultGraph(root, data, deps) {
     reading = next;
     tg.setAttribute("aria-selected", note ? "false" : "true");
     tn.setAttribute("aria-selected", note ? "true" : "false");
-    tn.disabled = !state.selected || narrow();
+    /** @type {HTMLButtonElement} */ (tn).disabled = !state.selected || narrow();
     pg.hidden = note;
     pn.hidden = !note;
     if (sb) sb.scrollTop = readScroll[reading] || 0;
@@ -5817,7 +6187,10 @@ function mountVaultGraph(root, data, deps) {
         '<span><b style="color:' + colorOf(groupOf(id)) + '">&#9632;</b> ' + esc(groupOf(id)) + '</span>' +
         '<span>' + a.deg + ' link' + (a.deg === 1 ? "" : "s") + '</span>' +
         (a.words ? '<span>' + a.words + ' words</span>' : "") +
-        (a.created ? '<span>' + esc(a.created) + '</span>' : "") +
+        (a.created ? '<span title="added">' + esc(a.created) + '</span>' : "") +
+        // github#70
+        (a.touched && a.touched !== a.created
+          ? '<span title="last touched">&#8635; ' + esc(a.touched) + '</span>' : "") +
       '</div>' +
       // github#86 -- D-1: say which tag put the note where it is
       '<div>' + (a.tags || []).slice(0, 8).map(function (t, ti) {
@@ -5854,8 +6227,8 @@ function mountVaultGraph(root, data, deps) {
     // github#40, design/0012
     d.setAttribute("role", "region");
     d.setAttribute("aria-label", a.label);
-    d.querySelector(".x").onclick = function () { select(null); };
-    d.querySelector(".pin").onclick = function () { togglePin(id); select(id); };
+    /** @type {HTMLElement} */ (d.querySelector(".x")).onclick = function () { select(null); };
+    /** @type {HTMLElement} */ (d.querySelector(".pin")).onclick = function () { togglePin(id); select(id); };
     Array.prototype.forEach.call(d.querySelectorAll("[data-go]"), /** @param {HTMLElement} b */ function (b) {
       b.onclick = function () { goTo(b.getAttribute("data-go")); };
     });
@@ -6182,7 +6555,7 @@ function mountVaultGraph(root, data, deps) {
         var subs = subOrder[g];
         /**
          * @param {string} col @param {string} nm @param {number} ct
-         * @param {string[]} idx  subfolder indexes this row stands for
+         * @param {number[]} idx  github#145 -- numbers at all three call sites
          * @param {number} depth @param {string | null} twAttrs @param {boolean} twOpen
          */
         var srow = function (col, nm, ct, idx, depth, twAttrs, twOpen) {
@@ -6739,13 +7112,20 @@ function mountVaultGraph(root, data, deps) {
     state.pathOpen = dict();
     state.markDay = null;
     state.hoverDay = null;
+    // github#70, decisions/0009
+    setRecent(null);
+    recentT = 0;
+    recentDim = recentSet;
     state.until = null;
     state.query = "";
     state.hovered = null;
     select(null);
     hideTip();
-    $("q").value = "";    $("hits").replaceChildren();
+    /** @type {HTMLInputElement} */ ($("q")).value = "";    $("hits").replaceChildren();
     state.from = null; state.to = null; state.heatEnd = null;
+    // github#70 -- through setHeatSource, so the tally is rebuilt with it
+    setHeatSource("created");
+    syncRecentUI();
     rangeChrome();
     buildLegend();
   }
@@ -6959,8 +7339,9 @@ function mountVaultGraph(root, data, deps) {
      * @param {number} x @param {number} y
      * @param {string} current                       slot key in use, "" for none
      * @param {(key: string | null) => void} onPick
-     * @param {string} autoKey                       the slot with no override, "" for none
-     * @param {boolean} visShown @param {() => void} onToggleVisible
+     * @param {string} [autoKey]                     the slot with no override, "" for none
+     * @param {boolean} [visShown] @param {() => void} [onToggleVisible]
+     *   github#145 -- optional; the sub-colour menu passes four
      * @param {boolean} [byFolderOn] @param {(() => void) | null} [onToggleByFolder]
      * @param {boolean} [tintOn] @param {(() => void) | null} [onToggleTint]
      * @param {string} [group]
@@ -6999,13 +7380,13 @@ function mountVaultGraph(root, data, deps) {
         b.onclick = function () { onPick(b.getAttribute("data-key") || null); closeCtxMenu(); };
       });
       if (onToggleVisible) {
-        el.querySelector("[data-vis]").onclick = function () { onToggleVisible(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-vis]")).onclick = function () { onToggleVisible(); closeCtxMenu(); };
       }
       if (onToggleByFolder) {
-        el.querySelector("[data-byfolder]").onclick = function () { onToggleByFolder(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-byfolder]")).onclick = function () { onToggleByFolder(); closeCtxMenu(); };
       }
       if (onToggleTint) {
-        el.querySelector("[data-tint]").onclick = function () { onToggleTint(); closeCtxMenu(); };
+        /** @type {HTMLElement} */ (el.querySelector("[data-tint]")).onclick = function () { onToggleTint(); closeCtxMenu(); };
       }
       el.hidden = false;
       var root0 = ROOT.getBoundingClientRect();
@@ -7859,6 +8240,8 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function savePng() {
+    // github#142
+    renderer.render();
     var canvases = renderer.getCanvases();
     var src = canvases.nodes;
     var out = DOC.createElement("canvas");
@@ -7968,6 +8351,8 @@ function mountVaultGraph(root, data, deps) {
   var HEAT_MONTH_H = 12;
   var HEAT_ARROW_W = 9;
   var HEAT_EMPTY_A = 0.5;
+  // github#70 -- all three measured on the three fixtures, see invariants.md.
+  var BULK_MIN = 25, BULK_X = 20, BULK_SHARE = 0.15;
   var DAY_MS = 86400000, WEEK_MS = 7 * DAY_MS;
   var MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -7981,6 +8366,8 @@ function mountVaultGraph(root, data, deps) {
    * @property {string[]} ids
    * @property {{ c: string, w: number }[]} parts   colour and weight per note drawn in the tile
    * @property {number} n        weighted count currently on screen
+   * @property {boolean} [bulk]  github#70 -- too big to be a day's work; see heatBuild
+   * @property {number} [bulkX]  how many times the median day this one is
    * @typedef {Object} Heat
    * @property {number} cols
    * @property {number} cell
@@ -7993,6 +8380,8 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} before
    * @property {number} after
    * @property {number} undated
+   * @property {number} median    the median non-zero day, the bulk rule's yardstick
+   * @property {number} bulkDays
    * @property {number} dated
    * @property {number} w
    * @property {number} h
@@ -8035,7 +8424,9 @@ function mountVaultGraph(root, data, deps) {
   }
 
   function heatBuild() {
-    var wrap = $("heatwrap"), cv = $("heatc");
+    // github#70 -- a rebuilt tally is a new set of matches for the chips too
+    recentCache = dict();
+    var wrap = $("heatwrap"), cv = /** @type {HTMLCanvasElement} */ ($("heatc"));
     if (!wrap || !cv) return;
 
     var g = heatGeom();
@@ -8065,7 +8456,7 @@ function mountVaultGraph(root, data, deps) {
       // github#86 -- note's arriving dot: its weight and colour cross-fade
       // github#86 -- the note's day from the colour it had to the colour it gets
       if (a.dupOf && !a.standIn) return;
-      var k = a.created;
+      var k = heatDateOf(a);
       if (!heatParse(k)) { undated++; return; }
       all[k] = (all[k] || 0) + 1;
       var d = days[k];
@@ -8090,9 +8481,29 @@ function mountVaultGraph(root, data, deps) {
       if (wn > nMax) nMax = wn;
     }
 
+    /**
+     * github#70
+     *
+     *
+     *
+     */
+    var median = counts.length ? counts[Math.floor(counts.length / 2)] : 0;
+    var datedTotal = 0;
+    for (var t2 = 0; t2 < counts.length; t2++) datedTotal += counts[t2];
+    var bulkDays = 0;
+    for (var b = 0; b < keys.length; b++) {
+      var bd = days[keys[b]], bn = bd.ids.length;
+      bd.bulk = bn >= BULK_MIN &&
+        ((median > 0 && bn >= BULK_X * median) ||
+         (datedTotal > 0 && bn >= BULK_SHARE * datedTotal));
+      bd.bulkX = median > 0 ? Math.round(bn / median) : 0;
+      if (bd.bulk) bulkDays++;
+    }
+
     heat = {
       cols: cols, cell: cell, pitch: pitch, start: start, days: days, keys: keys,
       cuts: cuts, nMax: nMax, before: before, after: after, undated: undated,
+      median: median, bulkDays: bulkDays,
       dated: counts.length,
       w: HEAT_GUTTER + cols * pitch - HEAT_GAP + HEAT_ARROW_W,
       h: HEAT_MONTH_H + 7 * pitch - HEAT_GAP
@@ -8124,7 +8535,9 @@ function mountVaultGraph(root, data, deps) {
       (graph.order - standIns.length) + " notes" +
       (before ? " · " + before + " earlier" : "") +
       (after ? " · " + after + " later" : "") +
-      (undated ? " · " + undated + " undated" : "");
+      (undated ? " · " + undated + " undated" : "") +
+      // github#70
+      (bulkDays ? " · " + bulkDays + " bulk day" + (bulkDays === 1 ? "" : "s") : "");
 
     heatSig = "";
     heatDraw();
@@ -8186,12 +8599,14 @@ function mountVaultGraph(root, data, deps) {
     for (var i = 0; i < heat.keys.length; i++) {
       sig.push(Math.ceil(heat.days[heat.keys[i]].n * 4));
     }
-    sig.push(state.markDay || "", state.hoverDay || "", heat.cell);
+    sig.push(state.markDay || "", state.hoverDay || "", heat.cell, state.heatSource);
     // github#86 -- while a switch runs the colours move under a steady count
     if (standIns.length) sig.push("s" + lastCascade.frames);
-    sig = sig.join(",");
-    if (sig === heatSig) return;
-    heatSig = sig;
+    // github#145 -- the joined signature is its own binding
+    var sigKey = sig.join(",");
+    if (sigKey === heatSig) return;
+    heatSig = sigKey;
+    syncRecentUI();
 
     var dpr = window.devicePixelRatio || 1;
     var ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext("2d"));
@@ -8277,44 +8692,6 @@ function mountVaultGraph(root, data, deps) {
       }
     }
 
-    heatDrawKey(cell, R);
-  }
-
-  /** @param {number} cell @param {number} R corner radius */
-  function heatDrawKey(cell, R) {
-    var cv = /** @type {HTMLCanvasElement} */ ($("heatkey"));
-    if (!cv || !cv.getContext) return;
-    /** @type {number[]} */
-    var anchors = [];
-    heat.cuts.concat([heat.nMax]).forEach(function (a) {
-      if (anchors.indexOf(a) < 0) anchors.push(a);
-    });
-    var pitch = cell + 4;
-    var dpr = window.devicePixelRatio || 1;
-    var w = anchors.length * pitch - 4;
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(cell * dpr)) {
-      cv.width = Math.round(w * dpr);
-      cv.height = Math.round(cell * dpr);
-      cv.style.width = w + "px";
-      cv.style.height = cell + "px";
-    }
-    var ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext("2d"));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, cell);
-    var greys = [THEME.neutrals[0], THEME.neutrals[2]];
-    for (var i = 0; i < anchors.length; i++) {
-      /** @type {{ c: string, w: number }[]} */
-      var parts = [];
-      for (var j = 0; j < anchors[i]; j++) parts.push({ c: greys[j % 2], w: 1 });
-      ctx.save();
-      heatRect(ctx, i * pitch, 0, cell, cell, R);
-      ctx.clip();
-      heatTile(ctx, i * pitch, 0, cell, parts);
-      ctx.restore();
-    }
-    cv.title = anchors.map(function (a) {
-      return a + (a === 1 ? " note" : " notes");
-    }).join("  ·  ");
   }
 
   /**
@@ -8357,13 +8734,18 @@ function mountVaultGraph(root, data, deps) {
     }
     var top = Object.keys(by).sort(function (a, b) { return by[b] - by[a]; }).slice(0, 3);
     var wd = HEAT_WD[(new Date(d.ms).getUTCDay() + 6) % 7];
+    // github#70
+    var verb = state.heatSource === "touched" ? "touched" : "added";
     setHTML(t, '<div class="t">' + esc(d.key) + " · " + wd +
       (d.key === TODAY ? " · today" : "") + "</div>" +
       '<div class="m">' +
-      (n ? n + " note" + (n === 1 ? "" : "s") + " added" : "nothing added") +
+      (n ? n + " note" + (n === 1 ? "" : "s") + " " + verb : "nothing " + verb) +
       (top.length ? "<br>" + top.map(function (g2) {
         return '<b style="color:' + colorOf(g2) + '">■ </b> ' + esc(g2) + " " + by[g2];
       }).join("<br>") : "") +
+      (d.bulk ? "<br><i>" + (d.bulkX > 1 ? d.bulkX + "&times; the typical day here. " : "") +
+                "A sync, an import or a rename does this &mdash; it is not " +
+                "necessarily work.</i>" : "") +
       (n ? "<br><i>click to mark them on the disc</i>" : "") +
       "</div>");
     t.hidden = false;
@@ -8376,8 +8758,129 @@ function mountVaultGraph(root, data, deps) {
     t.style.top = (above >= 2 ? above : cy + heat.cell + 8) + "px";
   }
 
+  /** @type {Record<string, { key: string, ids: string[], days: string[] }>} */
+  var recentCache = dict();
+  /**
+   * github#70
+   * @param {string} kind
+   */
+  function recentCount(kind) {
+    var win = recentWindow(kind, state.recent === kind && recentRef !== null
+      ? recentRef : undefined);
+    if (!win) return { n: 0, bulk: 0, win: null };
+    // github#70 -- the walk once per window, the alpha pass per call
+    var key = state.heatSource + "|" + win.lo + "|" + win.hi;
+    var c = recentCache[kind];
+    if (!c || c.key !== key) {
+      c = recentCache[kind] = { key: key, ids: [], days: [] };
+      graph.forEachNode(function (id, a) {
+        if (!inRecent(win, a)) return;
+        c.ids.push(id); c.days.push(heatDateOf(a));
+      });
+    }
+    var n = 0, bulk = 0;
+    for (var i = 0; i < c.ids.length; i++) {
+      if ((alpha[c.ids[i]] || 0) <= 0.004) continue;
+      n++;
+      // github#70
+      var d = heat ? heat.days[c.days[i]] : null;
+      if (d && d.bulk) bulk++;
+    }
+    return { n: n, bulk: bulk, win: win };
+  }
+
+  /**
+   * github#70
+   */
+  function syncRecentUI() {
+    var box = $("recent");
+    if (!box) return;
+    var src = $("heatsrc");
+    if (src) {
+      /** @type {Record<string, string>} */
+      var TITLES = {
+        created: "Count each note on the day it was ADDED. The band's default, and the date " +
+                 "the timeline and the date range use.",
+        touched: "Count each note on the day it was last TOUCHED -- the file's own timestamp. " +
+                 "A sync, an import or a rename rewrites that in bulk, so a big day here is " +
+                 "not always work; the band says so when it sees one."
+      };
+      var btns = src.querySelectorAll("button[data-src]");
+      for (var b = 0; b < btns.length; b++) {
+        var sb = /** @type {HTMLButtonElement} */ (btns[b]);
+        var key = sb.getAttribute("data-src") || "";
+        sb.setAttribute("aria-pressed", key === state.heatSource ? "true" : "false");
+        sb.title = TITLES[key] || "";
+      }
+    }
+    var chips = box.querySelectorAll("button[data-kind]");
+    for (var i = 0; i < chips.length; i++) {
+      var btn = /** @type {HTMLButtonElement} */ (chips[i]);
+      var kind = btn.getAttribute("data-kind") || "";
+      var c = recentCount(kind);
+      var on = state.recent === kind;
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      // github#70
+      btn.disabled = c.n === 0 && !on;
+      var cnt = btn.querySelector(".n");
+      if (cnt && cnt.textContent !== String(c.n)) cnt.textContent = String(c.n);
+      btn.title = c.win
+        ? c.n + " note" + (c.n === 1 ? "" : "s") + " " + c.win.label +
+          (c.bulk ? " · " + c.bulk + " of them on a bulk day, so probably a sync or a rename" : "") +
+          (c.n ? "" : " · nothing here yet")
+        : "";
+    }
+  }
+
+  function buildRecentUI() {
+    var box = $("recent");
+    if (!box) return;
+    // github#70
+    box.style.setProperty("--vg-count-ch", String(graph.order).length + "ch");
+    // github#70, decisions/0009 -- the third chip exists only where a host can answer it.
+    var kinds = [
+      { kind: "today", label: "Today" },
+      // github#70
+      { kind: "week", label: "Last 7" }
+    ];
+    if (lastOpen !== null) kinds.push({ kind: "open", label: "Since last open" });
+
+    kinds.forEach(function (k) {
+      var b = DOC.createElement("button");
+      b.type = "button";
+      b.className = "btn chip";
+      b.setAttribute("data-kind", k.kind);
+      b.setAttribute("aria-pressed", "false");
+      var t = DOC.createElement("span");
+      t.textContent = k.label;
+      var n = DOC.createElement("span");
+      n.className = "n";
+      b.appendChild(t);
+      b.appendChild(n);
+      b.addEventListener("click", function () {
+        // github#70
+        setRecent(state.recent === k.kind ? null : k.kind);
+        syncRecentUI();
+        hlSync();
+        renderer.refresh();
+      });
+      box.appendChild(b);
+    });
+    syncRecentUI();
+  }
+
   function buildHeatmapUI() {
     var cv = /** @type {HTMLCanvasElement} */ ($("heatc"));
+    var srcBox = $("heatsrc");
+    if (srcBox) {
+      // github#70
+      srcBox.addEventListener("click", function (ev) {
+        var t = /** @type {HTMLElement} */ (ev.target);
+        var btn = t && t.closest ? t.closest("button[data-src]") : null;
+        if (btn) setHeatSource(btn.getAttribute("data-src") || "created");
+      });
+    }
+    buildRecentUI();
     /** @param {string | null} key */
     var setHover = function (key) {
       if (state.hoverDay === key) return;
@@ -8471,6 +8974,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [to0]
    * @property {number} [pFrom]
    * @property {number} [pTo]
+   * @property {number} [winEnd0]  github#145 -- the window end at drag start
    */
   /** @type {BrushDrag | null} */
   var brushDrag = null;
@@ -8820,7 +9324,8 @@ function mountVaultGraph(root, data, deps) {
       var el = $(which);
       if (!el) return;
       el.onchange = function () {
-        setRangeMs(fieldMs($("from")), fieldMs($("to")));
+        setRangeMs(fieldMs(/** @type {HTMLInputElement} */ ($("from"))),
+                   fieldMs(/** @type {HTMLInputElement} */ ($("to"))));
       };
     });
 
@@ -8955,7 +9460,9 @@ function mountVaultGraph(root, data, deps) {
       });
       yrHost.addEventListener("pointerover", function (ev) { hoverYear(yrOf(ev)); });
       yrHost.addEventListener("pointerout", function (ev) {
-        if (!ev.relatedTarget || !yrHost.contains(ev.relatedTarget)) hoverYear(null);
+        // github#145 -- EventTarget; contains() takes a Node
+        var to = /** @type {Node | null} */ (ev.relatedTarget);
+        if (!to || !yrHost.contains(to)) hoverYear(null);
       });
     }
 
@@ -9008,7 +9515,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {boolean} [dblclick]
    * @property {boolean} [rightclick]
    * @property {boolean} [hover]
-   * @property {boolean} [drag]
+   * @property {boolean | number[]} [drag]   github#145 -- true, or the [dx, dy]
    * @property {boolean} [touchmode]
    * @property {string} [live]       "outer" or "inner": hand the page one more note on that ring
    * @property {number} [wheel]
@@ -9055,6 +9562,7 @@ function mountVaultGraph(root, data, deps) {
    * shapes answer the three questions demoWhere asks of them, which is why they are
    * interchangeable here; DemoTarget states that duck-typed contract rather than pretending
    * one is the other.
+   * @typedef {{ left: number, top: number, width: number, height: number }} DemoRect
    * @typedef {Object} DemoTarget
    * @property {number} [left]
    * @property {number} [top]
@@ -9064,7 +9572,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {number} [gap]
    * @property {string} [demoLabel]
    * @property {string} [id]
-   * @property {() => DOMRect} [getBoundingClientRect]
+   * @property {() => DemoRect} [getBoundingClientRect]   github#145 -- not a DOMRect
    * @property {(opts?: unknown) => void} [scrollIntoView]
    * @property {(name: string) => string | null} [getAttribute]
    * @property {(sel: string) => Element | null} [querySelector]
@@ -9076,6 +9584,9 @@ function mountVaultGraph(root, data, deps) {
     if (kind === "id") return $(arg);
     // github#86 -- a side of the grouping control
     if (kind === "dim") return $("dim") ? $("dim").querySelector('button[data-dim="' + arg + '"]') : null;
+    // github#70 -- a recent chip, or a side of the Added / Touched control
+    if (kind === "chip") return $("recent") ? $("recent").querySelector('button[data-kind="' + arg + '"]') : null;
+    if (kind === "heatsrc") return $("heatsrc") ? $("heatsrc").querySelector('button[data-src="' + arg + '"]') : null;
     if (kind === "stage") {
       var stageEl = $("graph");
       if (!stageEl) return null;
@@ -9164,7 +9675,7 @@ function mountVaultGraph(root, data, deps) {
     if (kind === "year") {
       var yh = $("years");
       if (!yh || !dateSpan) return null;
-      var chips = Array.from(yh.querySelectorAll("button[data-yr]"));
+      var chips = /** @type {HTMLElement[]} */ (Array.from(yh.querySelectorAll("button[data-yr]")));
       if (!chips.length) return null;
       /** @type {Record<string, number>} */
       var have = dict();
@@ -9455,6 +9966,18 @@ function mountVaultGraph(root, data, deps) {
       { click: true, target: ["busiest", "1"], act: "heatmap", why: "...and click again to let it go" },
       { settle: true, act: "heatmap", why: "let it ramp back" },
 
+      // github#70 -- recorded with ?today=vault; see docs/features/recent.md
+      { click: true, target: ["chip", "today"], act: "recent", why: "halo what was added today -- nothing moves, everything else steps back" },
+      { settle: true, act: "recent", why: "let the halo and the dim ramp in" },
+      { click: true, target: ["chip", "week"], act: "recent", why: "widen to the last seven days" },
+      { settle: true, act: "recent", why: "the window grows, and the halo with it" },
+      { click: true, target: ["heatsrc", "touched"], act: "recent", why: "count by the day a note was last touched instead" },
+      { settle: true, act: "recent", why: "same window, the other date" },
+      { click: true, target: ["heatsrc", "created"], act: "recent", why: "...and back to the day it was added" },
+      { settle: true, act: "recent", why: "let it swap back" },
+      { click: true, target: ["chip", "week"], act: "recent", why: "click the chip again to let the lens go" },
+      { settle: true, act: "recent", why: "everything eases back" },
+
       { click: true, target: ["eye", "06"], act: "folders", why: "hide a folder -- the wedges reallocate" },
       { settle: true, act: "folders", why: "let the wedges reallocate" },
 
@@ -9739,9 +10262,13 @@ function mountVaultGraph(root, data, deps) {
       return [];
     }
     if (name === "intro") return beats;
-    var out = [{ settle: true, act: name, why: "start from a disc at rest" }].concat(beats);
+    /** @type {DemoBeat[]} */
+    var lead = [{ settle: true, act: name, why: "start from a disc at rest" }];
+    var out = lead.concat(beats);
     if (!beats[beats.length - 1].park) {
-      out = out.concat([{ park: true, act: name, why: "leave the final frame clean" }]);
+      /** @type {DemoBeat[]} */
+      var tailBeat = [{ park: true, act: name, why: "leave the final frame clean" }];
+      out = out.concat(tailBeat);
     }
     return out;
   }
@@ -10063,6 +10590,15 @@ function mountVaultGraph(root, data, deps) {
                       cascade(null, { colToggle: true });
                     },
                     heatBuild: heatBuild,
+                    // github#70 -- heatDateOf is the seam a day-contents list reads,
+                    heatDateOf: heatDateOf,
+                    recentWindow: recentWindow,
+                    setHeatSource: setHeatSource,
+                    /** @param {string | null} kind @param {number} [refMs] */
+                    setRecent: function (kind, refMs) {
+                      setRecent(kind || null, refMs);
+                      syncRecentUI(); hlSync(); renderer.refresh();
+                    },
                     checkPlanParity: function () {
                       var shown = 0;
                       graph.forEachNode(function (id) { if (visible(id)) shown++; });
@@ -10072,7 +10608,7 @@ function mountVaultGraph(root, data, deps) {
                       /** @type {Record<string, object>} */
                       var diffs = {};
                       /** @param {Plan} p @returns {Record<string, number>} */
-                      var rows = function (p) { /** @type {Record<string, number>} */ var m = {}; p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
+                      var rows = function (p) { /** @type {Record<string, number>} */ var m = dict(); p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
                       var rs = rows(stat), rl = rows(live);
                       Object.keys(rs).concat(Object.keys(rl)).forEach(function (k) {
                         if (rs[k] !== rl[k]) diffs[k] = { staticPlan: rs[k], livePlan: rl[k] };
@@ -10252,7 +10788,8 @@ function mountVaultGraph(root, data, deps) {
                                    range: rangeLabel(),
                                    from: state.from, to: state.to, heatEnd: state.heatEnd,
                                    timelineUntil: state.until,
-                                   markDay: state.markDay, shown: pts.length },
+                                   markDay: state.markDay, shown: pts.length,
+                                   heatSource: state.heatSource, recent: state.recent },
                         room: { i: r3n(bandOf("i").room), o: r3n(bandOf("o").room) },
                         minArcDeg: r3(lastMinArc * 180 / Math.PI),
                         spacing: { spOuter: r3(bandOf("o").sp),
@@ -10417,7 +10954,12 @@ function mountVaultGraph(root, data, deps) {
                         busiest: top, inWindow: heat.keys.reduce(function (a, k) {
                           return a + heat.days[k].ids.length; }, 0),
                         earlier: heat.before, later: heat.after, undated: heat.undated,
-                        markDay: state.markDay, hoverDay: state.hoverDay
+                        markDay: state.markDay, hoverDay: state.hoverDay,
+                        // github#70
+                        heatSource: state.heatSource, recent: state.recent,
+                        median: heat.median, bulkDays: heat.bulkDays,
+                        bulk: heat.keys.filter(function (k) { return heat.days[k].bulk; }),
+                        recentLit: Object.keys(recentSet).length, recentT: recentT
                       };
                       return out;
                     },
@@ -10450,7 +10992,7 @@ function mountVaultGraph(root, data, deps) {
                       var padded = buildWedgePlan(true, W);
                       planKeep = save;
                       /** @param {Plan} p @returns {Record<string, number>} */
-                      var rows = function (p) { /** @type {Record<string, number>} */ var m = {}; p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
+                      var rows = function (p) { /** @type {Record<string, number>} */ var m = dict(); p.cells.forEach(function (c) { m[c.k] = c.rows; }); return m; };
                       var a = rows(lean), b = rows(padded), diffs = {};
                       // github#5
                       Object.keys(a).concat(Object.keys(b)).forEach(function (k) {
@@ -10681,6 +11223,9 @@ function mountVaultGraph(root, data, deps) {
                     pin: /** @param {string} id */ function (id) { togglePin(id); },
                     pinned: function () { return state.pinned.slice(); },
                     clearPins: function () { state.pinned = []; hubChanged(false); },
+                    // github#143 -- what the host is handed, and what it reads back
+                    pinsStored: function () { return pinsStored(); },
+                    pinsFrom: /** @param {unknown} want */ function (want) { return pinsFrom(want); },
                     lastCascade: function () { return lastCascade; },
                     get planSkelCheck() { return planSkelCheck; },
                     set planSkelCheck(v) { planSkelCheck = !!v; },

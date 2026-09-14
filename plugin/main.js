@@ -6,6 +6,8 @@ import { mountVaultGraph } from "../src/page.js";
 import { GraphStore, Renderer } from "../src/engine/index";
 // github#6
 import { localDay, resolveCreated, dateTally } from "../src/dates.mjs";
+// github#141
+import { canonicalDest, ghostId, ghostKey, ghostLabel } from "../src/links.mjs";
 import PAGE_HTML from "raw:../src/page.html";
 import LOGO_MASK_B64 from "b64:../assets/logo-mask.png";
 // github#83, design/0016
@@ -64,7 +66,7 @@ function bareMap() {
  * @property {Record<string, string>} subtagColors      github#86 -- "tag/sub" -> slot key
  * @property {Record<string, boolean>} tagShown         github#86 -- tag -> shown by default
  * @property {Record<string, boolean>} folderShown      folder name -> shown by default
- * @property {string[]} pinned                          note ids in the hub, in slot order
+ * @property {string[]} pinned                          github#143 -- opaque; the page owns it
  * @property {boolean} panEnabled
  * @property {boolean} compactAxis
  * @property {boolean} unlinkedByFolder
@@ -73,6 +75,7 @@ function bareMap() {
  * @property {boolean} fitCap                           github#41, design/0011
  * @property {"folder" | "tag"} dim                     github#86 -- grouping dimension
  * @property {boolean} liveRefresh                      github#72
+ * @property {number} [lastSeen]                       github#70 -- ms, when the view was last
  * @property {boolean} [sheetOpen]                      github#82 -- absent until folded once
  * @property {boolean} [bandOpen]                       github#82
  * @property {string} [lastSeenVersion]                 github#83 -- absent until the first load records it
@@ -98,6 +101,11 @@ function bareMap() {
  */
 
 /** @typedef {Awaited<ReturnType<typeof buildData>>} BuildResult */
+
+/**
+ * github#140 -- the only four settings buildData reads, per render
+ * @typedef {Pick<Settings, "ghosts" | "templates" | "flatMonths" | "words">} BuildOptions
+ */
 
 /**
  * The page's own boundary types, declared where the object is built (src/page.js, the
@@ -320,7 +328,7 @@ async function readFolders(app) {
  */
 /**
  * @param {App} app
- * @param {Settings} opts   only the four build settings are read
+ * @param {BuildOptions} opts   only the four build settings are read
  * @param {string} [version]   github#108 -- this.plugin.manifest.version, shown in the stats line
  */
 async function buildData(app, opts, version) {
@@ -406,7 +414,8 @@ async function buildData(app, opts, version) {
   /* ---- ghosts: unresolvedLinks, for free --------------------------------- */
   const unresolvedMap = app.metadataCache.unresolvedLinks || {};
   let unresolved = 0;
-  /** @type {Map<string, [number, number][]>} */
+  // github#141
+  /** @type {Map<string, { dest: string, sources: [number, number][] }>} */
   const ghosts = new Map();
   for (const src of Object.keys(unresolvedMap)) {
     const i = index.get(src);
@@ -415,20 +424,22 @@ async function buildData(app, opts, version) {
       const n = unresolvedMap[src][target];
       unresolved += n;
       if (!opts.ghosts) continue;
-      const key = target.split("/").pop();
-      if (!ghosts.has(key)) ghosts.set(key, []);
-      ghosts.get(key).push([i, n]);
+      const dest = canonicalDest(src, target);
+      const key = ghostKey(dest);
+      let slot = ghosts.get(key);
+      if (!slot) { slot = { dest: dest, sources: [] }; ghosts.set(key, slot); }
+      else if (dest < slot.dest) slot.dest = dest;
+      slot.sources.push([i, n]);
     }
   }
   if (opts.ghosts) {
-    for (const entry of ghosts) {
-      const name = entry[0], sources = entry[1];
+    for (const slot of ghosts.values()) {
       const j = nodes.length;
       nodes.push({
-        id: "ghost:" + name, label: name, folder: "(unresolved)", sub: "", dirs: [],
+        id: ghostId(slot.dest), label: ghostLabel(slot.dest), folder: "(unresolved)", sub: "", dirs: [],
         type: "ghost", tags: [], created: "", touched: "", words: 0, ghost: true,
       });
-      for (const pair of sources) addEdge(pair[0], j, pair[1]);
+      for (const pair of slot.sources) addEdge(pair[0], j, pair[1]);
     }
   }
 
@@ -538,6 +549,9 @@ class VaultGraphView extends ItemView {
     this.plugin = plugin;
     /** @type {MountHandle | null} */
     this.handle = null;
+    // github#140 -- teardown() drops it, so it is declared here
+    /** @type {HTMLElement | null} */
+    this.page = null;
     /** @type {BuildResult | null} */
     this.lastData = null;
     this.mountMs = 0;
@@ -559,6 +573,13 @@ class VaultGraphView extends ItemView {
     this.cssRef = null;
     /** @type {EventRef[] | null} */
     this.liveRefs = null;
+    // github#140 -- the current render; only teardown() moves it
+    this.renderGen = 0;
+    // github#140 -- render() owns this now, not the Refresh button
+    this.rebuilding = false;
+     // github#70
+    /** @type {number | undefined} */
+    this.lastSeenPrev = undefined;
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -566,21 +587,29 @@ class VaultGraphView extends ItemView {
   getIcon() { return ICON_ID; }
 
   async onOpen() {
-    await this.render();
+    // github#70, decisions/0009 -- the HOST owns this clock; the page only receives it.
+    this.lastSeenPrev = this.plugin.settings.lastSeen;
+    // github#70 -- a failed stamp must not skip the render or the teardown
+    try { await this.plugin.stampOpen(); } finally { await this.render(); }
   }
 
   async onClose() {
-    this.teardown();
+    try { await this.plugin.stampOpen(); } finally { this.teardown(); }
   }
 
-  // github#62
+  // github#62; github#140 -- the one place a render is invalidated
   teardown() {
+    this.renderGen++;
+    // github#140 -- nothing is current after this, so nothing is busy
+    this.rebuilding = false;
     // github#72
     this.cancelLive();
     if (this.handle) {
       attempt(() => this.handle.destroy());
     }
     this.handle = null;
+    // github#140 -- never hold a reference to a removed element
+    this.page = null;
     this.contentEl.empty();
   }
 
@@ -736,7 +765,8 @@ class VaultGraphView extends ItemView {
 
   syncTheme() {
     if (!this.page) return;
-    const want = activeDocument.body.classList.contains("theme-light") ? "light" : "dark";
+    // github#140 -- THIS view's document, not whichever one has focus
+    const want = this.contentEl.doc.body.classList.contains("theme-light") ? "light" : "dark";
     if (this.page.getAttribute("data-theme") === want) return;
     this.page.setAttribute("data-theme", want);
 
@@ -807,17 +837,49 @@ class VaultGraphView extends ItemView {
     await this.plugin.recordVersion();
   }
 
+  // github#140 -- a superseded render writes nothing, on every path
+  // github#140 -- and render() owns `rebuilding`, not just Refresh
   async render() {
     this.teardown();
+    const gen = this.renderGen;
+    // github#140 -- a snapshot, taken before the await
+    /** @type {BuildOptions} */
+    const opts = {
+      ghosts: this.plugin.settings.ghosts,
+      templates: this.plugin.settings.templates,
+      flatMonths: this.plugin.settings.flatMonths,
+      words: this.plugin.settings.words,
+    };
+    this.rebuilding = true;
+    try {
+      await this.renderPass(gen, opts);
+    } catch (e) {
+      // github#140 -- clean up, but only while still the current one
+      if (this.renderGen === gen) this.teardown();
+      throw e;
+    } finally {
+      if (this.renderGen === gen) this.rebuilding = false;
+    }
+  }
+
+  /**
+   * github#140 -- one render's body; the bookkeeping above stays short
+   * @param {number} gen
+   * @param {BuildOptions} opts
+   */
+  async renderPass(gen, opts) {
     const root = this.contentEl;
     root.addClass("vault-graph-view");
     this.mountNote();
 
-    const data = await buildData(this.app, this.plugin.settings, this.plugin.manifest.version);
+    const data = await buildData(this.app, opts, this.plugin.manifest.version);
+    // github#140 -- THE CHECK: everything below writes view state
+    if (this.renderGen !== gen) return;
     this.lastData = data;
 
     const parsed = new DOMParser().parseFromString(PAGE_HTML, "text/html");
-    const page = parsed.body.firstElementChild;
+    // github#145 -- PAGE_HTML's root is a div; the narrow claim is made here
+    const page = /** @type {HTMLElement | null} */ (parsed.body.firstElementChild);
     if (!page) throw new Error("page markup did not parse to an element");
     root.appendChild(page);
 
@@ -875,6 +937,8 @@ class VaultGraphView extends ItemView {
         await this.plugin.saveSettings();
       },
       folderShown: this.plugin.settings.folderShown,
+      // github#70
+      lastOpen: this.lastSeenPrev,
       panEnabled: this.plugin.settings.panEnabled,
       /** @param {boolean} v */
       onPanEnabled: async (v) => {
@@ -938,14 +1002,13 @@ class VaultGraphView extends ItemView {
         await this.plugin.saveSettings();
       },
       openSettings: () => this.plugin.openSettings(),
-      win: activeWindow,
-      // github#6
+      // github#140 -- this view's window, not whichever one has focus now
+      win: this.contentEl.win,
+      // github#6; github#140 -- render() owns the busy flag, this only declines to re-enter
       onRefresh: () => {
         if (this.rebuilding) return;
-        this.rebuilding = true;
         this.render()
-          .catch(/** @param {Error} e */ (e) => new Notice("Vault Graph: rebuild failed -- " + e.message))
-          .finally(() => { this.rebuilding = false; });
+          .catch(/** @param {Error} e */ (e) => new Notice("Vault Graph: rebuild failed -- " + e.message));
       },
     });
     this.mountMs = Math.round(performance.now() - t0);
@@ -1599,6 +1662,15 @@ class VaultGraphPlugin extends Plugin {
     const base = disk && typeof disk === "object" ? /** @type {Record<string, unknown>} */ (disk) : {};
     this.settings.lastSeenVersion = this.manifest.version;
     await this.saveData(Object.assign({}, base, { lastSeenVersion: this.manifest.version }));
+  }
+
+  // github#70, design/0016 -- the stamp alone onto what is on disk, like recordVersion
+  async stampOpen() {
+    /** @type {unknown} */
+    const disk = await this.loadData();
+    const base = disk && typeof disk === "object" ? /** @type {Record<string, unknown>} */ (disk) : {};
+    this.settings.lastSeen = Date.now();
+    await this.saveData(Object.assign({}, base, { lastSeen: this.settings.lastSeen }));
   }
 
   openSettings() {
