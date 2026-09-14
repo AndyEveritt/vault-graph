@@ -3263,13 +3263,7 @@ check("the last frame of a cascade is the resting layout", async (p) => {
         // This is still BEFORE the final assignment, which is the frame the check wants: the
         // beat below exists because busy() clears before that assignment lands, so snapping
         // the instant it clears captures the last ANIMATED frame and not the resting one.
-        // github#159 -- AND KEEP THE FRAME BEFORE IT. Snapping on the transition put 'last'
-        // on the far side of anything that changes ON the transition: a dot held under a
-        // stale endpoint cap through the whole walk and released on the landing frame went
-        // 7px -> 30px between the last busy frame and this one, and last -> rest read 0
-        // because both were post-release. 'prev' is the last busy frame; sizes are asserted
-        // across prev -> last as well. Positions are not -- that pair is the 22-27 unit
-        // coin flip on the 10k fixture recorded above, and it is a real frame of motion.
+        // github#159 -- keep the last busy frame too, and assert sizes across it
         window.__LF.prev = window.__LF.last; window.__LF.last = snap(); window.__LF.frames++;
         // A BEAT: busy() clears before the final assignment lands. Without this the check
         // measures its own stopwatch -- see the note in animation.md.
@@ -3322,9 +3316,7 @@ check("the last frame of a cascade is the resting layout", async (p) => {
   const groups = await p.j(`__vg.groupOrder().filter(function (x) { return __vg.groupCount(x) > 0; })
                              .map(function (x) { return [x, __vg.groupCount(x)]; })`);
   const g = groups[0][0];
-  // github#159 -- AND THE LARGEST. groupOrder()[0] on the dominant-folder vault is
-  // "(vault root)", one note; the folder that re-plans both rings is `projects` at 738,
-  // and the size release only shows on a toggle big enough to move a dot's neighbours.
+  // github#159 -- and the largest group: the release needs a big toggle
   const gBig = groups.reduce((a, b) => (b[1] > a[1] ? b : a), groups[0])[0];
   const eye = (name) => `document.querySelector('[data-eye="' +
     ${JSON.stringify("NAME")}.replace(/"/g, String.fromCharCode(92) + '"') + '"]').click();`

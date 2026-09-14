@@ -1334,18 +1334,7 @@ function mountVaultGraph(root, data, deps) {
   // github#13
   var DENSITY_MAX = 2.6;
 
-  // github#157 -- how far off square filling a band may push a lattice cell before
-  // github#157 -- solveBand() stops filling it. A ceiling on the STRETCH the fill applies,
-  // github#157 -- not on the rendered cell -- the rendered one comes out lower, because
-  // github#157 -- the gaps between wedges take arc the tangential step never gets.
-  // github#157 -- 1.5 is measured, from a window with a wall at each end. Below it: the
-  // github#157 -- largest stretch any of the four fixtures reaches AT REST is 1.364 (the
-  // github#157 -- dominant-folder vault's inner ring, 5 rows against 4.28), and a ceiling
-  // github#157 -- under that would relayout the resting disc on three of the four.
-  // github#157 -- Above it: at 1.75 the ceiling would sit exactly on the bound that `the
-  // github#157 -- disc's density follows the notes on screen` asserts, which takes that
-  // github#157 -- check's teeth. At 1.5 no resting layout moves, and the worst cell over
-  // github#157 -- the states that check samples is 1.40 against its 1.75.
+  // github#157 -- the stretch ceiling; the 1.5 window is in changelog-detail
   var CELL_FILL_MAX = 1.5;
 
   /**
@@ -2306,21 +2295,7 @@ function mountVaultGraph(root, data, deps) {
       var rw = Math.ceil(T / s - 0.001);
       if (rw < 1) rw = 1;
       if (rw > 200) rw = 200;
-      // github#157 -- having rounded the row count UP, do not then STRETCH the lattice to
-      // github#157 -- fill the band with it. How many notes land in a row is decided by rw
-      // github#157 -- alone, so the tangential step does not move when the pitch does, and
-      // github#157 -- pitching the rows at T/rw turns the ceil's overshoot q = rw*s/T into
-      // github#157 -- a cell aspect of q*q -- the SQUARE of the rounding error. A 27-note
-      // github#157 -- outer band wants 1.44 rows, takes 2, and comes out 1.76 wide against
-      // github#157 -- a bound of 1.75. Spending the band's own slack instead -- rows at
-      // github#157 -- their square pitch s, the remainder left as margin -- costs nothing
-      // github#157 -- that the ceil bought, because `room`, and so the dot, is a function
-      // github#157 -- of rw and not of the pitch. The rows always fit: rw = ceil(T / s)
-      // github#157 -- puts (rw - 1) * s <= T, and they are laid from `base`, not centred.
-      // github#157 -- One row is exempt: there is no radial pitch on screen to be off square,
-      // github#157 -- and the number is only a scale for the dot. Unscaled units throughout,
-      // github#157 -- so a band that fills squarely returns the float it always did rather
-      // github#157 -- than one scaled and unscaled again.
+      // github#157 -- rows at the square pitch; the rest is margin, not stretch
       var pit = thick / rw;
       var q = rw * s / T;
       if (rw > 1 && q * q > CELL_FILL_MAX) {
@@ -2354,11 +2329,7 @@ function mountVaultGraph(root, data, deps) {
       SP_O = so.sp; outerRows = so.rows;
       outer.forEach(function (c) { c.rows = c.wsum > 0.0001 ? outerRows : 0; });
       maxR = rOuter + outerRows * SP_O;
-      // github#157 -- rows * pitch OVERSHOOTS the ring once CELL_FILL_MAX leaves margin
-      // github#157 -- inside it, and this radius is not bookkeeping: fitRatio() frames the
-      // github#157 -- disc by it, and the hub's share is measured against it, so an inflated
-      // github#157 -- one zooms out and drifts. Only the overshoot is taken back -- a band
-      // github#157 -- that has emptied still reports the smaller radius it always did.
+      // github#157 -- take back only the overshoot; fitRatio frames by maxR
       if (maxR > geomLock.maxR) maxR = geomLock.maxR;
     } else {
       outer.forEach(function (c) {
@@ -2796,20 +2767,8 @@ function mountVaultGraph(root, data, deps) {
     if (!roomNow) {
       bandOf("i").room = pick(pool.i); bandOf("o").room = pick(pool.o);
     }
-    // github#160 -- ROW 0'S EDGE SITS ON THE RING, NOT ITS CENTRE. Rows are laid from
-    // github#160 -- `base`, so the outer band's first row had its centre on rOuter and its
-    // github#160 -- dot crossed the ring by a whole radius: 60px at rest, which read as fine,
-    // github#160 -- and 215px with a dominant folder hidden, where the ring visibly walked
-    // github#160 -- 155px inward. The whole band is shifted out by the largest dot row 0 can
-    // github#160 -- draw, worked out in UNIT space from the same terms dotPx() uses -- the
-    // github#160 -- pitch ramp, its DOT_MAX_SPREAD ceiling, the band's room over its pitch
-    // github#160 -- capped at DOT_ROOM_MAX -- so the layout stays a function of the data and
-    // github#160 -- never of the renderer or the window. Cell room and the edge cap can only
-    // github#160 -- make a dot smaller than this, so the edge lands on the ring or inside it.
-    // github#160 -- Outer band only: the inner band's row 0 is allowed HUB_ROW0_FRAC of the
-    // github#160 -- hub on purpose (github#35). The last row's dot must still clear maxR,
-    // github#160 -- so the shift is clamped to the slack the pitch left there -- the band
-    // github#160 -- has a full pitch of it at rest, and the github#157 ceiling leaves some.
+    // github#160 -- shift the outer band out by row 0's largest dot radius
+    // github#35 -- the inner band keeps HUB_ROW0_FRAC of the hub on purpose
     var insetO = 0;
     var roomO = roomNow ? roomNow.o : bandOf("o").room;
     if (plan.sp > 0 && plan.rows && plan.rows.o > 0 && roomO > 1) {
@@ -4011,8 +3970,7 @@ function mountVaultGraph(root, data, deps) {
   var fitVer = -1;
   /** @type {Record<string, number> | null} */
   var fitNow = null;
-  // github#159 -- an endpoint's clearance is measured on the endpoint's OWN positions,
-  // github#159 -- not on whatever frame the graph happens to be holding
+  // github#159 -- an endpoint's clearance from its OWN positions
   /** @type {Record<string, Point> | null} */
   var fitPos = null;
 
@@ -4611,14 +4569,7 @@ function mountVaultGraph(root, data, deps) {
         traceTag(keepTag);
         // github#66
         measureSizeScale();
-        // github#159 -- THE ENDPOINT'S OWN FRAME, for the fit. These sizes become the cap the
-        // github#159 -- walk holds every dot under (github#66), and the frame fit (github#41)
-        // github#159 -- is part of them. measureFit() reads graph positions and re-runs only
-        // github#159 -- when posVer moves, and nothing moves it between endpoint A and
-        // github#159 -- endpoint B -- so B's sizes were measured against A's frame, with A's
-        // github#159 -- neighbours still in it. A dot whose neighbour is leaving was capped
-        // github#159 -- at the size that neighbour allowed, all the way to the landing, and
-        // github#159 -- then released in one frame: 7px to 30px, with nothing else moving.
+        // github#159, github#66, github#41 -- the endpoint's own frame for the fit
         fitPos = outPos; fitVer = -1;
         /** @type {Record<string, number>} */
         var sizes = dict();
