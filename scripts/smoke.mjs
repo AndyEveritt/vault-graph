@@ -4253,7 +4253,7 @@ check("a pin is stored by the note's path, not by its position", async (p, ctx) 
     __vg.graph.forEachNode(function (id, a) { m[id] = a.path; }); return m; })()`;
   const v = await pinIdentityBuilds();
   const mark = ctx.errors.length;
-  let one = null, two = null, back = false, why = "";
+  let one = null, two = null, live = null, back = false, why = "";
   try {
     if (!(await goto(v.before, 20000))) why = "the two-note build never came up";
     if (!why) {
@@ -4290,6 +4290,20 @@ check("a pin is stored by the note's path, not by its position", async (p, ctx) 
           nodes: all.length
         };
       })()`);
+      // github#143 -- the other boundary: a live rebuild that drops a pinned note
+      await p.eval(LIVE_JS);
+      live = await p.j(`(function(){
+        var byPath = {};
+        __vg.graph.forEachNode(function (id, a) { byPath[a.path] = id; });
+        __vg.clearPins(); __vg.pin(byPath["B.md"]); __vg.pin(byPath["C.md"]);
+        var nodes = __vg.data().nodes, at = -1;
+        for (var i = 0; i < nodes.length; i++) if (nodes[i].id === "B.md") at = i;
+        var res = __vg.applyData(window.__live.without(at));
+        return { applied: !!res.applied, host: (function(){
+          try { return JSON.parse(window.localStorage.getItem("vault-graph:settings:pin-vault") || "{}").pinned || []; }
+          catch (e) { return null; }
+        })() };
+      })()`);
     }
   } finally {
     ctx.errors.splice(mark);
@@ -4301,7 +4315,11 @@ check("a pin is stored by the note's path, not by its position", async (p, ctx) 
   if (why) return { ok: false, detail: why };
   const want = ["B.md", "ghost:Missing"];
   const same = (a) => a.join("|") === want.join("|");
-  const ok = same(one.paths) && same(two.carried) && (!one.live || same(two.seeded)) &&
+  // github#143 -- pruning a dropped pin must write the FORMAT, not the raw ids
+  const pruned = !one.live || !live.host ||
+                 (live.applied && live.host.length === 2 && live.host[0] === one.stored[0] &&
+                  live.host[1] === "C.md");
+  const ok = pruned && same(one.paths) && same(two.carried) && (!one.live || same(two.seeded)) &&
              one.stored.length === 3 && one.stored[1] === "B.md" && one.stored[2] === "ghost:Missing" &&
              two.bId !== one.bId && two.ordinalNames === "A.md" &&
              two.legacy === 0 && two.unknown === 0 &&
@@ -4313,7 +4331,10 @@ check("a pin is stored by the note's path, not by its position", async (p, ctx) 
     `with [${two.carried}] carried` +
     (one.live ? ` and [${two.seeded}] restored through localStorage` : "; localStorage blocked, not asserted") +
     `; a version-1 store restores ${two.legacy}, an unknown path ${two.unknown}, ` +
-    `[B,B,C] dedupes to [${two.deduped}], ${two.nodes} paths cap at ${two.capped}` +
+    `[B,B,C] dedupes to [${two.deduped}], ${two.nodes} paths cap at ${two.capped}; ` +
+    (one.live && live.host
+      ? `a live rebuild dropping a pinned B.md left the host holding ${JSON.stringify(live.host)}`
+      : "the host's store was unreadable, pruning not asserted") +
     (back ? "" : "; DID NOT GET BACK to the fixture") };
 });
 

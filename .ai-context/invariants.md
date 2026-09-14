@@ -4158,3 +4158,11 @@ asserts `settings.pinned` holds the note's **path** and not its runtime id.
 
 **A version-1 store is dropped in full, and the empty version-2 store written back over it** -- once,
 not at every mount. decisions/0014 has why there is no recovery and why the marker leads with a NUL.
+
+**There are two writes, not one, and the second one is easy to miss.** `hubChanged()` is the obvious
+one; `invalidatesOnData("selection, hover and pins", ...)` is the other, pruning a pin whose note a
+live rebuild removed. Left writing raw ids it produced a store the next mount reads as version 1 and
+drops -- so a live rebuild that deleted one pinned note silently cost every pin. Caught by the same
+check, which reads what the **host** ended up holding rather than what the page believes it stored:
+`["2"]` before, `["\u0000vault-graph:pins:2","C.md"]` after. Both writes go through `persistPins()`,
+and `savePinned` has exactly one call site so a third one cannot quietly appear.

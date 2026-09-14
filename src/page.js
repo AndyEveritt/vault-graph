@@ -5770,7 +5770,8 @@ function mountVaultGraph(root, data, deps) {
     var pins = state.pinned.filter(function (id) { return graph.hasNode(id); });
     if (pins.length !== state.pinned.length) {
       state.pinned = pins;
-      if (savePinned) savePinned(pins.slice());
+      // github#143 -- the store is versioned; never hand the host raw ids
+      persistPins();
     }
   });
 
