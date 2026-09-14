@@ -397,6 +397,7 @@ try {
   check(s.children === 0, "no page was appended to the closed view", "children " + s.children);
   check(s.handleTag === null, "this.handle is still null", "handle " + s.handleTag);
   check(s.lastTag === null, "lastData was not written by the dead render", "lastData " + s.lastTag);
+  check(s.rebuilding === false, "the close left no busy flag behind", "rebuilding " + s.rebuilding);
 
   /* -- 3: three rapid rebuilds, resolving out of order ---------------------- */
   console.log("\n=== 3: three rapid rebuilds resolve 3, 1, 2 ===");

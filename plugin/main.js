@@ -100,6 +100,13 @@ function bareMap() {
 /** @typedef {Awaited<ReturnType<typeof buildData>>} BuildResult */
 
 /**
+ * The only four settings buildData reads. A separate name rather than `Settings` because
+ * render() freezes a copy of exactly these before it awaits (github#140), and the narrower
+ * type is what stops a fifth one being read from the live object by accident later.
+ * @typedef {Pick<Settings, "ghosts" | "templates" | "flatMonths" | "words">} BuildOptions
+ */
+
+/**
  * The page's own boundary types, declared where the object is built (src/page.js, the
  * `types` section): what mountVaultGraph returns, and the __vg api it builds. Every member
  * `VgApi` names ships in the plugin; the debug surface the standalone adds is not in it.
@@ -320,7 +327,8 @@ async function readFolders(app) {
  */
 /**
  * @param {App} app
- * @param {Settings} opts   only the four build settings are read
+ * @param {BuildOptions} opts   only the four build settings are read, and github#140 gives
+ *   that sentence a type rather than leaving it as a promise in a comment
  * @param {string} [version]   github#108 -- this.plugin.manifest.version, shown in the stats line
  */
 async function buildData(app, opts, version) {
@@ -538,6 +546,9 @@ class VaultGraphView extends ItemView {
     this.plugin = plugin;
     /** @type {MountHandle | null} */
     this.handle = null;
+    // github#140 -- declared here so teardown() can drop it, not only render() set it
+    /** @type {Element | null} */
+    this.page = null;
     /** @type {BuildResult | null} */
     this.lastData = null;
     this.mountMs = 0;
@@ -559,6 +570,11 @@ class VaultGraphView extends ItemView {
     this.cssRef = null;
     /** @type {EventRef[] | null} */
     this.liveRefs = null;
+    // github#140 -- which render is the current one. teardown() is the only thing that
+    // moves it, and render() re-reads it after every await.
+    this.renderGen = 0;
+    // github#140 -- render() owns this now, not the Refresh button
+    this.rebuilding = false;
   }
 
   getViewType() { return VIEW_TYPE; }
@@ -574,13 +590,28 @@ class VaultGraphView extends ItemView {
   }
 
   // github#62
+  /*
+   * github#140 -- and the one place a render is invalidated. Every way a mount can end
+   * comes through here (a newer render, onClose, an explicit teardown), so bumping the
+   * generation here rather than at those three call sites means there is no fourth one
+   * to forget. Idempotent: calling it twice destroys nothing twice and empties an already
+   * empty root, it only moves the generation on again.
+   */
   teardown() {
+    this.renderGen++;
+    // github#140 -- no render is current after this, so nothing is busy. Without it a view
+    // closed mid-build keeps a busy flag no later render would ever clear, because the
+    // pending render's own `finally` correctly declines to touch a newer generation's state.
+    this.rebuilding = false;
     // github#72
     this.cancelLive();
     if (this.handle) {
       attempt(() => this.handle.destroy());
     }
     this.handle = null;
+    // github#140 -- the element is about to be removed; a stale reference to it is how
+    // syncTheme() and markNew() end up writing to a detached page
+    this.page = null;
     this.contentEl.empty();
   }
 
@@ -734,9 +765,19 @@ class VaultGraphView extends ItemView {
     }
   }
 
+  /*
+   * github#140 -- THIS VIEW's document, not the active one. `activeDocument` is whichever
+   * window has focus, and a view in a popout is very often not it: a css-change arriving
+   * while the main window is focused would read the main window's theme and paint the
+   * popout with it. The owner document is read at the point of use rather than captured,
+   * because a leaf can be moved between windows and the element always knows where it is.
+   */
+  ownDoc() { return this.contentEl.ownerDocument || document; }
+  ownWin() { return this.ownDoc().defaultView || window; }
+
   syncTheme() {
     if (!this.page) return;
-    const want = activeDocument.body.classList.contains("theme-light") ? "light" : "dark";
+    const want = this.ownDoc().body.classList.contains("theme-light") ? "light" : "dark";
     if (this.page.getAttribute("data-theme") === want) return;
     this.page.setAttribute("data-theme", want);
 
@@ -807,13 +848,65 @@ class VaultGraphView extends ItemView {
     await this.plugin.recordVersion();
   }
 
+  /* ---------------------------------------------------------------- render --
+   * github#140. The window between `teardown()` and the mount is an await long, and until
+   * this guard existed nothing could reach into it: a build that finished after its view
+   * was closed still appended a page and left a handle on a dead view, and two overlapping
+   * renders both mounted -- the second assignment to `this.handle` orphaning the first
+   * mount rather than replacing it, so the later teardown destroyed only one of them.
+   *
+   * So every render carries the generation `teardown()` just moved it to, and re-reads it
+   * on the far side of the await. A render that is no longer the current one returns
+   * having written nothing: no `lastData`, no markup, no mount, no registration -- and
+   * crucially its error and cleanup paths write nothing either, because the current
+   * render's handle and busy state are not an old request's to clear.
+   *
+   * `this.rebuilding` moves in here from the Refresh callback. It guarded that one button,
+   * which left settings rebuilds, the rebuild command and the initial open unguarded;
+   * owning it here covers all four with the same generation check.
+   */
   async render() {
     this.teardown();
+    const gen = this.renderGen;
+    // github#140 -- frozen before the await, so a settings change during the build cannot
+    // make the data disagree with the options this render was started for
+    /** @type {BuildOptions} */
+    const opts = {
+      ghosts: this.plugin.settings.ghosts,
+      templates: this.plugin.settings.templates,
+      flatMonths: this.plugin.settings.flatMonths,
+      words: this.plugin.settings.words,
+    };
+    this.rebuilding = true;
+    try {
+      await this.renderPass(gen, opts);
+    } catch (e) {
+      // github#140 -- a half-built render clears up after itself, but only while it is
+      // still the current one: a newer render's page is not this one's to tear down.
+      // teardown() moves the generation on and clears the flag, so the finally declines.
+      if (this.renderGen === gen) this.teardown();
+      throw e;
+    } finally {
+      if (this.renderGen === gen) this.rebuilding = false;
+    }
+  }
+
+  /**
+   * The body of a single render. Split out so the generation and busy bookkeeping above
+   * reads as the few lines it is. github#140.
+   * @param {number} gen
+   * @param {BuildOptions} opts
+   */
+  async renderPass(gen, opts) {
     const root = this.contentEl;
     root.addClass("vault-graph-view");
     this.mountNote();
 
-    const data = await buildData(this.app, this.plugin.settings, this.plugin.manifest.version);
+    const data = await buildData(this.app, opts, this.plugin.manifest.version);
+    // github#140 -- THE CHECK. Every line below writes view state, appends markup, creates
+    // a mount or registers a host listener, and none of it may happen for a render that a
+    // teardown, a close or a newer render has already superseded.
+    if (this.renderGen !== gen) return;
     this.lastData = data;
 
     const parsed = new DOMParser().parseFromString(PAGE_HTML, "text/html");
@@ -938,14 +1031,13 @@ class VaultGraphView extends ItemView {
         await this.plugin.saveSettings();
       },
       openSettings: () => this.plugin.openSettings(),
-      win: activeWindow,
-      // github#6
+      // github#140 -- this view's window, not whichever one has focus now
+      win: this.ownWin(),
+      // github#6; github#140 -- render() owns the busy flag, this only declines to re-enter
       onRefresh: () => {
         if (this.rebuilding) return;
-        this.rebuilding = true;
         this.render()
-          .catch(/** @param {Error} e */ (e) => new Notice("Vault Graph: rebuild failed -- " + e.message))
-          .finally(() => { this.rebuilding = false; });
+          .catch(/** @param {Error} e */ (e) => new Notice("Vault Graph: rebuild failed -- " + e.message));
       },
     });
     this.mountMs = Math.round(performance.now() - t0);
