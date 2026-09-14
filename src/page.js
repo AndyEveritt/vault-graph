@@ -8151,9 +8151,6 @@ function mountVaultGraph(root, data, deps) {
   var HEAT_EMPTY_A = 0.5;
   // github#70 -- all three measured on the three fixtures, see invariants.md.
   var BULK_MIN = 25, BULK_X = 20, BULK_SHARE = 0.15;
-  // Four quantile cuts plus nMax -- the most swatches heatDrawKey can ever show, and so the
-  // width it always reserves. See the comment there.
-  var HEAT_KEY_ANCHORS = 5;
   var DAY_MS = 86400000, WEEK_MS = 7 * DAY_MS;
   var MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -8504,50 +8501,6 @@ function mountVaultGraph(root, data, deps) {
       }
     }
 
-    heatDrawKey(cell, R);
-  }
-
-  /** @param {number} cell @param {number} R corner radius */
-  function heatDrawKey(cell, R) {
-    var cv = /** @type {HTMLCanvasElement} */ ($("heatkey"));
-    if (!cv || !cv.getContext) return;
-    /** @type {number[]} */
-    var anchors = [];
-    heat.cuts.concat([heat.nMax]).forEach(function (a) {
-      if (anchors.indexOf(a) < 0) anchors.push(a);
-    });
-    var pitch = cell + 4;
-    var dpr = window.devicePixelRatio || 1;
-    // The canvas is always sized for the MOST anchors this key can ever have -- four cuts
-    // plus nMax -- and the strip is centred in it, rather than the element shrinking to fit
-    // however many survived the dedup. github#70: switching the band's date changes the
-    // tally, which changes the quantiles, which collapsed this key from 4 swatches to 1 on
-    // the dominant-folder fixture and pulled 17px out of the row on a single click.
-    var w = HEAT_KEY_ANCHORS * pitch - 4;
-    var pad = (w - (anchors.length * pitch - 4)) / 2;
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(cell * dpr)) {
-      cv.width = Math.round(w * dpr);
-      cv.height = Math.round(cell * dpr);
-      cv.style.width = w + "px";
-      cv.style.height = cell + "px";
-    }
-    var ctx = /** @type {CanvasRenderingContext2D} */ (cv.getContext("2d"));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, cell);
-    var greys = [THEME.neutrals[0], THEME.neutrals[2]];
-    for (var i = 0; i < anchors.length; i++) {
-      /** @type {{ c: string, w: number }[]} */
-      var parts = [];
-      for (var j = 0; j < anchors[i]; j++) parts.push({ c: greys[j % 2], w: 1 });
-      ctx.save();
-      heatRect(ctx, pad + i * pitch, 0, cell, cell, R);
-      ctx.clip();
-      heatTile(ctx, pad + i * pitch, 0, cell, parts);
-      ctx.restore();
-    }
-    cv.title = anchors.map(function (a) {
-      return a + (a === 1 ? " note" : " notes");
-    }).join("  ·  ");
   }
 
   /**

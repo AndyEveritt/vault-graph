@@ -1005,7 +1005,7 @@ each found by measuring rather than by looking:
 | the label swapped its text | `Notes added` 76px → `Notes touched` 90px, shoving everything right of it by **14px** | the label is a static word and the choice is a two-position segment; both positions are always rendered, so the control has one width |
 | the pressed position was bolder | **1px**, as the bold moved between `Added` and `Touched` | both positions carry the same weight; the accent fill is what says which is on |
 | a chip's count grew a digit | `This week 0` 75px → `This week 115` 85px, **10px** (measured while that chip was still labelled *This week*; it is *Last 7* since the window went rolling, and the check re-measures rather than trusting this number) | the count slot is reserved at `--vg-count-ch`, set from the note count at mount, with tabular figures: 3ch / 4ch / 5ch on the three fixtures |
-| the heat key lost swatches | **17px**, on the dominant-folder fixture only | `heatDrawKey` always sizes the canvas for `HEAT_KEY_ANCHORS` (5 — four cuts plus nMax) and centres however many survived the dedup |
+| the heat key lost swatches | **17px**, on the dominant-folder fixture only | `heatDrawKey` sized the canvas for `HEAT_KEY_ANCHORS` (5 — four cuts plus nMax) and centred however many survived the dedup. **The key itself was removed on 2026-09-14** (see below), so this cause no longer exists and neither does the code for it; the row keeps the property by having one element fewer |
 
 The third was not introduced here and is the interesting one: the key has always shrunk when
 a vault's quantiles collapsed, but nothing could change a vault's tally at runtime until the
@@ -1015,6 +1015,30 @@ notes share one `touched` day, so all four cuts and `nMax` dedup to a single swa
 
 The check compares both `left` and `width`, because an element that keeps its position while
 changing width still pushes whatever the flex row gives the slack to.
+
+## Every control in the band's row is the same height (github#70)
+
+```bash
+node scripts/smoke.mjs --only "same height"
+```
+
+The fidget check above pins `left` and `width`, and would pass with every height in the row
+different — which is what it was. Measured at 1440x900: the Added/Touched segment **22.5px**,
+the chips **27.9**, the compact toggle **22.0**, the date inputs **22.3**, All dates **27.9**.
+Six controls, four heights. The row now declares **one** height, `--vg-hrow-h: 26px` on `.hrow`,
+and every control takes it through `height` rather than through its own padding; the check reads
+the declared value from the custom property rather than hard-coding 26, so changing the row's
+height in one place does not falsify it. Measured after: **7 controls, all at 26px**, and the
+fidget check still **0px worst shift across six states**.
+
+The tolerance is **0.5px**, not zero: a border or a rounded line box can land a tenth either
+side of a declared height, and a tenth is not the defect this exists to catch — four distinct
+heights is.
+
+`#vg-heatscale`, the `fewer [][][] more` key, is **absent**, and the check asserts that too
+rather than exempting it. It was the one element in the row that could never hold a row height,
+being a canvas sized from the heat cell, and it is the one that cost 17px of the original
+fidget. Removed on review; see `design/0010-heatmap.md`.
 
 ## The band counts the date it names (github#70)
 

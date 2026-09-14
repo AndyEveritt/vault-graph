@@ -1500,7 +1500,7 @@ check("the band's control row does not move when its state changes", async (p) =
   const r = await p.j(`(function(){
     var sel = { source: "#vg-heatsrc",
                 today: '#vg-recent [data-kind="today"]', week: '#vg-recent [data-kind="week"]',
-                readout: "#vg-heatnote", scale: "#vg-heatscale", compact: "#vg-compact",
+                readout: "#vg-heatnote", compact: "#vg-compact",
                 range: "#vg-rangebox", band: "#vg-heatc" };
     var snap = function () {
       var o = {};
@@ -1535,6 +1535,39 @@ check("the band's control row does not move when its state changes", async (p) =
   return { ok: r.worst === 0,
            detail: `${r.states} states, worst shift ${r.worst}px` +
                    (r.worst ? `  <- ${r.who}` : "") + `, count slot ${r.countCh}` };
+}, { on: "all" });
+
+check("every control in the band's row is the same height", async (p) => {
+  // github#70. Measured at 1440x900 before this: the Added/Touched segment 22.5px, the chips
+  // 27.9, the compact toggle 22.0, the date inputs 22.3, All dates 27.9 -- six controls, four
+  // heights, sitting on one line and reading as five widgets that happened to meet there. The
+  // row declares ONE height now (`--vg-hrow-h` on .hrow) and every control takes it, which is
+  // a claim no other check in here covers: the fidget check pins `left` and `width` and would
+  // pass with every height in the row different.
+  const r = await p.j(`(function(){
+    var sel = { segment: "#vg-heatsrc", today: '#vg-recent [data-kind="today"]',
+                week: '#vg-recent [data-kind="week"]', compact: "#vg-compact",
+                from: "#vg-from", to: "#vg-to", all: "#vg-rangeall" };
+    var want = parseFloat(getComputedStyle(document.querySelector("#vg-heat .hrow"))
+                            .getPropertyValue("--vg-hrow-h"));
+    var got = {}, off = [];
+    for (var k in sel) {
+      var e = document.querySelector(sel[k]);
+      if (!e) { off.push(k + " absent"); continue; }
+      var h = Math.round(e.getBoundingClientRect().height * 10) / 10;
+      got[k] = h;
+      // Sub-pixel only: a border or a rounded line box may land a tenth either side of the
+      // declared height, and a tenth is not what this check exists to catch.
+      if (Math.abs(h - want) > 0.5) off.push(k + " " + h);
+    }
+    // And the key that could never hold a row height is gone rather than exempted.
+    var scale = document.getElementById("vg-heatscale");
+    return { want: want, got: got, off: off, scale: !!scale };
+  })()`);
+  return { ok: r.off.length === 0 && !r.scale,
+           detail: `${r.want}px declared, ${Object.keys(r.got).length} controls measured` +
+                   (r.off.length ? `  <- off: ${r.off.join(", ")}` : " at it") +
+                   (r.scale ? "  <- #vg-heatscale is still in the row" : "") };
 }, { on: "all" });
 
 check("the exported page offers no since-last-open chip", async (p) => {

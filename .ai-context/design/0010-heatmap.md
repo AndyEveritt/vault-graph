@@ -109,6 +109,25 @@ all read `heatDateOf`, and there is no second date to disclose. *What did I touc
 is two visible clicks — **Touched**, then **Last 7** — rather than a default nobody can
 see the alternative to.
 
+### The row has one height, and one fewer thing in it
+
+Every control above the band is the same height, declared once as `--vg-hrow-h` on `.hrow` and
+taken by each control through `height` rather than left to its own padding. Measured at
+1440x900 before: segment **22.5px**, chips **27.9**, compact toggle **22.0**, date inputs
+**22.3**, All dates **27.9** -- six controls, four heights, reading as five widgets that
+happened to land on one line. The paddings still differ, because a segment position is not a
+date input; the height is what has to agree. 26px, a little taller than the segment was, so the
+row settles slightly up rather than everything shrinking to its tightest member.
+
+The `fewer [][][] more` key is **gone**. It explained the one thing the band demonstrates by
+existing -- a denser square is more notes -- and it was the only item in the row that could
+never hold the row's height, being a canvas sized from the cell. It is also the element that
+cost the most to keep still: its swatch count follows the quantile cuts, so a date switch that
+collapsed the cuts pulled **17px** out of the row, and `heatDrawKey` carried a reserved-width
+rule (`HEAT_KEY_ANCHORS`) for that alone. Removed on review -- *"I think people will get the
+idea"* -- along with that rule. The readout beside it still names the tally in words, which is
+the part a reader cannot infer from looking.
+
 A chip that matches nothing shows **0** and disables itself rather than disappearing --
 absent reads as "this cannot be asked", zero reads as "asked, and the answer is none". Day
 granularity throughout, because `touched` is a `YYYY-MM-DD` string; "since last open" says

@@ -81,10 +81,13 @@
              the chips were pinned to that date, and sat next to a button already saying
              Touched. Filled from script. -->
         <div id="vg-recent" role="group" aria-label="Halo the notes from a recent window"></div>
+        <!-- github#70: the `fewer [][][] more` key stood here and is gone. It explained a
+             thing the band already demonstrates -- a denser square is more notes -- and it
+             was the one item in this row that could never hold the row's height, being a
+             canvas sized from the cell. Removed on review: "I think people will get the
+             idea." The readout beside it names the tally in words, which is the part a
+             reader cannot infer from looking. -->
         <span id="vg-heatnote"></span>
-        <div id="vg-heatscale" aria-hidden="true">
-          <span>fewer</span><canvas id="vg-heatkey"></canvas><span>more</span>
-        </div>
         <button id="vg-compact" type="button" aria-pressed="true"
                 title="Compact the date axis by note count. Off gives every year and month equal width."
                 aria-label="Compact date axis">

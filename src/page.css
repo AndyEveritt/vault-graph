@@ -536,7 +536,8 @@
 
   .vault-graph #vg-compact {
     display: flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; padding: 0; cursor: pointer; flex: 0 0 auto; margin-left: 8px;
+    width: var(--vg-hrow-h, 22px); height: var(--vg-hrow-h, 22px);
+    padding: 0; cursor: pointer; flex: 0 0 auto; margin-left: 8px;
     background: var(--surface-2); color: var(--text-3);
     border: 1px solid var(--border); border-radius: 6px;
     transition: color .12s, border-color .12s, background-color .12s;
@@ -559,7 +560,7 @@
     font: 11px/1.3 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
     color: var(--text-2); background: var(--surface-2);
     border: 1px solid var(--border); border-radius: 5px;
-    padding: 2px 4px; width: 104px; min-width: 0;
+    padding: 0 4px; width: 104px; min-width: 0; height: var(--vg-hrow-h);
   }
   .vault-graph #vg-rangebox .dt:hover { border-color: var(--border-strong); color: var(--text-1); }
   .vault-graph #vg-rangebox .dt:focus-visible {
@@ -612,7 +613,22 @@
      cannot hold both values, so the two can never fight. */
   .vault-graph[data-band="off"] #vg-heat { display: none; }
   .vault-graph[data-band="off"] #vg-stage { grid-template-rows: 1fr; }
-  .vault-graph #vg-heat .hrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  /* github#70 -- ONE height for every control in this row, declared once here and applied
+     by `height` rather than by each control's own padding. Measured at 1440x900 before this:
+     the segment 22.5px, the chips 27.9, the compact toggle 22.0, the date inputs 22.3, All
+     dates 27.9 -- six controls, four heights, reading as five separate widgets that happened
+     to land on one line. Their paddings still differ (a segment position is not a date
+     input), which is exactly why the height cannot be left to them.
+
+     26px is deliberately a little taller than the segment was: the segment was the smallest
+     real control in the row and the row now sits a touch bigger than it did, rather than
+     everything shrinking to the tightest member. Vertical padding stays out of the shorthand
+     on anything sized this way -- `height` plus `padding` in one rule is how the 22.3 and the
+     22.5 came about in the first place. */
+  .vault-graph #vg-heat .hrow {
+    --vg-hrow-h: 26px;
+    display: flex; align-items: center; gap: 10px; min-width: 0;
+  }
   .vault-graph #vg-heat .hrow .lbl {
     font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
     color: var(--text-3); font-weight: 600; flex: 0 0 auto;
@@ -634,15 +650,15 @@
      always rendered, which is also what keeps the row's width fixed. */
   .vault-graph #vg-heatsrc {
     display: inline-flex; flex: 0 0 auto; border: 1px solid var(--border);
-    border-radius: 6px; overflow: hidden;
+    border-radius: 6px; overflow: hidden; height: var(--vg-hrow-h);
   }
   /* Both weights are the SAME on purpose. Bolding only the pressed one moved the segment's
      sub-pixel width as the bold moved between "Added" and "Touched", which put a 1px wobble
      back into the row -- the fill already says which is on, far louder than 100 units of
      weight would. */
   .vault-graph #vg-heatsrc button {
-    font: inherit; font-size: 11px; font-weight: 500; line-height: 1.5;
-    padding: 2px 9px; cursor: pointer;
+    font: inherit; font-size: 11px; font-weight: 500; line-height: 1;
+    display: flex; align-items: center; padding: 0 9px; cursor: pointer;
     background: var(--surface-2); color: var(--text-2);
     border: 0; border-left: 1px solid var(--border);
   }
@@ -654,6 +670,7 @@
   .vault-graph #vg-recent { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
   .vault-graph #vg-recent .chip {
     display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+    height: var(--vg-hrow-h); padding-block: 0;
   }
   /* An armed chip wears the page's ONE pressed treatment (button.btn[aria-pressed]),
      accent-filled like every other toggle here. Colouring it --today to match the halo it
@@ -669,11 +686,6 @@
   .vault-graph #vg-recent .chip[aria-pressed="true"] .n { color: #fff; opacity: .8; }
   /* A chip matching nothing still says so -- see syncRecentUI. */
   .vault-graph #vg-recent .chip:disabled { opacity: .45; cursor: default; }
-  .vault-graph #vg-heatscale {
-    margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 3px;
-    font-size: 10px; color: var(--text-3);
-  }
-  .vault-graph #vg-heatscale canvas { display: block; }
   /* ------------------------------------------------------ date range ----- */
   .vault-graph #vg-ribbon {
     display: block; width: 100%; cursor: crosshair;
@@ -686,7 +698,10 @@
     font-size: 11px; color: var(--text-2); flex: 0 0 auto;
     font-variant-numeric: tabular-nums; white-space: nowrap;
   }
-  .vault-graph #vg-rangeall { flex: 0 0 auto; }
+  .vault-graph #vg-rangeall {
+    flex: 0 0 auto; height: var(--vg-hrow-h); padding-block: 0;
+    display: inline-flex; align-items: center;
+  }
   .vault-graph #vg-rtip {
     position: absolute; pointer-events: none; z-index: 8; white-space: nowrap;
     background: var(--surface-2); border: 1px solid var(--border-strong);
@@ -946,7 +961,6 @@
        width: the second date field and All dates were cut off and unreachable. */
     .vault-graph #vg-heat .hrow { flex-wrap: wrap; row-gap: 6px; }
     .vault-graph #vg-heatnote { flex-basis: 100%; order: 3; }
-    .vault-graph #vg-heatscale { margin-left: 0; }
     .vault-graph #vg-rangebox { order: 4; }
     /* github#70 -- the chips are the widest new thing in a row that already wrapped at this
        width, so they take a line of their own rather than pushing the scale off the edge. */
