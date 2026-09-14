@@ -5472,10 +5472,11 @@ function mountVaultGraph(root, data, deps) {
   function glostPaint(stalled) {
     var el = $("glost"), n = glostCount();
     if (!n) { el.hidden = true; el.textContent = ""; return; }
-    var what = n === 1 ? "A graphics layer" : n + " graphics layers";
+    var one = n === 1;
+    var what = (one ? "A graphics layer was" : n + " graphics layers were") + " lost";
     el.textContent = stalled
-      ? what + " was lost and has not come back. Reopen the graph to rebuild it."
-      : what + " was lost -- restoring...";
+      ? what + " and " + (one ? "has" : "have") + " not come back. Reopen the graph to rebuild it."
+      : what + " -- restoring...";
     el.hidden = false;
   }
 
