@@ -44,6 +44,17 @@ export interface NodeAttrs {
   ghost: boolean;
   /** github#86, design/0015 -- set only on a satellite: the note it copies */
   dupOf?: string;
+  /**
+   * github#86, design/0015 -- set only on a stand-in: the leaving note whose seat it holds
+   * while the switch runs, read back by dropStandIns() to hand the position over.
+   *
+   * Written at the same addNode() as dupOf and read through getNodeAttribute(), but it was
+   * missing from this interface until github#145 turned checkJs on -- which is what the
+   * whole ticket is about. Its absence put six diagnostics on dropStandIns() alone, two of
+   * them saying the read key was not a key of NodeAttrs and three saying the value it
+   * returned (the union of every OTHER attribute's type) could not index a dictionary.
+   */
+  standIn?: string;
 }
 
 export interface EdgeAttrs {
