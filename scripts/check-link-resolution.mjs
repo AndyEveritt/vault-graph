@@ -193,6 +193,26 @@ try {
   eq(real, plain.nodes.map((n) => n.id), "--ghosts adds nodes and reorders nothing");
   eq(ghosted.stats.unresolved, plain.stats.unresolved, "--ghosts does not change the unresolved count");
 
+  console.log("check-link-resolution: a ghost carries every required VaultNode field (github#152)");
+  // github#152 -- read the contract's own property list rather than hardcoding it a second time,
+  // so a future typedef edit shows up in this check's own diff instead of quietly going stale.
+  const pageSrc = readFileSync(join(ROOT, "src", "page.js"), "utf8");
+  const typedefBody = /@typedef \{Object\} VaultNode([\s\S]*?)\*\//.exec(pageSrc);
+  if (!typedefBody) throw new Error("VaultNode typedef not found in src/page.js");
+  const requiredKeys = [...typedefBody[1].matchAll(/@property\s+\{[^}]*\}\s+(\S+)/g)]
+    .map((m) => m[1])
+    .filter((name) => !name.startsWith("["));
+  eq(requiredKeys.sort(),
+     ["created", "deg", "dirs", "folder", "id", "label", "sub", "tags", "touched", "type", "words"],
+     "VaultNode still declares these required fields -- update this check if it changes on purpose");
+  for (const g of ghosted.nodes.filter((n) => n.ghost)) {
+    const missing = requiredKeys.filter((k) => !(k in g));
+    report(missing.length === 0, "ghost " + g.id + " carries every required VaultNode field",
+           missing.length ? "missing: " + missing.join(", ") : "");
+    eq(g.dirs, [], "ghost " + g.id + ": dirs is an empty array, a ghost has no folders");
+    eq(g.touched, "", "ghost " + g.id + ": touched is empty, a ghost has no mtime");
+  }
+
   console.log("check-link-resolution: a ghost's spelling does not depend on who is read first");
   const cased = join(work, "cased");
   mkdirSync(join(cased, ".obsidian"), { recursive: true });

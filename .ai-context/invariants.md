@@ -4168,6 +4168,18 @@ Exactly one divergence remains, and it is deliberate rather than unexamined: the
 alias index, so the plugin grows a `ghost:Nickname` the exporter does not. Adopting the cache's
 answer would delete real edges, so the exporter keeps its aliases.
 
+**One node-shape divergence found by inspection, not by a check (github#152).** `VaultNode`
+(`src/page.js`) is the one written contract both producers are supposed to satisfy, and
+`tsconfig.contracts.json`'s `checkJs` program only names `plugin/main.js` and `src/page.js` —
+`src/build-graph.mjs` is never type-checked against it. The exporter's ghost object literal
+omitted `dirs` and `touched`, both declared required, while the plugin's already carried both;
+`page.js`'s own fallbacks (`n.dirs || []`, a missing `touched` reading as `""`) absorbed the gap,
+so nothing broke and no screenshot showed it. `check-link-resolution.mjs` now reads `VaultNode`'s
+`@property` list directly out of `src/page.js`'s JSDoc and asserts every ghost node the exporter
+emits carries all of them, `dirs` as `[]` and `touched` as `""` — so a producer that drops a
+required field fails the check that already builds the ghost fixture, instead of surviving on
+the page's fallback until the next doc pass notices by eye.
+
 ## A folder can be named after anything on `Object.prototype`
 
 `"a folder named after an Object.prototype member still lays out"` builds seven tiny vaults
