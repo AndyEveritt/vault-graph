@@ -8,11 +8,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const HOOK = ".githooks/pre-push";
 
-// github#154 -- every workflow that claims to run the hook's static gates, guarded the same
-// way. jobName is the required-status context to assert (a job name IS that context, so a
-// rename silently drops whatever a ruleset requires) -- null where there is none to assert:
-// release.yml's job name is templated ('dry run' vs 'attest and publish'), and the workflow
-// isn't a PR merge-boundary status anyway, it's the publisher itself.
+// github#154 -- every workflow guarded, jobName null where none applies
 const TARGETS = [
   { workflow: ".github/workflows/quality.yml", jobName: "quality gates" },
   { workflow: ".github/workflows/release.yml", jobName: null },
@@ -126,7 +122,7 @@ const problems = [];
 
 if (!gates.length) problems.push(`no gates found in ${HOOK}'s static block -- the parser or the hook changed shape`);
 
-// github#154 -- one hook, checked against every target workflow in TARGETS, not just one
+// github#154 -- checked against every target, not just one
 for (const target of TARGETS) {
   const workflow = read(target.workflow);
   const runs = workflowRuns(workflow);

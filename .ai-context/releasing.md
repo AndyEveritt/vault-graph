@@ -84,13 +84,16 @@ still refused a direct push outright — which is the dangling-tag case this fil
 
 **`.github/workflows/release.yml` is the publisher (github#10).** The tag push triggers it. It
 checks out the tagged commit, resolves and re-checks the version against the manifest and the
-CHANGELOG, refuses a commit that is not in `origin/main`'s history, runs the static gates
-(lint, scope, PII, comments, code map, and `check-notice.mjs`, which builds `main.js` and reads
-the Sigma copyright line back out of it and of a fresh exported page), refuses to publish
-without all three files, **attests** them with `actions/attest-build-provenance`, drafts the
-release body from the `## <version>` section, names the release from that heading, and creates
-the Release (or re-uploads over one that exists). Its step summary prints the SHA-256 of each
-file and the attestation URL.
+CHANGELOG, refuses a commit that is not in `origin/main`'s history, runs the hook's whole
+unskippable static block (lint, scope, PII, comments, the generator/build-order/data-escape
+determinism checks, the update-note and smoke-runner selftests, link resolution, the code map
+and gallery-nav checks, and `check-notice.mjs`, which builds `main.js` and reads the Sigma
+copyright line back out of it and of a fresh exported page — `scripts/check-ci-parity.mjs`
+guards this file the same way it guards `quality.yml`, github#154), refuses to publish without
+all three files, **attests** them with `actions/attest-build-provenance`, drafts the release
+body from the `## <version>` section, names the release from that heading, and creates the
+Release (or re-uploads over one that exists). Its step summary prints the SHA-256 of each file
+and the attestation URL.
 
 **Why publication had to move.** An attestation is signed through Sigstore with the run's OIDC
 token, and `id-token: write` is a permission only an Actions run can hold — no script on a
