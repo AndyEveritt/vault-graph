@@ -70,7 +70,7 @@ node scripts/code-map.mjs --check       # the generated map and index still matc
 node scripts/gallery-nav.mjs --check    # the gallery's "New in" strip still matches the feature pages
 node scripts/check-ci-parity.mjs        # every gate above also runs in CI, where a merge boundary can see it (github#147)
 npm run lint                            # tsc --noEmit on the engine, then on the JavaScript's own annotations, then typescript-eslint; every finding is held at zero
-node scripts/smoke.mjs                  # the invariant suite: four fixtures, each check on the ones its assertion is about
+node scripts/smoke.mjs                  # the invariant suite: five fixtures, each check on the ones its assertion is about
 ```
 
 **Only the last one has a skip flag.** `SKIP_SMOKE=1 git push` skips the suite; the fifteen

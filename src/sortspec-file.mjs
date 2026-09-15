@@ -1,18 +1,7 @@
 // github#71, decisions/0015
 
 /**
- * Pull a `sorting-spec` out of a note's front matter.
- *
- * The general frontmatter parser in src/build-graph.mjs flattens every value to a string and
- * knows nothing about block scalars -- which is how a `sorting-spec: |-` is always written --
- * so this reads that one key properly rather than teaching the general parser YAML it has
- * never needed anywhere else.
- *
- * This module owns getting the TEXT out of a file. The spec's grammar lives in src/page.js
- * (`parseSortSpec`), which is the one file both hosts share; the page cannot import anything,
- * since the exporter pastes it in as text. These two scripts are real ESM and can, which is
- * why the reader is here and not copied into each.
- *
+ * github#71, decisions/0015 -- the text out of a file; the grammar is elsewhere
  * @param {string} raw the file's full contents
  * @returns {string} the spec text, or "" when the file carries none
  */
@@ -26,7 +15,7 @@ export function readSortingSpec(raw) {
     if (!kv) continue;
     const head = kv[1].trim();
     if (!/^[|>][-+]?$/.test(head)) return head.replace(/^["']|["']$/g, "").trim();
-    // a block scalar: every following line indented at least as far as the first one
+    // github#71 -- a block scalar, by the first body line's indent
     const body = [];
     let indent = -1;
     for (let j = i + 1; j < lines.length; j++) {

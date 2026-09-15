@@ -141,8 +141,7 @@ for (const abs of files) {
     tagCount: (fmRaw.match(/^tags?:/m) ? between(1, 3) : 0),
     aliases,
     links,
-    // github#71 -- a sortspec IS a note, so it is mirrored as one. Captured here because
-    // `raw` is already in hand; translated once the name maps exist.
+    // github#71 -- a sortspec IS a note; captured here, translated later
     specRaw: readSortingSpec(raw),
   });
 }
@@ -190,9 +189,7 @@ for (const n of notes) {
   const demoDir = mapDir(n.dir);
   let demoBase;
   if (n.specRaw) {
-    // github#71 -- a spec is found BY ITS NAME, so renaming it hides it from the builder.
-    // A `sortspec` keeps that name; a folder note keeps its folder's mapped one, or it
-    // stops being a folder note.
+    // github#71, decisions/0015 -- a spec is found by its name, so the name holds
     demoBase = n.base.toLowerCase() === "sortspec" ? n.base : (demoDir.split("/").pop() || n.base);
   } else if (ISO_DAY.test(n.base) || DATEISH.test(n.base)) {
     demoBase = n.base;
@@ -213,34 +210,13 @@ for (const n of notes) {
   n.aliases.forEach((a, i) => register(a, n.demoAliases[i]));
 }
 
-/* ------------------------------------------------------ sortspec (github#71) --
- * The mirror exists to check a real vault's SHAPE without its content, and since github#71
- * a vault's shape includes the order its file explorer is in. A mirror with no sortspec
- * cannot exercise the one feature the source vault leans on hardest, which makes it the
- * wrong tool for exactly the check it exists for.
- *
- * A spec is an ordinary note, so it is mirrored as one -- translated in place rather than
- * written alongside. Bolting it on afterwards produced BOTH a spec file and a
- * random-titled note that had been the original, so the folder carried one note more than
- * the source and the real spec note was a ghost nobody could find.
- *
- * The spec is TRANSLATED, never copied. Every `target-folder:` path and every pinned name
- * goes through the same dirMap and nameMap the notes did, so the mirror carries the spec's
- * STRUCTURE -- its pins, its order- lines, its precedence, its depth -- and none of its real
- * names. That is not tidiness: a person folder under a 1-on-1 tree IS a real person, and
- * copying a spec verbatim would put every one of them into a vault whose entire purpose is
- * that it holds none. Comments go too, being prose someone wrote.
- *
- * A line naming something not in the mirror is dropped rather than passed through. The page
- * treats an unresolvable pin as ordinary wear and would carry on, but a mirror that kept
- * real names for what it failed to map would be leaking the thing it cannot leak.
- */
+/* github#71, decisions/0015 -- the spec is TRANSLATED, never copied */
 
 const specNotes = notes.filter((n) => n.specRaw);
 let specDropped = 0;
 
 if (specNotes.length) {
-  /** a real folder path -> the mirror's, or null when it is not in the mirror */
+  /** @type {Map<string, string | null>} github#71 -- real folder path -> the mirror's */
   const mapPath = (p) => {
     const clean = String(p).split(/[\\/]/).filter(Boolean).join("/");
     if (!clean) return "";
@@ -249,7 +225,7 @@ if (specNotes.length) {
 
   for (const n of specNotes) {
     const out = [];
-    let target = n.dir;              // the real path the current section aims at
+    let target = n.dir;              // github#71 -- the real path the current section aims at
     for (const raw of n.specRaw.split(/\r?\n/)) {
       const line = raw.trim();
       if (!line) { out.push(""); continue; }
@@ -266,9 +242,9 @@ if (specNotes.length) {
         out.push("target-folder: " + (mapped || "/") + (wild ? "/*" : ""));
         continue;
       }
-      if (target === null) { specDropped++; continue; }   // in a section we could not map
+      if (target === null) { specDropped++; continue; }   // github#71 -- in a section we could not map
       if (/^order-(asc|desc)\s*:/.test(line)) { out.push(line); continue; }
-      // a bare line is a pin: a folder inside the target, or a note in it
+      // github#71 -- a bare line is a pin
       const asFolder = mapPath((target ? target + "/" : "") + line.replace(/\.md$/, ""));
       if (asFolder) { out.push(asFolder.split("/").pop()); continue; }
       const asNote = nameMap.get(key(line));
@@ -314,7 +290,7 @@ for (const n of notes) {
   });
 
   const fm = ["---"];
-  // github#71 -- the spec is this note's front matter, exactly as it is in the source
+  // github#71 -- the spec is this note's front matter
   if (n.specText) {
     fm.push("sorting-spec: |-");
     for (const line of n.specText.split("\n")) fm.push(line ? "  " + line : "");
@@ -358,10 +334,7 @@ const copyCfg = (name, fallback) => {
 copyCfg("daily-notes.json", "{}");
 copyCfg("templates.json", "{}");
 copyCfg("app.json", "{}");
-// github#71 -- the sort plugin's own config, rewritten to point at the MIRRORED note, so a
-// spec registered globally is found here exactly as it is in the source vault. Without this
-// a spec that lives outside the folder it configures is invisible: that is the whole reason
-// such a spec has to say `target-folder: /` rather than `.`.
+// github#71, decisions/0015 -- rewritten to point at the MIRRORED note
 const cfgSpec = (() => {
   try {
     const cs = JSON.parse(readFileSync(join(VAULT, ".obsidian", "plugins", "custom-sort", "data.json"), "utf8"));
@@ -369,7 +342,7 @@ const cfgSpec = (() => {
     if (!want) return null;
     const hit = specNotes.find((n) => n.rel === want);
     return hit ? hit.demoRel : null;
-  } catch { return null; }   // the plugin is not installed in the source vault
+  } catch { return null; }   // github#71 -- the plugin is not installed in the source vault
 })();
 if (cfgSpec) {
   mkdirSync(join(cfg, "plugins", "custom-sort"), { recursive: true });

@@ -496,7 +496,7 @@ check("layout matches its golden snapshot", async (p) => {
   const dd = await p.j("__vg.debugDump()");
   const vaultName = dd.vault.name;
   // github#86 -- tag-vault is the fourth, and the only one organised by tag
-  // github#71 -- spec-vault is the fifth, and the only one laid out in anything but name order
+  // github#71 -- spec-vault is the fifth, and the only one not in name order
   const fixture = ["demo-vault", "test-vault", "shape-vault", "tag-vault", "spec-vault"]
     .find((f) => vaultName.startsWith(f + "-"));
   if (!fixture) {
@@ -1169,17 +1169,10 @@ async (p) => {
   };
 });
 
-/* ---------------------------------------------------------------- github#71 --
- * The file-explorer order. Five checks: one that the spec actually reorders the disc, one
- * that a vault without a spec is untouched, two on the grammar's failure paths, and one on
- * the thing the golden snapshots cannot see -- colour.
- */
+/* ---------------------------------------------------------------- github#71 -- */
 
 check("the wedge order follows the file explorer spec", async (p) => {
-  // The expectation is DERIVED FROM THE SPEC the fixture ships, not written down here, so
-  // this asserts wherever a spec is found and NOT-ASSERTS where there is none. Only
-  // spec-vault carries one (github#71 D-13): the shared fixtures were deliberately left
-  // spec-free rather than re-record two goldens for coverage that is already here.
+  // github#71 -- D-13: derived from the spec the fixture ships
   const r = await p.j(`(function(){
     var was = __vg.folderOrder();
     var spec = __vg.sortSpec();
@@ -1219,10 +1212,10 @@ check("the wedge order follows the file explorer spec", async (p) => {
   const notes = [];
   const fail = [];
 
-  /** every pin that IS present must lead, in the order the spec listed them */
+  // github#71 -- every pin that IS present must lead, in the spec's order
   const leads = (list, pins, where) => {
     const present = pins.filter((x) => list.includes(x));
-    if (!present.length) return null;                 // pins naming files, or folders now gone
+    if (!present.length) return null;                 // github#71 -- pins naming files, or folders now gone
     const head = list.slice(0, present.length);
     const ok = head.join("|") === present.join("|");
     (ok ? notes : fail).push(`${where}: pinned [${present.join(", ")}] ` +
@@ -1240,7 +1233,7 @@ check("the wedge order follows the file explorer spec", async (p) => {
   for (const s of r.subs) {
     if (!s.spec || !s.spec.length) continue;
     leads(s.spec, s.pins, `${s.target}'s subs`);
-    // a descending section must actually descend, once the pins are past
+    // github#71 -- a descending section must descend, once the pins are past
     if (s.dir === "desc") {
       const tail = s.spec.filter((x) => x && !s.pins.includes(x));
       const sorted = tail.slice().sort((a, b) => a.localeCompare(b)).reverse();
@@ -1264,7 +1257,7 @@ check("the wedge order follows the file explorer spec", async (p) => {
             `sub-wedges ${anySubMoved ? "moved" : "unchanged"}; ` +
             (fail.length ? fail.join("; ") : notes.join("; "))
   };
-}, { on: "all" });   // github#71 -- asserts wherever a spec is found, NOT-ASSERTS where there is none
+}, { on: "all" });   // github#71 -- NOT-ASSERTS where a fixture has no spec
 
 check("a vault with no sortspec is laid out in name order", async (p) => {
   const r = await p.j(`(function(){
@@ -1279,8 +1272,7 @@ check("a vault with no sortspec is laid out in name order", async (p) => {
     return { ok: true, detail: `NOT ASSERTED: this vault ships a sortspec (${r.sections} ` +
                                 `section(s)), so the explorer order is expected to differ` };
   }
-  // Asking for the explorer order in a vault that has no spec must be a no-op, not an
-  // empty order or a half-applied one.
+  // github#71 -- no spec must be a no-op, not a half-applied order
   const same = r.drawn.join("|") === r.name.join("|");
   return { ok: same, detail: same
     ? `no spec found; "File explorer" left all ${r.drawn.length} groups in name order`
@@ -1299,8 +1291,7 @@ check("an unreadable sortspec falls back to name order and names the line", asyn
       [{ folder: "", origin: "junk.md", text: "%%%\\n/folders\\n" }], "", names);
     return { broken: broken, junk: junk, names: names };
   })()`);
-  // The empty target-folder must not silently become "the vault root": its section is
-  // dropped, and the pin under it goes with it.
+  // github#71 -- an empty target-folder drops its section, pin and all
   const brokenSkips = r.broken.skipped.map((s) => s.line + ":" + s.text);
   const keptOrder = r.broken.names.join("|") === r.names.join("|") ||
                     r.broken.names.join("|") === "gamma|alpha|beta";
@@ -1335,8 +1326,7 @@ check("a sortspec naming a folder that is gone is ignored, not fatal", async (p)
     var vanished = __vg.sortOrderFor([{ folder: "", origin: "stale.md", text: text }], "alpha", names);
     return { got: got, vanishedMatched: vanished.matched, names: names };
   })()`);
-  // Two of the three pins name folders that are not here. The one that IS here still leads,
-  // and nothing is skipped -- a stale pin is normal wear on a spec, not a syntax error.
+  // github#71 -- a stale pin is wear, not a syntax error: nothing is skipped
   const led = r.got.names[0] === "gamma";
   const kept = r.got.names.join("|") === "gamma|alpha|beta";
   const quiet = r.got.skipped.length === 0;
@@ -1364,9 +1354,7 @@ check("a folder keeps its colour when the wedge order changes", async (p) => {
     __vg.setFolderOrder(was);
     return { byName: byName, bySize: bySize, bySpec: bySpec };
   })()`);
-  // THE GOLDEN SNAPSHOTS CANNOT CATCH THIS. They hold positions and band, not colour, so a
-  // reordering that repainted every wedge would pass every other check in this suite
-  // (github#71). The automatic slot must come from the name order, never the draw order.
+  // github#71 -- the goldens hold position and band, NOT colour
   const drift = [];
   for (const g of Object.keys(r.byName.slots)) {
     for (const [label, m] of [["size", r.bySize], ["explorer", r.bySpec]]) {
@@ -1384,9 +1372,7 @@ check("a folder keeps its colour when the wedge order changes", async (p) => {
             (drift.length ? `; ${drift.length} REPAINTED: ${drift.slice(0, 4).join(", ")}`
                           : "; every automatic slot unchanged")
   };
-}, { on: "all" });   // github#71 -- MUST reach test-vault: 17 top-level folders against 12 colour
-//   slots is the only fixture where the slot walk cycles, and `size` reorders it
-//   with no spec at all, so the repaint defect is visible there either way.
+}, { on: "all" });   // github#71 -- MUST reach test-vault, where the slot walk cycles
 /* ------------------------------------------------- github#86 D-9, design/0015 */
 
 check("a marked heatmap day haloes but never pushes", async (p) => {
@@ -6868,14 +6854,11 @@ function resolveVaults() {
   if (arg("url", "")) return [{ path: "", label: "the page passed with --url" }];
 
   const out = [];
-  // The original trio share one digest input list because make-demo-vault delegates to
-  // make-test-vault, so editing either must invalidate both.
+  // github#71 -- the trio share one list, by delegation
   const GENERATORS = ["make-demo-vault.mjs", "make-test-vault.mjs", "make-shape-vault.mjs"];
   // github#86 -- hashes ONLY its own generator; the other three do not move
   const TAG_GENERATORS = ["make-tag-vault.mjs"];
-  // github#71 -- same reasoning as the tag vault: the spec vault delegates to nothing, so it
-  // gets its OWN list. Adding it to GENERATORS would invalidate the other three and
-  // regenerate all of them for a file they never read.
+  // github#71 -- delegates to nothing, so it gets its OWN list
   const SPEC_GENERATORS = ["make-spec-vault.mjs"];
   // github#106 -- format 2 stamps the note count
   const FIXTURE_FORMAT = 2;
@@ -6957,10 +6940,7 @@ function resolveVaults() {
   // github#86, design/0015 -- the only tag-ORGANISED fixture; --end pinned
   gen("make-tag-vault.mjs", ["--end", "2026-09-09"], "tag-vault",
       "the tag-organised vault (nested tags, 8% untagged)", TAG_GENERATORS);
-  // github#71. --end is PINNED, like the 10k vault's and for the same reason: gamma/ files
-  // its notes into YYYY-MM subfolders derived from their dates, so a moving --end would
-  // move notes between subfolders and fail this fixture's own golden every week -- which
-  // teaches exactly the "regenerate the golden to make it pass" habit the repo forbids.
+  // github#71 -- --end PINNED: its dated subfolders would age out weekly
   gen("make-spec-vault.mjs", ["--end", "2026-09-08"], "spec-vault",
       "the sortspec vault (wedges out of name order)", SPEC_GENERATORS);
 

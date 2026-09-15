@@ -2875,6 +2875,27 @@ coverage that was already present. So it was reverted.
 alive**: *a vault with no sortspec is laid out in name order* now asserts on the demo, the 10k,
 `shape-vault` and `tag-vault`, rather than on `shape-vault` alone.
 
+**`spec-vault`'s shape is built to provoke, and each part of it provokes something named.** It is
+the only fixture whose wedges are not in name order, so it is where the explorer order is actually
+laid out:
+
+| what | why it is there |
+|---|---|
+| the root section pins **out of name order** | `zeta` and `alpha` are pinned first, so the wedge sequence cannot accidentally agree with the name order it is supposed to be leaving |
+| one **pinned subfolder is tiny** | `alpha/00 pinned tiny` holds 4 notes and is pinned first inside its parent. `ownsWedge()` grants a sub-wedge by **position** while `subCellIndex()` pools the tint by **rows**, so a small folder at position 0 is exactly where the two disagree (github#71 D-10, `decisions/0004`). Measured, not assumed |
+| a dated tree on **`order-desc`** | `gamma/YYYY-MM` reads newest-first, which is the point of `order-desc` on an ISO-prefixed tree and the thing that reads backwards without a spec |
+| a section aimed at a **folder that is gone**, and a line **outside the subset** | the two failure paths, so the fallback and the notice are exercised by a real spec rather than only by the parser's unit checks |
+| registered **globally, from inside a folder** | `.obsidian/plugins/custom-sort/data.json` names `beta/sortspec.md`. That is the arrangement a real vault ends up with, and the reason its root section must say `target-folder: /` rather than `.`. It is the suite's only coverage of the `additionalSortspecFile` path |
+
+Name order would be `alpha, beta, gamma, zeta`; under `explorer` it is `zeta, alpha, beta, gamma`.
+
+**Its `--end` is pinned by every caller and must stay that way.** The `YYYY-MM` subfolders are
+derived from note dates, so moving `--end` moves notes between subfolders and the subfolder cells
+move with them -- the exact failure the 10k vault hit on 2026-09-04, when 893 notes moved on the
+first weekly refresh. A fixture whose golden fails weekly teaches everyone to regenerate goldens to
+make a check pass, which is the one thing this repo forbids. Pinned in `smoke.mjs`,
+`update-layout-snapshots.mjs` and the `suite-stamp.mjs` self-test alike.
+
 **A FOURTH FIXTURE since github#71: `spec-vault`.** 287 notes, and the only one laid out in
 anything but name order — it ships a sortspec and is built with `--folder-order explorer`, so
 the whole suite runs against a disc whose wedges are where a spec put them. Its `--end` is

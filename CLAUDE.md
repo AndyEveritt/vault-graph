@@ -26,7 +26,7 @@ imported below; if you are a contributor, its absence is normal and nothing here
   walking dot may also be held *below* them by its clearance on the frame being drawn, never above.
 - **Only depth-1 subfolders with their own tint slot are pushed**; a sub-wedge earns a slot only if it can fill one.
 - **The page is scoped**: every CSS rule under `.vault-graph`, every id through `$()`; nothing shipped reaches the network.
-- **The layout matches its golden snapshot** on all three fixtures — never regenerate a golden to make a check pass.
+- **The layout matches its golden snapshot** on all five fixtures — never regenerate a golden to make a check pass.
 
 ## How to work here
 
@@ -91,19 +91,7 @@ imported below; if you are a contributor, its absence is normal and nothing here
   releasing.md`, and the `cut-release` skill).
 - Measure before and after; the numbers go into `.ai-context/changelog-detail.md`, which is
   the regression suite. A changed constant means `invariants.md` changes in the same commit.
-- **Obsidian does not load the plugin in a vault it has not been told to trust.** Open any vault
-  that is not the default one -- a fixture vault, a generated test vault, anything under a temp dir
-  -- and Obsidian asks *Trust author and enable plugins?* the first time. Until that is confirmed
-  the plugin does not load **at all**, and the Settings window it opens has to be closed too. Skip
-  it and you are staring at a plugin that looks broken for a reason that is not in the code.
-- **Never serve Chrome unlabeled.** A page opened in Chrome from any worktree — a `smoke.mjs`
-  run, a `shoot.mjs` capture, a manual review build — sets the page's own top-left title to
-  `<worktree/feature> — <what it's showing>` (e.g. `tag-grouping — demo vault`), not the
-  default. Patch the built HTML's `vault` field in `window.VAULT_DATA` rather than the product
-  itself; the title is a review aid, not a feature. Several worktrees end up with visually
-  similar tabs open in Chrome at once — without a label there is no way to tell which build is
-  which, and judging a change against the wrong one is worse than not looking.
-- Fixtures: three generated vaults (`scripts/make-*-vault.mjs`) in the shared store; never a
+- Fixtures: five generated vaults (`scripts/make-*-vault.mjs`) in the shared store; never a
   real vault, never a built `vault-graph.html`, in anything that reaches the repo.
 - `npm run lint` holds every finding at zero. `check-pii`, `check-scope`, `check-network` and
   the two determinism checks gate every push and have no skip flag.

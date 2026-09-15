@@ -57,9 +57,7 @@
  * @property {VaultStats} stats
  * @property {boolean} [dev]         a --dev build of the standalone; nothing else sets it
  * @property {string} [version]      github#108 -- the plugin/exporter version that built this, shown in the stats line
- * @property {{ folder: string, text: string, origin: string }[]} [sortSpecs]  github#71 --
- *   raw `sorting-spec` text as the host found it; the page parses it, so the two hosts do not
- *   each carry a copy of the parser
+ * @property {{ folder: string, text: string, origin: string }[]} [sortSpecs]  github#71
  */
 
 // github#72, design/0014
@@ -127,7 +125,7 @@
  * @property {Record<string, boolean>} [folderShown]
  * @property {boolean} [panEnabled]
  * @property {boolean} [compactAxis]
- * @property {"name" | "explorer" | "size"} [folderOrder]   github#71 -- default "name"
+ * @property {"name" | "explorer" | "size"} [folderOrder]   github#71, decisions/0015
  * @property {boolean} [unlinkedByFolder]
  * @property {boolean} [unlinkedTintByFolder]
  * @property {boolean} [countBars]              github#78, design/0006
@@ -243,26 +241,10 @@
  */
 
 /* ------------------------------------------------------ file-explorer order --
- * github#71, decisions/0015.
- *
- * The subset of the Custom File Explorer sorting plugin's sortspec that decides ORDER,
- * and nothing else. That plugin exposes no resolved order to call -- it patches the
- * explorer's own sort -- so this mirrors the spec TEXT. Reading the explorer's DOM would
- * be a private-API dependency this repo has stayed clear of.
- *
- * ONLY TWO QUESTIONS EVER REACH THIS, because paraDirs() keeps dirs[0] and stops at the
- * first YYYY-MM segment: the disc has exactly two levels. So the wedge order comes from
- * the section targeting the vault root, and one folder's sub-wedge order from the section
- * targeting that folder. Sections aimed deeper are parsed, kept, and never asked about --
- * they are not errors, they are simply invisible here, and the setting's own description
- * says so.
- *
- * Lives at module scope, outside the three BEGIN/END regions scripts/build-plugin.mjs
- * strips: the plugin needs this, unlike the demo and debug surfaces.
- */
+ * github#71, decisions/0015 */
 
 /**
- * One resolved section of a spec.
+ * github#71 -- one resolved section of a spec
  * @typedef {Object} SortSection
  * @property {string} target   normalised folder path the section aims at; "" is the vault root
  * @property {number} rank     the plugin's precedence: 3 exact path, 2 exact name, 1 regexp, 0 wildcard
@@ -278,16 +260,14 @@
  */
 
 /**
- * What `__vg.sortSpec()` hands back: the parsed spec with `re` dropped. It is a RegExp, and
- * the checks read this over CDP, where a RegExp arrives as `{}` -- so the debug view states
- * what actually crosses rather than claiming a SortSpec it cannot deliver. github#71.
+ * github#71 -- the parsed spec with `re` dropped
  * @typedef {{ target: string, rank: number, pins: string[], dir: "asc" | "desc" | null, origin: string }} SortSectionView
  * @typedef {{ sections: SortSectionView[], skipped: SortSkip[], ok: boolean }} SortSpecView
  */
 
-/** A line that names a directive rather than an item to pin. */
+// github#71 -- a line naming a directive rather than an item to pin
 var SORT_DIRECTIVE = /^([a-z][a-z-]*)\s*:\s*(.*)$/;
-/** The plugin's punctuation-led syntax -- none of it decides order, all of it is skipped loudly. */
+// github#71 -- punctuation-led syntax: none of it decides order
 var SORT_MARKER = /^[/<>%!\\.]/;
 
 /** @param {string} s */
@@ -296,15 +276,14 @@ function sortTrimPath(s) {
 }
 
 /**
- * Read a `target-folder:` value into a target + precedence rank.
+ * github#71 -- a `target-folder:` value into a target + precedence rank
  * @param {string} raw @param {string} home the folder the spec file itself lives in
  * @returns {{ target: string, rank: number, re: RegExp | null } | null}
  */
 function sortTarget(raw, home) {
   var v = String(raw).trim();
   if (!v) return null;
-  // A regexp target is written /pattern/ -- but a bare "/" is the vault root and "/*" is
-  // the root wildcard, so both are settled before the delimiters are considered.
+  // github#71 -- "/" and "/*" are settled before the regexp delimiters
   if (v === "/" || v === ".") return { target: v === "/" ? "" : home, rank: 3, re: null };
   if (v === "/*" || v === "./*") return { target: v === "/*" ? "" : home, rank: 0, re: null };
   if (v.length > 2 && v.charAt(0) === "/" && v.charAt(v.length - 1) === "/") {
@@ -315,15 +294,12 @@ function sortTarget(raw, home) {
   if (v.charAt(0) === ".") v = home + "/" + v.replace(/^\.\/?/, "");
   var target = sortTrimPath(v);
   if (!target && !wild) return null;
-  // No slash means the plugin matches the folder's NAME at any depth, which outranks a
-  // wildcard but loses to an exact path.
+  // github#71 -- no slash: matches the folder NAME at any depth, rank 2
   return { target: target, rank: wild ? 0 : (target.indexOf("/") < 0 ? 2 : 3), re: null };
 }
 
 /**
- * Parse every spec source into ordered sections. Never throws: a source that cannot be
- * read at all takes the WHOLE spec down to `ok: false`, because a half-applied order is
- * worse than none -- the caller then falls back to name order (github#71).
+ * github#71 -- never throws; a bad source takes the spec to ok:false
  * @param {{ folder: string, text: string, origin: string }[]} sources
  * @returns {SortSpec}
  */
@@ -360,10 +336,7 @@ function parseSortSpec(sources) {
         if (key === "order-asc" || key === "order-desc") {
           var by = m[2].trim().toLowerCase();
           if (by !== "a-z") {
-            // github#71 D-9: `created` and `modified` are understood and deliberately not
-            // applied. The plugin sorts folders by their FILESYSTEM timestamps; the only
-            // dates this page has are the notes inside a folder, which is a different
-            // answer wearing the same name. Skipping loudly beats quietly disagreeing.
+            // github#71 -- D-9: created/modified need folder timestamps we lack
             skipped.push({ origin: origin, line: n, text: line,
                            why: "only `a-z` is applied; `" + by + "` needs folder timestamps the page does not have" });
             return;
@@ -387,10 +360,7 @@ function parseSortSpec(sources) {
 }
 
 /**
- * The section that governs `path`, by the plugin's precedence: exact path over exact name
- * over regexp over wildcard. Ties inside one rank go to the first listed, which is
- * arbitrary but deterministic -- the plugin itself warns that two competing wildcards are
- * the fragile case.
+ * github#71 -- the section governing `path`, by the plugin's own precedence
  * @param {SortSpec | null} spec @param {string} path "" is the vault root
  * @returns {SortSection | null}
  */
@@ -410,13 +380,7 @@ function sortSectionFor(spec, path) {
 }
 
 /**
- * Pinned names first in the order the spec listed them, then everything else by the
- * section's own direction. A pin naming something that is not here -- a folder since
- * renamed or deleted, or one of the FILES a root section usually pins -- simply does not
- * appear; it is not an error and not a notice.
- *
- * `a-z` is compared plainly, the way the plugin's own `a-z` reads, and deliberately NOT
- * with the numeric collation computeOrder() uses for name order (github#71 D-11).
+ * github#71 -- D-11: pins first, then the section's direction
  * @param {string[]} names @param {SortSection} section
  * @returns {string[]}
  */
@@ -681,28 +645,21 @@ function mountVaultGraph(root, data, deps) {
   var sortSpec = parseSortSpec(DATA.sortSpecs || []);
   var onFolderOrder = typeof deps.onFolderOrder === "function" ? deps.onFolderOrder : null;
   /**
-   * ABSENCE OF THE DEP MEANS NOBODY HAS CHOSEN YET, and then the vault decides: a vault that
-   * ships a sortspec is one whose owner has already said what order they want things in, so
-   * opening it in name order shows them an order they deliberately moved away from. Same
-   * idiom as `sheetOpen`/`bandOpen`, where absent means "decide from the width" (github#82).
-   *
-   * An explicit value always wins, which is what makes the choice stick: the host persists on
-   * every change (decisions/0009), so a reader who picks Name keeps Name even here.
+   * github#71, decisions/0015 -- absent means nobody has chosen; the vault decides
    */
   var folderOrder = FOLDER_ORDERS.indexOf(String(deps.folderOrder)) >= 0
     ? /** @type {"name" | "explorer" | "size"} */ (deps.folderOrder)
     : (sortSpec.ok && sortSpec.sections.length
         ? /** @type {"explorer"} */ ("explorer")
         : /** @type {"name"} */ ("name"));
-  /**
-   * True only when the explorer order can actually be applied. The section count matters as
-   * much as `ok`: an empty spec parses fine, and without this a vault with no sortspec at all
-   * would still take the spec BRANCH when the setting was flipped -- same order, but the
-   * legend's tail row would start calling its subfolders "other" instead of "smaller" with
-   * nothing anywhere to have reordered them.
-   */
+  // github#71 -- the section count matters as much as ok
   function usingSpec() {
     return folderOrder === "explorer" && sortSpec.ok && sortSpec.sections.length > 0;
+  }
+
+  // github#71, github#86 -- D-12: a sortspec names FOLDERS only
+  function specOrders() {
+    return state.dim === "folder" && usingSpec();
   }
 
   // github#73, design/0013
@@ -1017,20 +974,7 @@ function mountVaultGraph(root, data, deps) {
 
   ingest(DATA, null);
 
-  /**
-   * Sub-wedge order. github#86, design/0015 -- per dimension (D-3); called below, after the
-   * filing. github#71: the tally is fixed by the vault, only the order over it answers to the
-   * setting, so this is what re-runs when the setting changes.
-   *
-   * The size sort is the INPUT, not an alternative to the spec: a section with pins but no
-   * `order-` line floats those subfolders to the front and leaves everything behind them
-   * biggest-first, which is the issue's "pinned ones first, then the biggest". `size` mode
-   * therefore does nothing here -- sub-wedges have always been size-ordered (design/0001).
-   *
-   * github#71 x github#86 -- D-12: the spec orders FOLDER sub-wedges only. A sortspec names
-   * folders, so under `tag` its sections match nothing and asking it to would invite a tag
-   * called `03 - Resources` to inherit a folder's pins. The tag dimension stays size-ordered.
-   */
+  // github#86, github#71 -- per dimension; D-12 gates the spec to folders
   function buildSubOrder() {
     subOrder = dict();
     subCount = dict();
@@ -1041,7 +985,7 @@ function mountVaultGraph(root, data, deps) {
       if (!tally[f]) tally[f] = dict();
       tally[f][sb] = (tally[f][sb] || 0) + 1;
     });
-    var spec = state.dim === "folder" && usingSpec();
+    var spec = specOrders();
     Object.keys(tally).forEach(function (f) {
       var subs = Object.keys(tally[f]).sort(function (x, y) {
         return tally[f][y] - tally[f][x] || x.localeCompare(y);
@@ -1303,17 +1247,12 @@ function mountVaultGraph(root, data, deps) {
   var groupAutoSlot = dict();
   /** @type {Record<string, string[]>} */
   var order = {};
-  // github#71 -- the order the wedges are DRAWN in may leave name order (a file-explorer spec,
-  // or size); the order the colour slots are handed out in never does. Keeping the two apart is
-  // what lets a wedge move to a new bearing and keep its hue. See buildColors.
+  // github#71, design/0004 -- the draw order may move; the slot order never does
   /** @type {Record<string, string[]>} */
   var slotOrder = {};
 
   /**
-   * The sequence the wedges are DRAWN in. github#71 D-7: the groupRank ordering is still the
-   * outer key in every mode, so no reordering ever floats a pseudo-group into the middle of
-   * the real folders -- only the rank-2 bucket is re-sorted, and `(vault root)`, the archives,
-   * `(untagged)` (github#86) and `(unlinked)` keep the places design/0001 gave them.
+   * github#71 -- D-7: groupRank stays the outer key
    * @param {string[]} names already in name order @param {Record<string, number>} count
    * @returns {string[]}
    */
@@ -1323,10 +1262,8 @@ function mountVaultGraph(root, data, deps) {
     if (folderOrder === "size") {
       body.sort(function (a, b) { return (count[b] || 0) - (count[a] || 0) || byGroupName(a, b); });
     } else {
-      // github#71 x github#86 -- D-12: a sortspec names FOLDERS, so the explorer order is a
-      // folder-dimension answer. `size` still means something over tags and stays above; this
-      // branch would otherwise let a root section's pins reorder tags that merely share a name.
-      var sec = state.dim === "folder" && usingSpec() ? sortSectionFor(sortSpec, "") : null;
+      // github#71, github#86 -- D-12: a sortspec names FOLDERS, so gate on the dim
+      var sec = specOrders() ? sortSectionFor(sortSpec, "") : null;
       if (!sec) return names;
       body = orderBySortSection(body, sec);
     }
@@ -1375,8 +1312,7 @@ function mountVaultGraph(root, data, deps) {
     });
     if (count[UNLINKED] === undefined) count[UNLINKED] = 0;
     var names = Object.keys(count).sort(byGroupName);
-    // github#71 -- a separate copy, not the same array: the draw order is re-sorted in place
-    // below once it leaves name order, and the slot order must not follow it.
+    // github#71 -- a separate copy: the draw order is re-sorted in place below
     slotOrder[state.dim] = names.slice();
     order[state.dim] = drawOrder(names, count);
     return count;
@@ -1392,10 +1328,7 @@ function mountVaultGraph(root, data, deps) {
     groupColor = dict();
 
     // github#71, design/0004 -- SLOTS COME FROM THE NAME ORDER, NEVER THE DRAW ORDER. The
-    // automatic slot is `auto++ % SLOT_COUNT`, i.e. a group's position in the array it is
-    // walked in, so walking the draw order here would repaint the whole disc the moment the
-    // wedges were laid out in anything but name order. Under "name" the two arrays are equal
-    // and this is byte-identical to what it replaced.
+    // github#71 -- under "name" the two arrays are equal and this is a no-op
     var names = slotOrder[state.dim] || order[state.dim] || [];
 
     /** @type {SlotMap} */
@@ -6872,10 +6805,9 @@ function mountVaultGraph(root, data, deps) {
           var n = 0;
           tail.forEach(function (sb) { n += subCount[g + "/" + sb] || 0; });
           var tOpen = !!state.tailOpen[g];
-          // github#71 -- "smaller" is only true while the order IS size. Under a spec the
-          // tail can hold subfolders bigger than the named ones, so the row says "other".
+          // github#71, decisions/0015 -- "smaller" holds only while the order is size
           row += srow(subShade[g + "/" + tail[0]] || colorOf(g),
-                      tail.length + (usingSpec() ? " other subfolders" : " smaller subfolders"), n,
+                      tail.length + (specOrders() ? " other subfolders" : " smaller subfolders"), n,
                       tail.map(function (_, j) { return SUB_NAMED + j; }), 1,
                       'data-twtail="' + esc(g) + '"', tOpen);
           if (tOpen) {
@@ -7827,12 +7759,7 @@ function mountVaultGraph(root, data, deps) {
         get: function () { return countBars; },
         set: function (v) { setCountBars(v, true); } }
     ];
-    // github#71 -- the first setting here that is not a boolean, so it gets a segmented
-    // radio rather than a fourth Enabled button. The subset note in the title is deliberate:
-    // the page reads the parts of a sortspec that decide order, and the disc has only two
-    // levels to apply them to, so a spec can be doing more in the explorer than here.
-    // Keys must match FOLDER_ORDERS; a key only here would set an unknown mode, which
-    // setFolderOrder() floors to "name", so a drift shows up as a dead button.
+    // github#71 -- the first non-boolean setting; keys must match FOLDER_ORDERS
     var FOLDER_ORDER_ROW = [
       { key: "name", label: "Name",
         title: "Folders run in their own name order, numbers read as numbers -- the disc's original order" },
@@ -8324,18 +8251,13 @@ function mountVaultGraph(root, data, deps) {
     var next = FOLDER_ORDERS.indexOf(v) >= 0 ? /** @type {"name" | "explorer" | "size"} */ (v) : "name";
     if (next === folderOrder) return folderOrder;
     folderOrder = next;
-    // The sub-wedge order answers to the setting too (D-2), and it is built from a tally
-    // that does not -- so rebuild it before anything reads subOrder.
+    // github#71 -- D-2: rebuild the sub order before anything reads subOrder
     buildSubOrder();
     FOLDER_ORDERS.forEach(function (k) {
       var btn = $("fo-" + k);
       if (btn) btn.setAttribute("aria-checked", k === folderOrder ? "true" : "false");
     });
-    // Wedges change bearing, so this is a real relayout, not a repaint. Animated for a
-    // person: the reflow interpolates in polar space like every other regroup
-    // (design/0001). `instant` exists for the SUITE -- a check that flips two or three
-    // modes in one eval would otherwise leave a cascade in flight for whatever runs next
-    // in its shard, which is a flake nobody can reproduce on purpose.
+    // github#71, design/0001 -- a real relayout; `instant` is for the suite
     hardRelayout(!instant);
     attempt(placeLogo); attempt(heatBuild); attempt(buildLegend);
     if (persist && onFolderOrder) onFolderOrder(folderOrder);
@@ -10891,9 +10813,7 @@ function mountVaultGraph(root, data, deps) {
                     // github#71
                     nameOrder: function () { return (slotOrder[state.dim] || []).slice(); },
                     folderOrder: function () { return folderOrder; },
-                    // instant, like setUnlinkedByFolder above: the host calls this to restore
-                    // a stored setting or from its own settings tab, where nobody is watching
-                    // the disc -- only the page's own radio animates the reflow.
+                    // github#71 -- instant: only the page's own radio animates
                     setFolderOrder: /** @param {string} v */ function (v) { return setFolderOrder(v, false, true); },
                     sortSpec: function () {
                       return { ok: sortSpec.ok, skipped: sortSpec.skipped.slice(),
@@ -11181,8 +11101,7 @@ function mountVaultGraph(root, data, deps) {
     var debugAPI = {
                     state: state,
                     // github#71 -- the spec GRAMMAR as a pure function, so the suite can
-                    // check a malformed spec, an unknown directive and a section naming a
-                    // folder that no longer exists without a fixture for each.
+                    // github#71 -- the failure paths, without a fixture for each
                     parseSortSpec: parseSortSpec,
                     /**
                      * @param {{ folder: string, text: string, origin: string }[]} src

@@ -100,6 +100,67 @@ between them; the serpentine inside a wedge is untouched.
 goldens must be byte-identical — verified by regenerating all four and finding only the new one
 changed. `spec-vault` is the fourth, and the only fixture laid out in anything but name order.
 
+## D-12 — the spec orders FOLDER wedges only
+
+`github#86` landed the grouping dimension while this work was parked: the disc can now be cut by
+**tag** as well as by folder. A sortspec names *folders*, so the explorer order is a
+folder-dimension answer, and both `drawOrder()` and `buildSubOrder()` gate it on
+`state.dim === "folder"`. Left open, a root section's pins would reorder a **tag** that merely
+shares a folder's name — a vault with an `03 - Resources` folder and an `#03 - Resources` tag would
+see the tag disc quietly inherit the folder's pins.
+
+`size` is deliberately **not** gated: biggest-tag-first means something, and it needs no spec.
+
+## Absence means nobody has chosen, and then the vault decides
+
+`folderOrder` is **absent** from the plugin's defaults rather than set to `"name"`. When the page
+sees no value it decides from the vault: `explorer` if a sortspec was found, `name` otherwise. A
+vault that ships a spec is one whose owner has already said what order they want things in, so
+opening it in name order shows them an order they deliberately moved away from. Same idiom as
+`sheetOpen`/`bandOpen`, where absent means "decide from the width" (`github#82`).
+
+An explicit value always wins, which is what makes a choice stick: the host persists on every
+change (`decisions/0009`), so a reader who picks Name keeps Name even in a spec-carrying vault.
+
+**Both settings surfaces must therefore report the RESOLVED mode, not the stored one.** With
+nothing stored, a control showing the stored value reads "Name" over a disc that is not in name
+order, and picking Name — already the visible selection — looks like a no-op. `liveFolderOrder()`
+peeks at a loaded view for what the page actually chose. It is safe to read `leaf.view` there
+precisely because a deferred leaf hands back a stub that fails the `instanceof`: no mounted page
+means nothing to report, which is the right answer rather than a reason to force a leaf open from
+a settings render.
+
+## The legend tail says "other", not "smaller", under a spec
+
+`"N smaller subfolders"` is only true while the order *is* size. Under a spec the tail can hold
+subfolders **bigger** than the named ones, so the row reads `"N other subfolders"` whenever the
+order is not size.
+
+## The mirror vault translates a spec; it never copies one
+
+`scripts/make-mirror-vault.mjs` exists to check a real vault's **shape** without its content, and
+since this issue a vault's shape includes the order its file explorer is in. A mirror with no
+sortspec cannot exercise the one feature the source vault leans on hardest, which makes it the
+wrong tool for exactly the check it exists for. So the mirror carries one — under four rules.
+
+- **A spec is an ordinary note, so it is mirrored as one**, translated in place rather than
+  written alongside. Bolting it on afterwards produced *both* a spec file and a random-titled note
+  that had been the original: the folder carried one note more than the source, and the real spec
+  note was a ghost nobody could find.
+- **It is TRANSLATED, never copied.** Every `target-folder:` path and every pinned name goes
+  through the same `dirMap` and `nameMap` the notes did, so the mirror carries the spec's
+  *structure* — its pins, its `order-` lines, its precedence, its depth — and none of its real
+  names. That is not tidiness. A person folder under a 1-on-1 tree **is a real person**, and
+  copying a spec verbatim would put every one of them into a vault whose entire purpose is that it
+  holds none. Comments go too, being prose someone wrote.
+- **A line naming something not in the mirror is dropped, not passed through.** The page treats an
+  unresolvable pin as ordinary wear and would carry on, but a mirror that kept real names for what
+  it failed to map would be leaking the thing it cannot leak.
+- **A spec is found BY ITS NAME**, so renaming it would hide it from the builder. A `sortspec`
+  keeps that name; a folder note keeps its folder's mapped name, or it stops being a folder note.
+  The sort plugin's own `data.json` is rewritten to point at the mirrored note, so a globally
+  registered spec is found in the mirror exactly as in the source.
+
 ## Not built
 
 Ordering taken from an Obsidian **bookmarks group**

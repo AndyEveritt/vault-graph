@@ -313,15 +313,7 @@ async function readFolders(app) {
   return { templateDirs: Array.from(dirs), dailyDir: dailyDir };
 }
 
-/** github#71 -- the three places the Custom File Explorer sorting plugin reads a spec.
- * Obsidian's metadata cache has already parsed the YAML, so a `sorting-spec: |-` block
- * arrives as one string and nothing here needs to know YAML -- src/build-graph.mjs pays
- * that cost instead, because it has no cache to ask. The spec GRAMMAR lives in
- * src/page.js (parseSortSpec), the one file both hosts share, so it exists once.
- *
- * `folder` is where the spec file sits, which is what a section with no `target-folder:`
- * means. A spec registered globally from inside some folder must therefore say
- * `target-folder: /` to reach the vault root; the page resolves that.
+/** github#71, decisions/0015 -- the three places a spec is read; cache-parsed here
  * @param {import("obsidian").App} app
  */
 async function readSortSpecs(app) {
@@ -342,7 +334,7 @@ async function readSortSpecs(app) {
   for (const file of app.vault.getMarkdownFiles()) {
     const dir = file.parent && file.parent.path && file.parent.path !== "/" ? file.parent.path : "";
     const parent = dir.indexOf("/") < 0 ? dir : dir.slice(dir.lastIndexOf("/") + 1);
-    // a sortspec.md in any folder, or a folder note carrying the key in its frontmatter
+    // github#71 -- a sortspec.md, or a folder note carrying the key
     if (file.basename.toLowerCase() === "sortspec" || (parent && file.basename === parent)) add(file);
   }
 
@@ -999,7 +991,7 @@ class VaultGraphView extends ItemView {
         await this.plugin.saveSettings();
       },
       // github#71
-      // github#71 -- undefined until the reader picks; the page then decides from the vault
+      // github#71 -- undefined until the reader picks
       folderOrder: this.plugin.settings.folderOrder,
       /** @param {"name" | "explorer" | "size"} v */
       onFolderOrder: async (v) => {
@@ -1124,14 +1116,11 @@ const DEFAULTS = {
   dim: "folder",
   // github#72
   liveRefresh: true,
-  // github#71 -- deliberately absent: "nobody has chosen yet", so a vault with a sortspec
-  // opens in its own order. A stored value only appears once the reader picks one.
+  // github#71, decisions/0009 -- absent means nobody has chosen yet
   folderOrder: undefined,
 };
 
-/* github#71 -- the one view setting that is not a boolean, so it sits beside VIEW_SETTINGS
- * rather than in it. The description names the subset on purpose: a sortspec can be doing
- * more in the explorer than the disc can show, because the disc has two levels. */
+/* github#71 -- the one view setting that is not a boolean */
 const FOLDER_ORDER_SETTING = {
   key: /** @type {const} */ ("folderOrder"),
   name: "Folder order",
@@ -1308,11 +1297,15 @@ class VaultGraphSettingTab extends PluginSettingTab {
 
   /** @param {string} key */
   getControlValue(key) {
+    // github#71 -- report what the page chose, not the declarative default
+    if (key === FOLDER_ORDER_SETTING.key) {
+      return this.plugin.settings.folderOrder || this.liveFolderOrder() || "name";
+    }
     return this.plugin.settings[/** @type {keyof Settings} */ (key)];
   }
   /** @param {string} key @param {unknown} value */
   async setControlValue(key, value) {
-    // github#71 -- the only non-boolean, so it is settled before the !!value below
+    // github#71 -- the only non-boolean, settled before the !!value below
     if (key === FOLDER_ORDER_SETTING.key) {
       await this.setFolderOrder(String(value));
       return;
@@ -1352,6 +1345,22 @@ class VaultGraphSettingTab extends PluginSettingTab {
     if (api && api.setFolderOrder) api.setFolderOrder(next);
   }
 
+  /**
+   * github#71, decisions/0015 -- what the disc is ACTUALLY ordered by
+   * @returns {"" | "name" | "explorer" | "size"}
+   */
+  liveFolderOrder() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      const view = leaf.view;
+      if (!(view instanceof VaultGraphView)) continue;
+      const api = view.handle && view.handle.api;
+      if (!api || !api.folderOrder) continue;
+      const v = api.folderOrder();
+      if (v === "name" || v === "explorer" || v === "size") return v;
+    }
+    return "";
+  }
+
   display() {
     const { containerEl } = this;
     containerEl.empty();
@@ -1376,7 +1385,7 @@ class VaultGraphSettingTab extends PluginSettingTab {
       .setDesc(FOLDER_ORDER_SETTING.desc)
       .addDropdown((d) => d
         .addOptions(FOLDER_ORDER_SETTING.options)
-        .setValue(this.plugin.settings.folderOrder || "")
+        .setValue(this.plugin.settings.folderOrder || this.liveFolderOrder() || "name")
         .onChange(async (v) => { await this.setFolderOrder(v); }));
     for (const s of VIEW_SETTINGS) {
       new Setting(containerEl)
@@ -1811,8 +1820,7 @@ class VaultGraphPlugin extends Plugin {
     if (api.setCountBars) api.setCountBars(this.settings.countBars !== false);
     if (api.setFitCap) api.setFitCap(this.settings.fitCap !== false);
     // github#71
-    // github#71 -- only push a STORED choice; forcing "name" here would defeat the
-    // vault-decides default the page applies at mount.
+    // github#71 -- only push a STORED choice, never a default
     if (api.setFolderOrder && this.settings.folderOrder) api.setFolderOrder(this.settings.folderOrder);
     if (api.applyHiddenDefaults) api.applyHiddenDefaults();
   }

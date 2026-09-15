@@ -17,9 +17,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
 const OUT_DIR = join(ROOT, "scripts", "layout-snapshots");
 
-/* MUST AGREE WITH resolveVaults() IN smoke.mjs, args included -- the args are part of the
- * store digest, so a difference here silently points the two scripts at two different
- * fixtures and the golden is recorded against a vault the suite never checks. */
+/* github#71 -- MUST AGREE WITH resolveVaults() in smoke.mjs, args included */
 const FIXTURES = [
   { script: "make-demo-vault.mjs", args: [], name: "demo-vault" },
   { script: "make-test-vault.mjs", args: ["--notes", "10000", "--years", "10", "--end", "2026-08-28"], name: "test-vault" },
@@ -27,7 +25,7 @@ const FIXTURES = [
   // github#86, design/0015 -- recorded in the TAG dimension; that is its picture
   { script: "make-tag-vault.mjs", args: ["--end", "2026-09-09"], name: "tag-vault",
     gens: ["make-tag-vault.mjs"], dim: "tag" },
-  // github#71 -- --end pinned for the same reason the 10k vault's is: dated subfolders
+  // github#71 -- --end pinned: its dated subfolders are date-derived
   { script: "make-spec-vault.mjs", args: ["--end", "2026-09-08"], name: "spec-vault",
     gens: ["make-spec-vault.mjs"] },
 ];

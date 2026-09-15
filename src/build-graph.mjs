@@ -100,14 +100,11 @@ const INCLUDE_TEMPLATES = flag("templates");
 const OUT = opt("out", join(VAULT, "vault-graph.html"));
 const FLAT_MONTHS = flag("flat-months");
 const STRIP_NAV = flag("no-nav");
-// github#71 -- --folder-order OVERRIDES what the page would decide on its own; left off, the
-// order is not written into the build at all, and a vault that ships a sortspec opens in its
-// own order. --sortspec only ADDS a source; it does not switch the mode by implication, and
-// it does not need to any more.
+// github#71, decisions/0009 -- --folder-order overrides; absent, the page decides
 const SORTSPEC_ARG = opt("sortspec", "");
 const FOLDER_ORDER = (() => {
   const v = String(opt("folder-order", ""));
-  if (!v) return "";   // absent: the page decides from the vault (a sortspec means explorer)
+  if (!v) return "";   // github#71 -- absent: the page decides from the vault
   if (["name", "explorer", "size"].includes(v)) return v;
   console.error(`build-graph: --folder-order ${v} is not name|explorer|size -- letting the page decide`);
   return "";
@@ -286,14 +283,7 @@ const files = walk(VAULT).filter((abs) => {
   if (INCLUDE_TEMPLATES) return true;
   return !isTemplate(relative(VAULT, abs).split(sep).join("/"));
 });
-/* github#71 -- the three places that plugin reads a spec, plus --sortspec for a build that
- * points at one outside the vault. A sortspec.md stays an ordinary note on the disc (it is
- * still in `files`); it is additionally read as a spec here.
- *
- * `home` is the folder the spec file sits in, which is what a section with no
- * `target-folder:` and what `target-folder: .` both mean. A spec registered globally from
- * inside some folder therefore has to say `target-folder: /` to reach the vault root -- the
- * page resolves that, this only records where the file was found. */
+/* github#71, decisions/0015 -- the three places a spec is read, plus --sortspec */
 const SORT_SPECS = (() => {
   const out = [];
   const seen = new Set();
@@ -314,7 +304,7 @@ const SORT_SPECS = (() => {
     const name = basename(abs, ".md");
     const dir = rel.indexOf("/") < 0 ? "" : rel.slice(0, rel.lastIndexOf("/"));
     const parent = dir.indexOf("/") < 0 ? dir : dir.slice(dir.lastIndexOf("/") + 1);
-    // a sortspec.md in any folder, or a folder note carrying the key in its frontmatter
+    // github#71 -- a sortspec.md, or a folder note carrying the key
     if (name.toLowerCase() === "sortspec" || (parent && name === parent)) add(abs, rel);
   }
 
@@ -475,8 +465,7 @@ const data = {
     ghostsIncluded: INCLUDE_GHOSTS,
   },
   dev: DEV_BUILD,
-  // github#71 -- omitted unless the build was told, so absence reaches the page as
-  // "nobody has chosen" and a vault with a sortspec opens in its own order
+  // github#71 -- omitted unless told, so absence means nobody has chosen
   ...(FOLDER_ORDER ? { folderOrder: FOLDER_ORDER } : {}),
   sortSpecs: SORT_SPECS,
 };
