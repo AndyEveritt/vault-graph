@@ -194,8 +194,7 @@ try {
   eq(ghosted.stats.unresolved, plain.stats.unresolved, "--ghosts does not change the unresolved count");
 
   console.log("check-link-resolution: a ghost carries every required VaultNode field (github#152)");
-  // github#152 -- read the contract's own property list rather than hardcoding it a second time,
-  // so a future typedef edit shows up in this check's own diff instead of quietly going stale.
+  // github#152 -- the required list comes from the typedef itself
   const pageSrc = readFileSync(join(ROOT, "src", "page.js"), "utf8");
   const typedefBody = /@typedef \{Object\} VaultNode([\s\S]*?)\*\//.exec(pageSrc);
   if (!typedefBody) throw new Error("VaultNode typedef not found in src/page.js");
