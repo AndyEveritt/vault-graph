@@ -2851,32 +2851,29 @@ data entirely unless `--folder-order` was passed. **Any one of those regressing 
 disables the feature for every vault**, and nothing would fail: the disc would simply be in name
 order.
 
-**THREE OF THE FOUR FIXTURES CARRY A SORTSPEC since github#71, and `shape-vault` deliberately
-does not.** `make-test-vault.mjs` writes one into `03 - Resources/sortspec.md` and registers it
-through `.obsidian/plugins/custom-sort/data.json`, so both fixtures it produces (the demo vault
-and the 10k) get a realistic one — pins on two `03 - Resources` subfolders that are not its
-largest, and `order-desc: a-z` on the four dated trees. Registering it from inside a folder rather
-than at the vault root is the arrangement a real vault ends up with, and the reason its first
-section must say `target-folder: /` rather than `.`; nothing else in the suite covers that path.
+**ONLY `spec-vault` CARRIES A SORTSPEC, and that is deliberate (github#71 D-13).** The other
+four fixtures are spec-free, so **every one of their goldens is byte-identical to the one
+`develop` already held** -- this feature adds a snapshot and moves none. `spec-vault` writes its
+spec to `beta/sortspec.md` and registers it through `.obsidian/plugins/custom-sort/data.json`,
+which is the arrangement a real vault ends up with and the reason its first section must say
+`target-folder: /` rather than `.`; that is the suite's coverage of the `additionalSortspecFile`
+path.
 
-The 10k vault is where it earns most: **17 top-level folders against 12 colour slots**, so the slot
-walk cycles. If a folder's slot ever followed the draw order, reordering there would swap hues
-between folders sharing a slot — the exact defect the colour check exists for, on the only fixture
-big enough to show it.
+**Why the shared fixtures were left alone.** An earlier pass on this branch wrote a spec into
+`make-test-vault.mjs` -- which reaches both the demo and the 10k vault -- and re-recorded their
+two goldens for it. The argument was that the 10k vault is the only fixture big enough to show
+the colour defect: **17 top-level folders against 12 colour slots**, so the slot walk cycles, and
+a slot that followed the draw order would swap hues between folders sharing one. The premise is
+true and the conclusion does not follow -- the colour check flips **`size`**, which reorders with
+no spec at all, so the 10k vault shows the defect whether or not it carries one. Measured: under
+`size` the order really moves there and every automatic slot is unchanged. The regeneration was
+legitimate -- the fixture genuinely gained a note -- but the repo's first law is that a golden is
+never regenerated to make a check pass, and a legitimate regeneration still spends that norm for
+coverage that was already present. So it was reverted.
 
-**`shape-vault` is kept spec-free on purpose.** Its job is band balancing under a dominant group, to
-which a spec adds nothing — and with the other three carrying one it is the only fixture left that
-can assert *a vault with no sortspec is laid out in name order*. Giving all four a spec would have
-retired that check without anyone noticing.
-
-**Their goldens were regenerated for it, deliberately** (2026-09-10). A spec is a note, so the demo
-vault went 1403 → **1404** notes and the 10k 10002 → **10003**. Every recorded position changed,
-which is what adding one note to a fixture does: wedge angles are proportional to a folder's share,
-so one extra note in `03 - Resources` re-proportions the whole disc. **Band assignment is unchanged
-on both** (11 inner / 6 outer, and 13 / 4), which is the property that actually had to hold, and
-`shape-vault.json` and `spec-vault.json` came back **byte-identical** — the containment proof that
-nothing but the two intended fixtures moved. This is a fixture change, not a layout change: the
-check reports added/removed ids separately from position drift for exactly this reason.
+**Four spec-free fixtures also keep a check honest that one spec-free fixture only just kept
+alive**: *a vault with no sortspec is laid out in name order* now asserts on the demo, the 10k,
+`shape-vault` and `tag-vault`, rather than on `shape-vault` alone.
 
 **A FOURTH FIXTURE since github#71: `spec-vault`.** 287 notes, and the only one laid out in
 anything but name order — it ships a sortspec and is built with `--folder-order explorer`, so

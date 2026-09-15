@@ -1176,9 +1176,10 @@ async (p) => {
  */
 
 check("the wedge order follows the file explorer spec", async (p) => {
-  // The expectation is DERIVED FROM THE SPEC the fixture ships, not written down here: three
-  // fixtures carry one now and they pin different things. A check that hardcoded one vault's
-  // folder names would silently stop asserting on the other two (github#71).
+  // The expectation is DERIVED FROM THE SPEC the fixture ships, not written down here, so
+  // this asserts wherever a spec is found and NOT-ASSERTS where there is none. Only
+  // spec-vault carries one (github#71 D-13): the shared fixtures were deliberately left
+  // spec-free rather than re-record two goldens for coverage that is already here.
   const r = await p.j(`(function(){
     var was = __vg.folderOrder();
     var spec = __vg.sortSpec();
@@ -1263,7 +1264,7 @@ check("the wedge order follows the file explorer spec", async (p) => {
             `sub-wedges ${anySubMoved ? "moved" : "unchanged"}; ` +
             (fail.length ? fail.join("; ") : notes.join("; "))
   };
-});
+}, { on: "all" });   // github#71 -- asserts wherever a spec is found, NOT-ASSERTS where there is none
 
 check("a vault with no sortspec is laid out in name order", async (p) => {
   const r = await p.j(`(function(){
@@ -1284,7 +1285,7 @@ check("a vault with no sortspec is laid out in name order", async (p) => {
   return { ok: same, detail: same
     ? `no spec found; "File explorer" left all ${r.drawn.length} groups in name order`
     : `no spec found but the order still moved: [${r.name.join(", ")}] -> [${r.drawn.join(", ")}]` };
-});
+}, { on: "all" });   // github#71 -- every spec-free fixture asserts this; spec-vault NOT-ASSERTS
 
 check("an unreadable sortspec falls back to name order and names the line", async (p) => {
   const r = await p.j(`(function(){
@@ -1383,7 +1384,9 @@ check("a folder keeps its colour when the wedge order changes", async (p) => {
             (drift.length ? `; ${drift.length} REPAINTED: ${drift.slice(0, 4).join(", ")}`
                           : "; every automatic slot unchanged")
   };
-});
+}, { on: "all" });   // github#71 -- MUST reach test-vault: 17 top-level folders against 12 colour
+//   slots is the only fixture where the slot walk cycles, and `size` reorders it
+//   with no spec at all, so the repaint defect is visible there either way.
 /* ------------------------------------------------- github#86 D-9, design/0015 */
 
 check("a marked heatmap day haloes but never pushes", async (p) => {
