@@ -70,8 +70,9 @@ prefix, so a `v`-tagged release is one nobody can install), a version the manife
 claim, a version with no `## <version>` section in `CHANGELOG.md`, a branch other than `main`
 (github#47), a dirty tree and a `main` that is not exactly `origin/main` (github#94: behind
 means missing what is already published, ahead means a local merge the ruleset will never let
-through); prints the hero and feature-clip warnings; runs lint, `check-notice.mjs` and the
-invariant suite; builds the plugin once as a pre-flight (the one failure the split introduces
+through); prints the hero and feature-clip warnings; runs lint, `check-notice.mjs`,
+`check-comments.mjs` (github#137) and the invariant suite; builds the plugin once as a pre-flight
+(the one failure the split introduces
 is a build that only fails in CI, leaving a tag with no release, and a tag cannot be re-cut);
 then writes the annotated tag with the CHANGELOG section as its message and pushes the tag.
 **It never pushes `main`.** The `develop → main` merge happens before the script runs —

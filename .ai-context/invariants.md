@@ -3656,7 +3656,9 @@ to 60 characters after `--`, `-` or `:`), a JSDoc tag line, a directive, a banne
 `/*!` block line. `BASELINE` in the script is held at **exactly** the count: a push that adds
 prose fails, and a commit that removes some fails too until the baseline is lowered to match,
 so the number can only go down — the ratchet github#60 used for the no-unsafe meter. In the
-pre-push hook next to the network check, with no skip flag.
+pre-push hook next to the network check, with no skip flag, and in `release.yml`. `release.ps1`
+ran neither until github#137 — cutting 2.7.0 the branch was pushed with a green `-DryRun` and
+the workflow went red on this exact check, so it now runs here too, same no-skip-flag rule.
 
 ## Our own code lints clean
 
