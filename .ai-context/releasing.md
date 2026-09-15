@@ -516,7 +516,8 @@ that can say what it trusted.
    `Last re-recorded` line. Commit `assets/demo.webp`, `assets/features/*.webp` and the
    updated docs together. Skip only for a release that touches nothing visual (a docs-only
    PATCH), and say so explicitly rather than skipping by default — see above.
-5. **Run the gates.** `npm run lint`, `node scripts/check-notice.mjs`, `node scripts/smoke.mjs`
+5. **Run the gates.** `npm run lint`, `node scripts/check-notice.mjs`,
+   `node scripts/check-comments.mjs` (github#137), `node scripts/smoke.mjs`
    — and they run again on push via `.githooks/pre-push`, so a red suite cannot be released.
 6. **Get the commit onto `origin/main` first**: merge `develop → main`, either on the website
    or locally followed by `git push origin main` — no pull request required since 2026-09-13,
