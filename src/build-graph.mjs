@@ -371,8 +371,9 @@ if (INCLUDE_GHOSTS) {
   // github#141
   for (const { dest, sources } of ghosts.values()) {
     const g = {
-      id: ghostId(dest), label: ghostLabel(dest), folder: "(unresolved)", sub: "", type: "ghost",
-      tags: [], created: "", words: 0, ghost: true,
+      // github#152 -- dirs/touched are required on VaultNode; the plugin's ghost already carries both
+      id: ghostId(dest), label: ghostLabel(dest), folder: "(unresolved)", sub: "", dirs: [],
+      type: "ghost", tags: [], created: "", touched: "", words: 0, ghost: true,
     };
     const j = notes.push(g) - 1;
     for (const i of sources) addEdge(i, j);
