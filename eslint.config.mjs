@@ -100,7 +100,10 @@ export default defineConfig([
     // THE EXPORTER AND THE TOOLING: Node programs, never loaded by Obsidian. No type program
     // here -- nothing type-aware is on for them, so none is built -- and Node's globals rather
     // than the page's.
-    files: ["src/**/*.mjs", "scripts/**/*.mjs"],
+    // plugin/**/*.mjs: the one plugin-side module Node also imports (the update-note
+    // decision, github#83) -- pure functions with no Obsidian API in them, run by
+    // scripts/update-note-selftest.mjs and scripts/build-plugin.mjs as well as bundled.
+    files: ["src/**/*.mjs", "scripts/**/*.mjs", "plugin/**/*.mjs"],
     rules: {
       ...OBSIDIAN_OFF,
       // AND THE PRESET'S OBSIDIAN-FLAVOURED CORE RULES. Beyond obsidianmd/*, the recommended set
@@ -134,11 +137,14 @@ export default defineConfig([
   // and the layer canvases come from createEl when the container has it, so the rule runs on the
   // engine like everywhere else.
   {
-    // plugin/**/*.d.ts: declarations for the type program (the bundler's `raw:`/`b64:`
-    // modules), not code -- there is nothing in one for a rule to say, and the preset's
-    // `**/*.ts` scoping would otherwise run its type-aware rules on it with no
-    // parserOptions and abort the whole run. tsconfig.json names them; this file need not.
+    // The .d.ts files: declarations for the type program -- the bundler's `raw:`/`b64:`
+    // modules (plugin/bundler-modules.d.ts) and the two debug globals the page and the plugin
+    // set on `window` (src/globals.d.ts, github#145) -- not code. There is nothing in one for
+    // a rule to say, and the preset's `**/*.ts` scoping would otherwise run its type-aware
+    // rules on it with no parserOptions and abort the whole run. tsconfig.json names them;
+    // this file need not.
     ignores: ["node_modules/**", "dist/**", "test-vault/**", "demo-vault/**",
-              ".fixtures/**", "scripts/layout-snapshots/**", "plugin/**/*.d.ts"],
+              ".fixtures/**", "scripts/layout-snapshots/**", "plugin/**/*.d.ts",
+              "src/globals.d.ts"],
   },
 ]);

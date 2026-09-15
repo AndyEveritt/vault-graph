@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
 // github#6
 import { localDay, resolveCreated, dateTally } from "./dates.mjs";
+// github#141
+import { canonicalDest, cleanTarget, ghostId, ghostKey, ghostLabel, isExternalTarget, isRelativeDest, resolveAgainst } from "./links.mjs";
 import { engineBanner } from "./engine/notice.mjs";
 // github#71
 import { readSortingSpec } from "./sortspec-file.mjs";
@@ -199,26 +201,31 @@ const NAV_LINE = new RegExp(
 );
 const stripDailyNav = (s) => (STRIP_NAV ? s.replace(NAV_LINE, "") : s);
 
-const WIKILINK = /!?\[\[([^[\]|#^]+)(?:[#^][^[\]|]*)?(?:\|[^[\]]*)?\]\]/g;
-const MDLINK = /\[[^\]]*\]\(([^)\s]+\.md)(?:\s[^)]*)?\)/g;
+// github#141
+const WIKILINK = /!?\[\[([^[\]|#]+)(?:#[^[\]|]*)?(?:\|[^[\]]*)?\]\]/g;
+// github#141
+const MDLINK = /\[[^\]]*\]\(([^)\s#]+\.md)(?:#[^)\s]*)?(?:\s[^)]*)?\)/g;
 
 function mineLinks(body, fm) {
   const out = [];
-  const push = (t) => { t = t.trim(); if (t) out.push(t); };
-  const scan = (text, re) => {
+  // github#141
+  const push = (raw, url) => {
+    if (url && isExternalTarget(raw)) return;
+    const dest = cleanTarget(raw);
+    if (dest) out.push(dest);
+  };
+  const scan = (text, re, url) => {
     let m; re.lastIndex = 0;
-    while ((m = re.exec(text))) {
-      try { push(decodeURIComponent(m[1])); } catch { push(m[1]); }
-    }
+    while ((m = re.exec(text))) push(m[1], url);
   };
 
   const clean = stripDailyNav(stripCode(body));
-  scan(clean, WIKILINK);
-  scan(clean, MDLINK);
+  scan(clean, WIKILINK, false);
+  scan(clean, MDLINK, true);
 
   for (const v of Object.values(fm)) {
     for (const s of (Array.isArray(v) ? v : [v])) {
-      if (typeof s === "string" && s.includes("[[")) scan(s, WIKILINK);
+      if (typeof s === "string" && s.includes("[[")) scan(s, WIKILINK, false);
     }
   }
   return out;
@@ -325,6 +332,8 @@ const SORT_SPECS = (() => {
 
 const notes = [];
 const byKey = new Map();
+// github#141
+const byPath = new Map();
 
 for (const abs of files) {
   const relPath = relative(VAULT, abs);
@@ -357,8 +366,11 @@ for (const abs of files) {
   };
   const idx = notes.push(note) - 1;
 
-  const keys = [name, note.id, note.id.replace(/\.md$/, "")]
-    .concat(fm.aliases ?? [], fm.alias ?? []);
+  // github#141
+  const path = note.id.replace(/\.md$/, "").toLowerCase();
+  if (!byPath.has(path)) byPath.set(path, idx);
+
+  const keys = [name].concat(fm.aliases ?? [], fm.alias ?? []);
   for (const k of keys) {
     const kk = String(k).toLowerCase().trim();
     if (kk && !byKey.has(kk)) byKey.set(kk, idx);
@@ -369,11 +381,22 @@ const edgeWeight = new Map();
 const ghosts = new Map();
 let unresolved = 0;
 
-const resolve = (target) => {
-  const t = target.toLowerCase().trim().replace(/\.md$/, "");
-  if (byKey.has(t)) return byKey.get(t);
-  const base = t.split("/").pop();
-  return byKey.has(base) ? byKey.get(base) : -1;
+// github#141
+const exact = (p) => {
+  const k = p.toLowerCase();
+  return k && byPath.has(k) ? byPath.get(k) : -1;
+};
+
+// github#141
+const resolve = (dest, sourceId) => {
+  const here = exact(resolveAgainst(sourceId, dest));
+  if (here >= 0) return here;
+  if (isRelativeDest(dest)) return -1;
+  const there = exact(canonicalDest(sourceId, dest));
+  if (there >= 0) return there;
+  // github#141 -- byKey holds no paths now, so an alias may carry a slash
+  const k = dest.toLowerCase().trim();
+  return byKey.has(k) ? byKey.get(k) : -1;
 };
 
 const addEdge = (i, j) => {
@@ -384,13 +407,17 @@ const addEdge = (i, j) => {
 
 for (let i = 0; i < notes.length; i++) {
   for (const target of notes[i]._links) {
-    const j = resolve(target);
+    const j = resolve(target, notes[i].id);
     if (j < 0) {
       unresolved++;
       if (INCLUDE_GHOSTS) {
-        const key = target.split("/").pop();
-        if (!ghosts.has(key)) ghosts.set(key, []);
-        ghosts.get(key).push(i);
+        // github#141
+        const dest = canonicalDest(notes[i].id, target);
+        const key = ghostKey(dest);
+        let slot = ghosts.get(key);
+        if (!slot) { slot = { dest, sources: [] }; ghosts.set(key, slot); }
+        else if (dest < slot.dest) slot.dest = dest;
+        slot.sources.push(i);
       }
       continue;
     }
@@ -399,9 +426,10 @@ for (let i = 0; i < notes.length; i++) {
 }
 
 if (INCLUDE_GHOSTS) {
-  for (const [name, sources] of ghosts) {
+  // github#141
+  for (const { dest, sources } of ghosts.values()) {
     const g = {
-      id: `ghost:${name}`, label: name, folder: "(unresolved)", sub: "", type: "ghost",
+      id: ghostId(dest), label: ghostLabel(dest), folder: "(unresolved)", sub: "", type: "ghost",
       tags: [], created: "", words: 0, ghost: true,
     };
     const j = notes.push(g) - 1;
@@ -422,8 +450,12 @@ const nodes = notes.map((n, i) => {
   return { ...rest, deg: degree[i] };
 });
 
+// github#108
+const VERSION = JSON.parse(readFileSync(join(ROOT, "manifest.json"), "utf8")).version;
+
 const data = {
   vault: basename(VAULT),
+  version: VERSION,
   generated: (() => {
     const d = new Date(), p2 = (n) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ` +
@@ -476,6 +508,9 @@ const engine = (() => {
 
 const libs = `<script>\n${engine.trimEnd()}\n</script>`;
 
+// github#96
+const jsonForScript = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+
 const dataUri = (f) => {
   try {
     return "data:image/png;base64," + readFileSync(join(ROOT, "assets", f)).toString("base64");
@@ -485,7 +520,7 @@ const LOGO_MASK = dataUri("logo-mask.png");
 const FAVICON = dataUri("favicon.png");
 const assets =
   (FAVICON ? `<link rel="icon" href="${FAVICON}">` : "") +
-  `\n<script>window.VAULT_LOGO_MASK=${JSON.stringify(LOGO_MASK)};</script>`;
+  `\n<script>window.VAULT_LOGO_MASK=${jsonForScript(LOGO_MASK)};</script>`;
 
 const part = (f) => readFileSync(join(HERE, f), "utf8");
 
@@ -497,7 +532,7 @@ const html = part("shell.html")
   .replace("<!--SCRIPT-->", () => asScript(part("page.js")))
   .replace("<!--LIBS-->", () => libs)
   .replace("<!--ASSETS-->", () => assets)
-  .replace("<!--DATA-->", () => `<script>window.VAULT_DATA=${JSON.stringify(data)};</script>`);
+  .replace("<!--DATA-->", () => `<script>window.VAULT_DATA=${jsonForScript(data)};</script>`);
 
 writeFileSync(OUT, html, "utf8");
 

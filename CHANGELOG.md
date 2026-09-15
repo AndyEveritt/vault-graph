@@ -30,6 +30,241 @@ published tag breaks every link to it.
 
 ---
 
+## 2.8.0 — "Recent" — 2026-09-15
+
+**The calendar band becomes something you point at the disc** — ask it what you touched today, in the last week, or since you last had the graph open.
+
+### Halo what you touched recently
+
+- Three chips under the band: **Today**, **Last 7** and **Since last open**. The notes they match
+  wear a halo, everything else dims a little, and nothing on the disc moves.
+- **Last 7** is a rolling seven days, so it never collapses into Today on a Monday.
+- **Since last open** appears only inside Obsidian, which keeps that clock. The exported page has
+  no such stamp, so it does not offer the chip rather than offering one that cannot answer.
+- The band counts either date — **Added** or **Touched** — and every chip's label says which one
+  it means, so a window never claims a date the band is not counting.
+
+### Fewer greys on a crowded disc
+
+- The two grey colour slots stay out of the automatic rotation, so a group is grey only when it
+  is meant to be. On a disc of a hundred tags, twenty greyish groups become two.
+
+### The rings share the room fairly
+
+- The inner ring gets room in proportion to what it carries, so its dots are no longer packed
+  tighter than the outer ring's for no reason.
+- The outer ring's first row sits with its dots' edges on the ring, not their centres, so hiding
+  a big folder no longer makes the ring look as though it walked inward.
+- A dot no longer changes size on the single frame a cascade lands.
+
+### Fixed
+
+- A link written relative to its note resolves against that note, not the vault root, and two
+  different missing notes no longer collapse into one ghost.
+- Pins are stored by the note's path, so adding a note no longer silently repins a different one.
+- An idle PNG export no longer saves the background and the logo with no graph on them.
+- The renderer recovers when the browser takes the WebGL context away, and Refresh rebuilds it.
+- A plugin render that finishes after its view was closed no longer mounts over the new one.
+- Refresh on the exported page rebuilds the band for the date it names; disarming a chip eases
+  the disc back instead of flashing it dim; the since-last-open window uses the local calendar
+  day; and a settings save that fails no longer skips the view's render or teardown.
+- A vault where every folder is small no longer collapses into a single ring.
+
+### Smaller things
+
+- The band's controls sit in one row at one height, and the fewer–more key under it is gone.
+- The JavaScript is compiler-checked, the test runner fails on a runtime error it captured
+  instead of printing a pass over it, and the quality gates run in CI where a merge boundary can
+  see them.
+- The architecture entry point and the record index match the code again.
+
+## 2.7.0 — "Reader" — 2026-09-12
+
+**The note card stops covering the disc** — and three things that got in the way of reading it are fixed.
+
+### Read a note without losing the disc
+
+- The sidebar now holds two readings, **Groups** and **Selected note**, and shows one at a time.
+- Click a note and the sidebar switches to its reading, instead of a card landing over the graph.
+- The card's close button, or a click on empty stage, takes you back to the groupings.
+- Each reading keeps its own scroll position, so coming back lands where you left the folder list.
+- On a phone nothing changes: the card still slides up over the canvas, where there is no room
+  for a second column.
+
+### Fixed
+
+- The disc fills more of the window. Fit leaves a smaller margin at every window size, and a
+  square window — which an Obsidian pane usually is — gains the most.
+- Panning no longer freezes when notes arrive under it.
+- Leaving the view open and coming back no longer costs memory.
+- A right-click on the disc is no longer mistaken for a drag.
+- The update strip's **Got it** button sits under the text, on the left.
+
+### Smaller things
+
+- Every gallery clip and the hero are re-recorded square, which is what the thumbnails and the
+  community page actually want.
+- Harness runs hand the keyboard back instead of keeping it — invisible in the plugin, but it is
+  why the machine stays usable while the test suite runs.
+
+## 2.6.0 — "Minimap" — 2026-09-11
+
+**Three things the disc used to leave you guessing about:** where you are when you zoom in, what a colour will do before you pick it, and what changed when the plugin updated.
+
+### Know where you are when you zoom in
+
+- Zoom in and a small map appears next to Fit, with a box marking the part you are looking at.
+- Click it to jump back to the whole disc.
+- It shows up only while the disc is cut off, and takes itself away when everything fits again.
+
+### See a colour before you pick it
+
+- Every swatch now shows the dots it will actually draw, including the lighter shades the
+  subfolders get.
+- The plugin's settings show the same swatches as the right-click menu.
+
+### The plugin tells you what is new
+
+- After an update, a strip at the top says what changed. Dismiss it and it stays gone.
+- Miss a few releases and it catches you up on all of them, oldest first.
+- Whatever the release added lights up while the strip is there, so you can see where to look.
+
+### Smaller things
+
+- The legend keeps up when you switch light and dark.
+- Switching between Folders and Tags no longer nudges the sidebar sideways.
+- Dots in the inner ring are sized against their own ring, so a busy one looks right.
+- Animations follow your system's reduced-motion setting.
+- The colour swatches in the plugin's settings line up, and are big enough to see.
+
+---
+
+## 2.5.0 — "Tags" — 2026-09-11
+
+**A second way to cut the disc: by tag instead of by folder.** The group list's heading is now
+a segmented control, **Folders** or **Tags** — switch and the whole disc redraws, one hand
+erasing the old wedges while the other brings in the new ones, with the links, the heat strip
+and the group list following the notes. A note's first listed tag files it; a nested tag such
+as `area/health` nests as a sub-wedge of *area*, opened and pushed out exactly the way a
+subfolder is — the same grouping-dimension mechanism underneath, just fed tags instead of
+folder paths. Untagged notes land in their own `(untagged)` bucket, grey like `(unlinked)`.
+
+<img src="https://raw.githubusercontent.com/luke321/vault-graph/2.5.0/assets/features/tags.webp" width="100%" alt="The disc cut by tag instead of by folder, a nested tag's twisty opened to reach its sub-tag, clicked to halo and push the sub-wedge out then let back down, folded away again, and the disc switched back to folders">
+
+### Grouping by tag
+
+- **Folders or Tags**, a segmented control above the legend. The disc keeps its hub and its
+  rings across the switch; nothing about walking a nested tag needed its own code.
+- Where a tag's wedge holds fewer notes than carry the tag, its row says so.
+- The grouping control takes the full panel's width now, split evenly between the two sides,
+  each carrying its own count — instead of one shared count sitting above four buttons that
+  used to read as one group.
+
+### Fixes
+
+- **A frontmatter value containing a literal `</script>` could close the standalone export's own
+  data script and run whatever followed it.** The exported data is escaped now, so this can't
+  happen.
+- **A folder literally named `constructor` or `toString` could crash the plugin**, via an
+  inherited property the planner mistook for its own. Fixed everywhere the layout keys a map by
+  folder or tag name.
+
+### Also in this release
+
+- The stats line now names the version that built the page, so a rebuilt-but-not-reloaded
+  install in Obsidian doesn't read as a stuck bug.
+- The disc-to-window margin is half what it was.
+- The docs site has its own dark theme instead of GitHub Pages' generic default.
+
+---
+
+## 2.4.1 — 2026-09-10
+
+**The README's "Try it live" and feature-list links now go somewhere.** 2.4.0 shipped the docs
+as a real site but the README still carried the placeholder line from before the site resolved —
+"this line gets its links the moment it's live" — and GitHub Pages itself had never been switched
+on for the repository, so there was nothing to link to. Pages is enabled now, serving from
+`main`'s `docs/`, and the README points at it: [the live
+demo](https://luke321.github.io/vault-graph/demo/), [the feature
+gallery](https://luke321.github.io/vault-graph/features.html), and [the site
+itself](https://luke321.github.io/vault-graph/). Nothing in the plugin changed.
+
+---
+
+## 2.4.0 — "Auto" — 2026-09-10
+
+**Write a note, link three people, and the disc beside you notices.** Refresh used to be the
+only way to see a change you just made — a full teardown, a fresh build and the intro cascade
+from the vault's first note, which also threw away your filters, your date range, your pins and
+wherever you'd moved the camera. The graph now watches the vault and walks itself to the new
+state on the ordinary cascade instead.
+
+<img src="https://raw.githubusercontent.com/luke321/vault-graph/2.4.0/assets/features/live.webp" width="100%" alt="Obsidian with the vault graph in one tab: a second tab opened, a meeting note typed into it, the graph tab clicked and the outer ring taking the new note in one cascade, the new dot hovered; then a weekly review written in another tab, the graph tab clicked again and the inner ring taking that one the same way">
+
+### The disc follows the vault
+
+- **A written, renamed or deleted note moves the disc, not a page load.** An added note fades in
+  where its folder puts it, sized zero-to-rest the same way the timeline's own reveal works; a
+  removed note fades out; a note whose link weight or folder changed takes the existing **moves**
+  tween. Filters, date range, pins and camera all survive — which is exactly what Refresh clears.
+- **Nothing animates while you aren't looking.** A rebuild is held while the graph's own tab is
+  hidden, so a burst of edits doesn't play out behind your back — it lands as one cascade the
+  moment you switch back to it, rather than as several you never saw.
+- **Typing prose moves nothing.** Word counts are deliberately left out of what triggers a
+  rebuild, so editing a note's text produces an empty diff and no motion at all — only a
+  structural change (a link, a folder, a rename, a date) starts a cascade.
+- **A big enough batch is a sync, not an edit.** Past 200 changed notes at once the plugin falls
+  back to a full rebuild instead of animating each one in.
+- **A view setting, on by default** — *Follow the vault*, per vault, in the plugin. Turn it off
+  and the graph waits for Refresh as it always did.
+- The standalone page can't watch a vault, so its own clip is honest about that: the storyboard
+  hands it exactly what the plugin would after a save, and the cascade from there is the same
+  code path.
+
+<img src="https://raw.githubusercontent.com/luke321/vault-graph/2.4.0/assets/features/live-page.webp" width="100%" alt="The standalone page handed one note into its biggest folder, the outer ring absorbing it in one cascade and the new dot hovered where it landed, then a second note into a small folder and the inner ring taking it the same way">
+
+### Smaller things
+
+- **The docs are a real site now**, not just files read on GitHub — a home page, the feature
+  gallery, and a live demo of the exported page anyone can click, hover and filter for
+  themselves, published alongside it. The README points at all three.
+- **The feature gallery is grouped by theme now**, seven of them, instead of sixteen sections in
+  recording order — and the count bars, which shipped in 2.3.0 without ever getting an entry,
+  finally have one: a crop of `folders`, where they actually move, rather than a recording of
+  their own.
+- **A vault that isn't yours opens in restricted mode, and no version of the plugin loads until
+  the trust prompt is confirmed and Settings is closed** — a standing trap for any fixture or
+  freshly generated vault, written down in `CLAUDE.md` for the next person who reads a blocked
+  plugin as a code fault.
+
+---
+
+## 2.3.0 — "Gauge" — 2026-09-09
+
+**Every legend row rendered identically, so a 406-note folder and a 1-note folder looked the
+same.** Each row whose count is a plain number now draws a 2px rule along the bottom, in that
+folder's own colour.
+
+<img src="https://raw.githubusercontent.com/luke321/vault-graph/2.3.0/assets/features/countbars.webp" width="286" alt="The folder list zoomed in: each row carrying a coloured bar under its name, the largest folder's bar full width and the rest proportional, then one folder soloed and every other bar shrinking away">
+
+- **The largest folder currently shown fills its row**, and every other bar is read against it.
+  Hide that folder and the next one grows into its place. The count's tooltip names whichever
+  folder the bar is measured against, so the scale is never implied.
+- **A hidden folder draws no bar at all**, so soloing one leaves exactly a single bar, full width.
+- **The bars move with the disc.** They ride the cascade's own clock, so they walk up and shrink
+  down over the same 1600 ms rather than snapping, and a bar whose folder is going away shrinks
+  to nothing instead of blinking out.
+- **A view setting, on by default** — *Count bars in the legend*, remembered per vault. Turn it
+  off and the rows, the counts and their shared right edge are untouched.
+- Parenthesised counts and subfolder rows stay bare, because those notes are tallied somewhere
+  other than that row's own wedge.
+
+**Known:** after a live theme switch a bar and its swatch both keep the old palette while the
+settings picker repaints (github#84). They stay consistent with each other, and the divergence
+predates this release.
+
+---
+
 ## 2.2.0 — "Fold" — 2026-09-08
 
 **Either panel folds away, at any width.** The folder list and the notes-added calendar could

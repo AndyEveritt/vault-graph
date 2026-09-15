@@ -50,16 +50,49 @@ slots, the six-degree minimum wedge, the fifty-two-week heatmap window. Each has
 measurement behind it, and the recurring failure mode in this repo is reasoning about the
 code instead of measuring it.
 
-Four commands, and all four are gates rather than suggestions:
+Sixteen commands, and every one of them is a gate rather than a suggestion. They all run
+from `.githooks/pre-push`, in this order, on a push to `develop` or `main` — a feature-branch
+push runs none of them, so a green branch push is not evidence of anything:
 
 ```bash
-npm run lint                    # tsc --noEmit on the engine, then typescript-eslint on our own code; every finding is held at zero
-node scripts/smoke.mjs          # the invariant suite, over three vault shapes
-node scripts/check-scope.mjs    # the page cannot style, or be styled by, its host
-node scripts/check-network.mjs  # nothing shipped can make a network request
-node scripts/check-notice.mjs   # the Sigma notice opens a fresh main.js and a fresh exported page
-node scripts/check-comments.mjs # comments are pointers; the count of prose lines only goes down
+node scripts/check-pii.mjs              # this repo is public; no skip flag, ever
+node scripts/check-scope.mjs            # the page cannot style, or be styled by, its host
+node scripts/check-network.mjs          # nothing shipped can make a network request
+node scripts/check-notice.mjs           # the Sigma notice opens a fresh main.js and a fresh exported page
+node scripts/check-comments.mjs         # comments are pointers; the count of prose lines only goes down
+node scripts/check-generator-determinism.mjs   # a fixture vault does not depend on the day it was generated
+node scripts/check-build-order-determinism.mjs # nor on the order the filesystem enumerated it
+node scripts/check-data-escape.mjs      # a note's frontmatter cannot close the exported data script
+node scripts/update-note-selftest.mjs   # the update note's grammar and decision table (design/0016)
+node scripts/smoke-runner-selftest.mjs  # a check that threw is scored as a failure (github#146)
+node scripts/check-link-resolution.mjs  # both producers agree where a link points (github#141)
+node scripts/code-map.mjs --check       # the generated map and index still match the source
+node scripts/gallery-nav.mjs --check    # the gallery's "New in" strip still matches the feature pages
+node scripts/check-ci-parity.mjs        # every gate above also runs in CI, where a merge boundary can see it (github#147)
+npm run lint                            # tsc --noEmit on the engine, then on the JavaScript's own annotations, then typescript-eslint; every finding is held at zero
+node scripts/smoke.mjs                  # the invariant suite: four fixtures, each check on the ones its assertion is about
 ```
+
+**Only the last one has a skip flag.** `SKIP_SMOKE=1 git push` skips the suite; the fifteen
+above it do not have one and are not meant to — most of them are cheap, and what they prevent
+is damage to somebody else's software, somebody else's licence, or somebody else's name.
+
+While iterating, `node scripts/smoke.mjs --only <substring>` is the loop. The full suite
+belongs to the push that merges.
+
+`npm run lint` runs `scripts/check-js-contracts.mjs` as part of that first line, and it is
+worth knowing what it does before you meet it failing. The JavaScript's JSDoc annotations are
+compiler-checked (`tsconfig.contracts.json`, `checkJs` on) and held at **zero** diagnostics --
+and the same run re-injects the defect github#145 was filed over, a copy of `src/page.js` with
+`/** @type {VaultData} */ var DATA = 42`, and fails if that copy comes back **clean**. Before
+github#145 that mutation drew zero errors and zero warnings from this whole list.
+
+**Fix a diagnostic where it is caused.** A cast that widens, an `any`, a `@ts-ignore` or an
+exclusion makes the gate green again and worth exactly what it was worth before the ticket --
+and the probe cannot tell the difference, since it only proves the compiler is reading
+something. A *narrowing* cast at a site that knows more than the accessor does is the file's own
+convention and is fine: `$()` returns `HTMLElement` and tells a caller wanting an input's
+`.value` to say so at its own site. `.ai-context/invariants.md` has the rest.
 
 Three more are manual, because each launches a real browser or a real Obsidian and takes a
 minute or two. Run the first if you touch the view's lifecycle — `onOpen`, `currentView`,
@@ -92,6 +125,20 @@ the root, mount again) and reads heap, DOM nodes and listener counts after every
 `destroy()` existed each cycle retained a whole mount — +579 DOM nodes, +131 listeners, +7 MB on
 the 10k fixture — through two document listeners nothing removed. `--quick` tears down
 mid-intro, which is the case where a dead mount used to keep animating.
+
+Run the fourth if you touch the update note — `plugin/whats-new.md`, `plugin/update-note.mjs`,
+the strip `VaultGraphView.mountNote()` builds, or the `lastSeenVersion` bookkeeping in `onload()`
+(github#83, `design/0016`). It seeds `data.json` six ways (absent, present without a version,
+a MINOR behind, a PATCH behind, already seen, a note for another version), reloads the plugin
+with the throwaway manifest patched to each installed version, and reads the strip, its links
+and bullets, the written version, the canvas height and the camera back from a real Obsidian:
+
+```bash
+node scripts/build-plugin.mjs
+node scripts/update-note-check.mjs                # the demo fixture; --keep leaves Obsidian open
+node scripts/update-note-selftest.mjs             # the decision table and the note grammar, no Obsidian (the hook runs it too)
+node scripts/smoke-runner-selftest.mjs           # the smoke runner's own scoring and error audit, no Chrome (the hook runs it too)
+```
 
 One more if you touch the renderer (`src/engine/`): the suite asserts numbers, and none of
 them can see a disc in the wrong colour. `node scripts/render-diff.mjs --against-dir <dir>`
@@ -140,6 +187,38 @@ everything else is a static read costing seconds at most, and what most of it pr
 damage to somebody else's software, or to somebody else. The lint gate fails closed on a
 clone that has not run `npm ci` — run it, then push.
 
+**A hook is not a server-side proof.** It runs where somebody ran that `git config`, on
+whichever machine happened to push, so for as long as it was the only place these gates ran,
+nothing a merge boundary could read had evaluated them.
+`.github/workflows/quality.yml` runs the same block — every check between the hook's
+`gated_push` early exit and its `SKIP_SMOKE` line, plus `npm run lint` — against the
+checked-out commit, on a pull request into `develop` or `main` and on a push to either. The
+two lists are kept in step by `node scripts/check-ci-parity.mjs`, which the hook and the
+workflow both run: a gate added to one and not the other fails the push. The suite stays out
+of CI (no headless path, and a frame-sensitive lane tuned against one machine's Chrome), and
+`check-pii.mjs` is patterns-only there, since `.pii-names` is gitignored — read that step's
+output, not its exit code. `.ai-context/invariants.md` ("The merge boundary runs the gates the
+hook runs") has the measurements and github#147 the reasoning.
+
+**A tree is gated once.** A green full run of `smoke.mjs` stamps the git *tree* it measured
+and the fixtures it ran against (`scripts/suite-stamp.mjs`, in the shared git common dir).
+The hook and `release.ps1` skip the suite when the tip of every ref being pushed carries
+such a stamp — those tips only, never every commit in the range — and say which run they
+trust. A merge that changed the tree, or a fixture regenerated since, runs it as before.
+A push that only *deletes* one of those refs carries no tree, so there is nothing to look
+up: the hook says so and exits. `node scripts/suite-stamp.mjs check [<rev>]` says what a
+push would do; `release.ps1 -ForceSuite` runs it anyway. `.ai-context/decisions/0013` has
+the reasoning.
+
+**A stamp names exactly the run that earned it**, which is why a run can pass and still
+record nothing. The tree is captured *before* the first build, so committing while the
+suite runs — this repo commits as work lands — refuses the stamp rather than naming a tree
+nobody measured; so does a working tree that was dirty at either end. A run whose shape
+differs from the one the gates push with (`--jobs`, `--chrome`, `--headed`, `--no-grid`,
+`--port`) is not the full suite and says which flag; `--jobs 2` is the default and still
+stamps. And the stamp records the Chrome that drove it, so a browser update re-runs the
+suite once.
+
 ## Branches, and how work reaches main
 
 **`develop` is where work lands. `main` only ever receives `develop`.**
@@ -150,17 +229,25 @@ your branch  ->  develop  ->  main
 
 `main` is what the Obsidian directory installs from and what a release is tagged on, so
 nothing should reach it that has not already been through `develop`, where the invariant
-suite runs on every push. The rule is enforced twice, because there are two ways to move a
+suite runs on every push whose tree it has not measured yet. The rule is enforced twice, because there are two ways to move a
 commit and neither mechanism can see the other:
 
 | | |
 |---|---|
-| `.github/workflows/branch-policy.yml` | a pull request into `main` fails unless its head is `develop` in this repository — GitHub has no branch-protection setting for "the PR must come from X", so it is a required check |
+| `.github/workflows/branch-policy.yml` | a pull request into `main` fails unless its head is `develop` in this repository — GitHub has no branch-protection setting for "the PR must come from X", so it is a required check; the same workflow also gates a direct push to `main`, checking `develop` is already an ancestor of the pushed commit, since a pull request is no longer required (below) |
 | `.githooks/pre-push` | a `git push` to `main` is refused unless `develop` is already an ancestor of it — a merge of `develop` passes, a commit made straight on `main` does not |
 | `.github/workflows/release.yml` | a release tag whose commit is not in `origin/main`'s history is refused before anything is built, signed or published — the same rule again, at the one moment it still matters, since a published tag cannot be moved |
+| `.github/workflows/quality.yml` | the quality gates themselves, run against the checked-out commit on a pull request into `develop` or `main` and on a push to either — the branch-source rule above says where a commit came from, and this says whether it is any good |
 
-`main` also carries a ruleset: pull request required, that check required, no force pushes,
-no deletion.
+`main` also carries a ruleset: that check required, no force pushes, no deletion. A pull
+request was also required until 2026-09-13; `develop` can now merge into `main` by a direct
+push, gated by the same check rather than by the website's merge button.
+
+**`quality gates` is not required yet**, and a workflow file cannot make it so — a required
+status is a repository setting. Until `quality gates` is added to that ruleset's required
+contexts alongside `main only accepts develop`, the workflow reports on every pull request and
+every `develop`/`main` push and blocks nothing. That is the open half of github#147; this file
+says what is required today rather than what ought to be.
 
 ## Comments are pointers
 
@@ -194,13 +281,29 @@ Fix the suite's flake, which was two bugs and neither was the settle
 Closes #7
 ```
 
-GitHub resolves closing keywords when the commit reaches the **default branch**, which is
-`main`. So an issue fixed on a branch stays open through `develop` and closes by itself
-when the release merge lands — which is exactly when it is true to say it is fixed. A bare
-`#7` links without closing, and is right for a commit that only touches an issue in passing.
+The issue closes when that commit reaches **`develop`**. GitHub itself resolves a closing
+keyword only on the default branch, `main`, and has no per-branch switch; at one or two
+releases a day that left issues open for hours after their fix had landed and been gated. So
+`.github/workflows/close-issues.yml` runs on every push to `develop`, scans the pushed commits
+for the keyword forms GitHub recognises (`close`, `fix`, `resolve` and their `-s`/`-d`
+spellings, any case, followed by `#n`, `owner/repo#n` or the issue's URL — anywhere in the
+message except inside a backtick code span, so a commit *about* the convention closes
+nothing), and closes each issue it names with a comment giving the commit and saying the fix
+is not yet released. The release merge into `main` then meets GitHub's own resolution on an
+issue already closed. A closed issue therefore means *landed on `develop`*; whether it has
+shipped is what the CHANGELOG is for. A bare `#7` links without closing, and is right for a
+commit that only touches an issue in passing.
 
-If a merge into `main` needs to close issues its commits did not name, put the keywords in
-the merge commit message; that works the same way.
+If a merge into `develop` needs to close issues its commits did not name, put the keywords in
+the merge commit message; the workflow reads that commit too. The scanning is
+`scripts/close-issues.mjs`, which can be rehearsed on any range without writing anything:
+
+```bash
+node scripts/close-issues.mjs --range <before>..<after> --dry-run
+```
+
+A push whose starting commit the workflow cannot see — `develop` force-pushed, or created from
+nothing — fails the run and closes nothing, rather than guessing at the range.
 
 For a visual change, take before-and-after screenshots of the same vault and compare them:
 

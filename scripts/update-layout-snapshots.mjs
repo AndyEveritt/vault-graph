@@ -11,6 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { attach } from "./cdp.mjs";
 import { leftWindowArgs } from "./screen.mjs";
+import { keepFocus } from "./focus.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
@@ -23,6 +24,9 @@ const FIXTURES = [
   { script: "make-demo-vault.mjs", args: [], name: "demo-vault" },
   { script: "make-test-vault.mjs", args: ["--notes", "10000", "--years", "10", "--end", "2026-08-28"], name: "test-vault" },
   { script: "make-shape-vault.mjs", args: [], name: "shape-vault" },
+  // github#86, design/0015 -- recorded in the TAG dimension; that is its picture
+  { script: "make-tag-vault.mjs", args: ["--end", "2026-09-09"], name: "tag-vault",
+    gens: ["make-tag-vault.mjs"], dim: "tag" },
   // github#71 -- --end pinned for the same reason the 10k vault's is: dated subfolders
   { script: "make-spec-vault.mjs", args: ["--end", "2026-09-08"], name: "spec-vault",
     gens: ["make-spec-vault.mjs"] },
@@ -41,6 +45,7 @@ function storeRoot() {
   return join(ROOT, ".fixtures");
 }
 
+// github#86, github#71 -- `gens` must match the list scripts/smoke.mjs hashes
 function digestOf(args, gens) {
   const h = createHash("sha256");
   h.update("format:" + FIXTURE_FORMAT);
@@ -84,7 +89,7 @@ function buildFixture(fx) {
   return { dir: htmlDir, htmlPath };
 }
 
-async function measure(htmlPath) {
+async function measure(htmlPath, dim) {
   const port = await new Promise((res, rej) => {
     const srv = createServer();
     srv.on("error", rej);
@@ -92,6 +97,8 @@ async function measure(htmlPath) {
   });
   const profile = mkdtempSync(join(tmpdir(), "vg-snap-profile-"));
   const url = pathToFileURL(htmlPath).href + "?rest";
+  // github#129
+  const focus = await keepFocus();
   const chrome = spawn(findChrome(), [
     `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
     "--no-first-run", "--no-default-browser-check",
@@ -105,6 +112,7 @@ async function measure(htmlPath) {
     "--disable-background-timer-throttling",
     ...leftWindowArgs(1600, 1000), `--app=${url}`,
   ], { stdio: "ignore", detached: false });
+  void focus.watch(chrome.pid);
 
   try {
     let page;
@@ -126,6 +134,10 @@ async function measure(htmlPath) {
       if (!busy) break;
       if (Date.now() > settleDeadline) throw new Error("page never settled (demo.busy() stayed true)");
       await sleep(120);
+    }
+    // github#86 -- before the relayout, so this is the disc measured
+    if (dim && dim !== "folder") {
+      await page.eval(`__vg.setDim(${JSON.stringify(dim)}); void 0`);
     }
     // github#21
     await page.eval(`__vg.relayout(); void 0`).catch(() => {});
@@ -150,7 +162,7 @@ async function main() {
   for (const fx of FIXTURES) {
     const built = buildFixture(fx);
     try {
-      const { band, positions, notes } = await measure(built.htmlPath);
+      const { band, positions, notes } = await measure(built.htmlPath, fx.dim);
       const folders = Object.keys(band).sort();
       const sortedBand = {};
       for (const f of folders) sortedBand[f] = band[f];
@@ -158,12 +170,13 @@ async function main() {
       for (const id of Object.keys(positions).sort((a, b) => Number(a) - Number(b))) {
         sortedPositions[id] = positions[id];
       }
-      const out = { vault: fx.name, notes, folders: folders.length, band: sortedBand, positions: sortedPositions };
+      const out = { vault: fx.name, dim: fx.dim || "folder", notes, folders: folders.length,
+                    band: sortedBand, positions: sortedPositions };
       const outPath = join(OUT_DIR, `${fx.name}.json`);
       writeFileSync(outPath, JSON.stringify(out, null, 1) + "\n");
       const inner = folders.filter((f) => band[f] === "inner").length;
-      console.log(`${fx.name}: wrote ${outPath} (${notes} notes, ${folders.length} folders, ` +
-        `${inner} inner / ${folders.length - inner} outer)`);
+      console.log(`${fx.name}: wrote ${outPath} (${notes} notes, ${folders.length} groups, ` +
+        `${inner} inner / ${folders.length - inner} outer, grouped by ${fx.dim || "folder"})`);
     } finally {
       rmSync(built.dir, { recursive: true, force: true });
     }

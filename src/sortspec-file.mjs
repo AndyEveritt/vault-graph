@@ -1,4 +1,4 @@
-// github#71, decisions/0013
+// github#71, decisions/0015
 
 /**
  * Pull a `sorting-spec` out of a note's front matter.

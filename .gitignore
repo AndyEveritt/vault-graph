@@ -26,3 +26,13 @@ node_modules/
 # main.js is 600KB of bundle and would churn on every template edit.
 /main.js
 /styles.css
+
+# machine-local half of the brief (paths, session identity, screens) -- never tracked, the repo is public
+CLAUDE.local.md
+*.local.md
+
+# github#145 -- scripts/check-js-contracts.mjs writes these two for the length of one tsc run
+# and removes them in a finally. They are here so a killed run cannot leave either in a commit;
+# the probe is a mutated copy of src/page.js and would read as a duplicate of the whole page.
+src/vg-contract-probe.js
+tsconfig.probe.json

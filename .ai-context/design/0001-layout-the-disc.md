@@ -21,7 +21,7 @@ same sequence as the vault's own folder list.
 **Since github#71 the order is a setting** — `Name` (this), `File explorer`, `Size` — because
 "the vault's own folder list" was only ever true while the explorer was *also* sorted by name.
 A vault using Custom File Explorer sorting had the two disagree, and the sentence above was
-simply false there. `File explorer` reads that plugin's sortspec; `decisions/0013` says which
+simply false there. `File explorer` reads that plugin's sortspec; `decisions/0015` says which
 subset and why the spec text rather than the plugin.
 
 **The colour does not follow the order, and that is deliberate.** The sentence this paragraph

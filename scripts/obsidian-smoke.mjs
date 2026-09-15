@@ -8,7 +8,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { attach } from "./cdp.mjs";
+// github#142
+import { pngCaptureJs, pngCarriesGraph, pngCaptureDetail } from "./png-capture.mjs";
 import { leftmostScreen, leftWindow, leftWindowArgs, placeElectronLeft } from "./screen.mjs";
+import { keepFocus } from "./focus.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
@@ -115,6 +118,8 @@ async function exporterPositions(vault) {
   if (b.status !== 0) throw new Error("build-graph failed: " + (b.stderr || b.stdout));
   const port = await freePort();
   const profile = mkdtempSync(join(tmpdir(), "vg-obsidian-smoke-chrome-"));
+  // github#129
+  const focus = await keepFocus();
   const chrome = spawn(findChrome(), [
     "--remote-debugging-port=" + port, "--user-data-dir=" + profile,
     "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-sync",
@@ -124,6 +129,7 @@ async function exporterPositions(vault) {
     "--force-device-scale-factor=1", ...leftWindowArgs(1600, 1000),
     "--app=" + pathToFileURL(out).href + "?rest",
   ], { stdio: "ignore" });
+  void focus.watch(chrome.pid);
   let p = null;
   try {
     for (let i = 0; i < 100 && !p; i++) {
@@ -163,7 +169,10 @@ async function launchObsidian(vault, profile, fresh = true) {
       JSON.stringify({ vaults: { "0000obsidiansmoke": { path: vault, ts: Date.now(), open: true } } }), "utf8");
   }
   const t0 = Date.now();
+  // github#129
+  const focus = await keepFocus();
   const child = spawn(findObsidian(), ["--remote-debugging-port=" + PORT, "--user-data-dir=" + profile], { stdio: "ignore" });
+  void focus.watch(child.pid);
   for (let i = 0; i < 120; i++) {
     await sleep(500);
     let c = null;
@@ -437,7 +446,7 @@ try {
   }
 
   if (selected("right-click")) {
-    const before = await E("(" + VIEW + ").plugin.settings.pinned.length");
+    const before = await E("(" + VIEW + ").plugin.settings.pinned.slice()");
     await E("(function(){ var v = " + VIEW + "; window.__vgSmokeRc = { menu: 0, node: 0 };" +
             " v.contentEl.querySelector('#vg-graph').addEventListener('contextmenu', function () { window.__vgSmokeRc.menu++; }, true);" +
             " v.handle.api.renderer.on('rightClickNode', function () { window.__vgSmokeRc.node++; }); })(); void 0");
@@ -453,14 +462,17 @@ try {
     };
     const at = await rightClick();
     const pinned = await E("(" + VIEW + ").plugin.settings.pinned.slice()");
+    // github#143 -- the setting holds the note's PATH now, never its runtime id
+    const path = await E(VIEW + ".handle.api.graph.getNodeAttribute(" + JSON.stringify(id) + ", 'path')");
     const at2 = await noteAt(c, id);
     await rightClick();
-    const after = await E("(" + VIEW + ").plugin.settings.pinned.length");
+    const after = await E("(" + VIEW + ").plugin.settings.pinned.slice()");
     const rc = await E("window.__vgSmokeRc");
     const instances = await E("(function(){ var v = " + VIEW + "; return v.plugin === app.plugins.getPlugin('" + PLUGIN_ID + "') ? 'one plugin instance' : 'TWO plugin instances (the view belongs to an earlier load)'; })()");
     const moved = Math.hypot(at2.x - at.x, at2.y - at.y);
-    report(pinned.includes(id) && pinned.length === before + 1 && after === before, "right-click pins the note into the hub and persists it, a second right-click releases it",
-      "pinned " + before + " -> " + pinned.length + " (" + (pinned.includes(id) ? "holds " + id : "does not hold " + id) + ") -> " + after + "; the note moved " + Math.round(moved) + " px into the hub; " +
+    report(pinned.includes(path) && !pinned.includes(id) && after.indexOf(path) < 0 && pinned.length === after.length + 1,
+      "right-click pins the note into the hub and persists it by path, a second right-click releases it",
+      "stored " + JSON.stringify(before) + " -> " + JSON.stringify(pinned) + " (" + (pinned.includes(path) ? "holds " + path : "does NOT hold " + path) + ", runtime id " + id + (pinned.includes(id) ? " ALSO STORED" : " not stored") + ") -> " + JSON.stringify(after) + "; the note moved " + Math.round(moved) + " px into the hub; " +
       rc.menu + " contextmenu events, " + rc.node + " rightClickNode events over two right-clicks; " + instances);
   }
 
@@ -481,6 +493,104 @@ try {
     const back = await E(VIEW + ".handle.api.renderer.getCamera().getState().ratio");
     report(Math.abs(zoomed - fitRatio * 0.4) < 1e-6 && Math.abs(back - fitRatio) < 0.02 * fitRatio, "double-clicking the stage fits the camera back",
       "fit ratio " + fitRatio.toFixed(4) + " -> zoomed " + zoomed.toFixed(4) + " -> after double-click " + back.toFixed(4));
+  }
+
+  // github#72, design/0014
+  if (selected("live")) {
+    const n0 = errorsBefore();
+    const probe = "03 - Resources/Zz Live Refresh Probe.md";
+    // design/0014
+    const POS = "(function(){ var v = " + VIEW + "; if (!v || !v.handle || !v.handle.api) return null;" +
+      " var api = v.handle.api, sum = 0; api.graph.forEachNode(function (id, a) { sum += a.x * 0.7 + a.y * 1.3; });" +
+      " return { sum: Math.round(sum * 1000) / 1000, order: api.graph.order, live: v.lastLive || null," +
+      " vis: v.liveVisible(), leafHidden: !!(v.leaf && v.leaf.containerEl && v.leaf.containerEl.offsetParent === null)," +
+      " same: v.handle === window.__vgLive.h }; })()";
+
+    const before = await E("(function(){ var v = " + VIEW + "; window.__vgLive = { h: v.handle, api: v.handle.api };" +
+      " return { order: v.handle.api.graph.order, ratio: v.handle.api.renderer.getCamera().getState().ratio," +
+      " groups: v.handle.api.groupOrder().length }; })()");
+    const base = await E(POS);
+
+    // design/0014
+    await E("(function(){ var f = app.vault.getMarkdownFiles()[0];" +
+      " return app.workspace.getLeaf('tab').openFile(f).then(function(){ return 1; }); })()");
+    await sleep(600);
+    const hidden = await E("(function(){ var ls = app.workspace.getLeavesOfType(" + JSON.stringify(VT) + ");" +
+      " var el = ls[0] && ls[0].containerEl; return !!el && el.offsetParent === null; })()");
+
+    const t0 = Date.now();
+    await E("(function(){ return app.vault.create(" + JSON.stringify(probe) +
+      ", '---\\ncreated: 2026-09-09\\n---\\n# Zz Live Refresh Probe\\n\\nWritten while the graph was hidden.\\n')" +
+      ".then(function(){ return 1; }, function(e){ return 'ERR ' + e.message; }); })()");
+
+    let movesHidden = 0, orderAtMs = null, prev = base.sum, order = before.order, live = null;
+    let visWhileHidden = 0, leafHiddenSamples = 0, samples = 0;
+    for (const deadline = Date.now() + 9000; Date.now() < deadline;) {
+      const st = await E(POS).catch(() => null);
+      if (st) {
+        if (st.sum !== prev) { movesHidden++; prev = st.sum; }
+        if (st.vis) visWhileHidden++;
+        if (st.leafHidden) leafHiddenSamples++;
+        if (st.live) live = st.live;
+        if (st.order !== order) { order = st.order; if (orderAtMs === null) orderAtMs = Date.now() - t0; }
+      }
+      samples++;
+      await sleep(100);
+    }
+
+    await E("(function(){ var ls = app.workspace.getLeavesOfType(" + JSON.stringify(VT) + ");" +
+      " if (ls[0]) app.workspace.revealLeaf(ls[0]); void 0; })()");
+    let movesBack = 0;
+    await sleep(300);
+    const wake = await E("(function(){ var v = " + VIEW + ";" +
+      " return { deferred: !!v.liveDeferred, visible: v.liveVisible(), timer: v.liveTimer !== null," +
+      " dirty: v.dirtyPaths ? v.dirtyPaths.size : -1, building: !!v.liveBuilding, wakes: v.wakeCount || 0," +
+      " offsetParent: !!(v.containerEl && v.containerEl.offsetParent) }; })()");
+    const shown = await E(POS);
+    prev = shown.sum;
+    for (const deadline = Date.now() + 4000; Date.now() < deadline;) {
+      const st = await E(POS).catch(() => null);
+      if (st && st.sum !== prev) { movesBack++; prev = st.sum; }
+      await sleep(100);
+    }
+
+    const after = await E("(function(){ var v = " + VIEW + "; var api = v.handle.api; var found = null;" +
+      " api.graph.forEachNode(function (id, a) { if (a.path === " + JSON.stringify(probe) + ") found = id; });" +
+      " return { order: api.graph.order, same: v.handle === window.__vgLive.h, sameApi: api === window.__vgLive.api," +
+      " ratio: api.renderer.getCamera().getState().ratio, groups: api.groupOrder().length," +
+      " live: v.lastLive || null, probe: found }; })()");
+
+    // design/0014
+    await E("(function(){ var f = app.vault.getAbstractFileByPath(" + JSON.stringify(probe) + ");" +
+      " return f ? app.vault.delete(f).then(function(){ return 1; }, function(){ return 0; }) : 0; })()");
+    await sleep(3000);
+    const cleaned = await E("(function(){ var v = " + VIEW + "; return v.handle.api.graph.order; })()");
+    const errs = errorsSince(n0);
+
+    const L = after.live || live;
+    const grew = after.order === before.order + 1;
+    const noRemount = after.same === true && after.sameApi === true;
+    const cascaded = !!(L && L.cascaded === true && L.added === 1);
+    // design/0014
+    const heldWhileHidden = movesHidden === 0 && orderAtMs === null;
+    const kept = Math.abs(after.ratio - before.ratio) < 1e-6 && after.groups === before.groups;
+    report(grew && noRemount && cascaded && heldWhileHidden && movesBack > 1 && kept && errs.length === 0,
+      "a note written while the graph is hidden waits, then animates when it is looked at",
+      "hidden while writing: " + (hidden ? "yes" : "NO -- the leaf stayed visible") +
+      "; " + before.order + " -> " + after.order + " notes" +
+      (orderAtMs !== null ? " -- but it arrived " + orderAtMs + " ms after the write, WHILE HIDDEN"
+                          : " -- held back until the leaf was looked at") +
+      "; applyData " + (L ? JSON.stringify(L) : "never reported") +
+      "; the disc moved on " + movesHidden + " sample(s) while hidden (must be 0) and " +
+        movesBack + " after switching back" +
+      "; mount " + (noRemount ? "kept" : "REPLACED") +
+      ", camera " + (Math.abs(after.ratio - before.ratio) < 1e-6 ? "unmoved" : "moved") +
+      ", groups " + before.groups + " -> " + after.groups +
+      "; while hidden: liveVisible() true on " + visWhileHidden + "/" + samples +
+        " samples, leaf.containerEl hidden on " + leafHiddenSamples + "/" + samples +
+      "; on reveal " + JSON.stringify(wake) +
+      "; probe note " + (after.probe ? "in the graph as " + after.probe : "MISSING") +
+      "; deleted again -> " + cleaned + " notes; " + errs.length + " errors");
   }
 
   if (selected("close and reopen")) {
@@ -511,6 +621,38 @@ try {
       ", listeners " + first.listeners + " -> " + last.listeners + ", document mousemove " + first.move + "/" + last.move + ", reopen " + Math.min(...msOpen) + "-" + Math.max(...msOpen) + " ms");
   }
 
+  if (selected("since last open")) {
+    // github#70, decisions/0009
+    const read = "(async function(){ var raw = await app.vault.adapter.read(app.vault.configDir +" +
+                 " '/plugins/" + PLUGIN_ID + "/data.json'); return JSON.parse(raw).lastSeen || null; })()";
+    const chips = "(function(){ var box = " + VIEW + ".contentEl.querySelector('#vg-recent');" +
+                  " return box ? Array.prototype.map.call(box.querySelectorAll('button[data-kind]')," +
+                  " function(b){ return b.getAttribute('data-kind'); }).join(',') : 'NO ROW'; })()";
+    const before = await E(read);
+    const dep0 = await E(VIEW + ".lastSeenPrev || null");
+    const kinds0 = await E(chips);
+    await closeGraph(c);
+    const atClose = await E(read);
+    await openGraph(c);
+    const dep1 = await E(VIEW + ".lastSeenPrev || null");
+    const kinds1 = await E(chips);
+    const atOpen = await E(read);
+    // github#70
+    await E("(function(){ var b = " + VIEW + ".contentEl.querySelector('#vg-refresh'); if (b) b.click(); })(); void 0");
+    await sleep(1500);
+    const dep2 = await E(VIEW + ".lastSeenPrev || null");
+    const ok = typeof atClose === "number" && typeof atOpen === "number" &&
+               atOpen >= atClose && dep1 === atClose && dep2 === dep1 &&
+               kinds1.split(",").indexOf("open") >= 0;
+    report(ok, "the view stamps lastSeen at open and at close, and hands the page the previous stamp",
+      "data.json lastSeen " + before + " -> " + atClose + " (close) -> " + atOpen + " (reopen); " +
+      "the page was handed " + dep0 + ", then " + dep1 +
+      (dep1 === atClose ? " = the stamp from the close" : "  <- NOT the previous stamp") +
+      ", and " + dep2 + " after a Refresh" + (dep2 === dep1 ? " (unchanged)" : "  <- a rebuild moved it") +
+      "; chips " + kinds0 + " -> " + kinds1 +
+      (kinds1.split(",").indexOf("open") >= 0 ? "" : "  <- no since-last-open chip"));
+  }
+
   if (selected("refresh")) {
     const n0 = errorsBefore();
     const oldHandle = await E("(function(){ var v = " + VIEW + "; window.__vgSmokeOld = v.handle; return !!v.handle; })()");
@@ -526,9 +668,24 @@ try {
   }
 
   if (selected("theme")) {
+    // github#84, design/0004
     const readColours = "(function(){ var v = " + VIEW + ", api = v.handle.api, root = v.contentEl.querySelector('#vg-app'); var cs = getComputedStyle(root);" +
+                        " var norm = function (x) { if (!x) return ''; var d = document.createElement('span'); d.style.color = String(x).trim();" +
+                        "   root.appendChild(d); var out = getComputedStyle(d).color; d.parentNode.removeChild(d); return out; };" +
+                        " var g = api.groupOrder ? api.groupOrder().filter(function (n) { return api.groupCount(n) > 0; })" +
+                        "   .sort(function (a, b) { return api.groupCount(b) - api.groupCount(a); })[0] : null;" +
+                        " var slot = g && api.slotOf ? api.slotOf(g) : '';" +
+                        " var lg = g ? v.contentEl.querySelector('[data-g=\"' + g + '\"]') : null;" +
+                        " var lsw = lg ? lg.querySelector('.sw') : null;" +
+                        " var pick = slot ? document.querySelector('.swatch.vg-' + slot) : null;" +
                         " return { theme: v.page.getAttribute('data-theme'), bodyLight: document.body.classList.contains('theme-light'), text: cs.getPropertyValue('--text-1').trim()," +
-                        " surface: cs.getPropertyValue('--surface-1').trim(), labelColor: api.renderer.getSetting ? api.renderer.getSetting('labelColor') : null }; })()";
+                        " surface: cs.getPropertyValue('--surface-1').trim(), labelColor: api.renderer.getSetting ? api.renderer.getSetting('labelColor') : null," +
+                        " group: g, slot: slot, token: norm(cs.getPropertyValue('--' + slot))," +
+                        " colorOf: g && api.colorOf ? norm(api.colorOf(g)) : null," +
+                        " legendSwatch: lsw ? norm(lsw.style.background) : null," +
+                        " barred: !!(lg && lg.classList.contains('bar'))," +
+                        " bar: lg ? norm(lg.style.getPropertyValue('--vg-bar')) : null," +
+                        " picker: pick ? getComputedStyle(pick).backgroundColor : null }; })()";
     const before = await E(readColours);
     const other = before.bodyLight ? "obsidian" : "moonstone";
     const changer = await E("typeof app.changeTheme === 'function' ? 'changeTheme' : (typeof app.setTheme === 'function' ? 'setTheme' : 'none')");
@@ -546,6 +703,94 @@ try {
       report(flipped && labelsFollow && restored.theme === before.theme, "switching Obsidian's theme recolours nodes, edges and labels",
         "data-theme " + before.theme + " -> " + after.theme + " -> " + restored.theme + "; --text-1 " + before.text + " -> " + after.text + "; labelColor " + before.labelColor + " -> " + after.labelColor +
         (labelsFollow ? " (follows)" : " (STALE)") + "; surface " + before.surface + " -> " + after.surface);
+
+      // github#84, github#78, design/0004
+      if (selected("theme")) {
+        const tokenMoved = before.token !== after.token;
+        const legendMoved = before.legendSwatch !== after.legendSwatch;
+        const pickerMoved = before.picker !== null && before.picker !== after.picker;
+        const barMoved = before.bar !== after.bar;
+        const legendFollows = tokenMoved && legendMoved && after.legendSwatch === after.token;
+        const colorOfFollows = after.colorOf === after.token && restored.colorOf === before.colorOf;
+        const barFollows = !before.barred || (barMoved && after.bar === after.token);
+        const pickerFollows = before.picker === null || (pickerMoved && after.picker === after.token);
+        const coherent = !before.barred || (barMoved === legendMoved && after.bar === after.legendSwatch);
+        const restoredBack = restored.legendSwatch === before.legendSwatch &&
+                             (!before.barred || restored.bar === before.bar);
+        const parts = ["slot " + after.slot + " on " + JSON.stringify(before.group),
+          "token " + before.token + " -> " + after.token + (tokenMoved ? " (moved)" : " (SAME)"),
+          "colorOf " + before.colorOf + " -> " + after.colorOf + (colorOfFollows ? " (follows)" : " (STALE)"),
+          "legend swatch " + before.legendSwatch + " -> " + after.legendSwatch +
+            (legendFollows ? " (follows)" : legendMoved ? " (moved, OFF the token)" : " (STALE)"),
+          before.barred ? "count bar " + before.bar + " -> " + after.bar +
+                            (barFollows ? " (follows)" : barMoved ? " (moved, OFF the token)" : " (STALE)")
+                        : "no count bar on this row",
+          before.picker === null ? "picker not rendered (settings tab closed)"
+                                 : "picker " + before.picker + " -> " + after.picker + (pickerFollows ? " (follows)" : " (STALE)"),
+          "bar agrees with its swatch=" + coherent,
+          "restored legend swatch " + restored.legendSwatch + (restoredBack ? " (back)" : " (STUCK)")];
+        if (tokenMoved && !legendMoved) parts.push("<- github#84: the legend keeps the old theme");
+        report(!!before.group && legendFollows && colorOfFollows && barFollows && pickerFollows && coherent && restoredBack,
+          "a theme flip carries the legend's swatch and count bar to the new palette, with the picker", parts.join("; "));
+      }
+    }
+  }
+
+  // github#78, design/0006
+  if (selected("hover")) {
+    const pick = await E(`(function(){
+      var v = ${VIEW};
+      var rows = [].slice.call(v.contentEl.querySelectorAll('#vg-legend .lg.bar'));
+      if (!rows.length) return null;
+      rows.sort(function (a, b) {
+        return parseFloat(getComputedStyle(b).getPropertyValue('--vg-share')) -
+               parseFloat(getComputedStyle(a).getPropertyValue('--vg-share'));
+      });
+      var lg = rows[0], b = lg.getBoundingClientRect();
+      lg.setAttribute('data-hoverprobe', '1');
+      return { g: lg.getAttribute('data-g'), n: rows.length,
+               x: Math.round(b.left + 40), y: Math.round(b.top + b.height / 2) };
+    })()`);
+    if (!pick) {
+      report(false, "the legend's count bar survives a hover inside Obsidian",
+             "no barred row in the plugin's legend -- countBars off, or no bar is drawn at all");
+    } else {
+      const read = () => E(`(function(){
+        var v = ${VIEW};
+        var lg = v.contentEl.querySelector('[data-hoverprobe]');
+        var cs = getComputedStyle(lg);
+        return { hovered: lg.matches(':hover'),
+                 image: cs.backgroundImage === 'none' ? 'none' : 'gradient',
+                 size: cs.backgroundSize,
+                 color: cs.backgroundColor,
+                 shadow: cs.boxShadow === 'none' ? 'none' : cs.boxShadow };
+      })()`);
+      await c.send("Input.dispatchMouseEvent",
+                   { type: "mouseMoved", x: 5, y: 5, button: "none", clickCount: 0 });
+      await sleep(250);
+      const rest = await read();
+      await c.send("Input.dispatchMouseEvent",
+                   { type: "mouseMoved", x: pick.x, y: pick.y, button: "none", clickCount: 0 });
+      await sleep(400);
+      const over = await read();
+      await c.send("Input.dispatchMouseEvent",
+                   { type: "mouseMoved", x: 5, y: 5, button: "none", clickCount: 0 });
+      await sleep(200);
+      await E(`(function(){ var v = ${VIEW};
+        var lg = v.contentEl.querySelector('[data-hoverprobe]');
+        if (lg) lg.removeAttribute('data-hoverprobe'); })()`);
+
+      // github#78, design/0006
+      const clean = rest.shadow === "none" && over.shadow === "none";
+      const kept = over.image === "gradient" && over.size === rest.size && clean;
+      const detail = pick.g + " of " + pick.n + " barred rows; at rest image=" + rest.image +
+        " size=" + rest.size + " shadow=" + rest.shadow +
+        "; hovered=" + over.hovered + " image=" + over.image + " size=" + over.size +
+        " bg=" + over.color + " shadow=" + over.shadow +
+        (over.hovered ? "" : "  <- NO :hover from the harness, so this asserted nothing");
+      report(kept && over.hovered === true,
+             "the legend's count bar survives a hover inside Obsidian",
+             detail + (clean ? "" : "  <- the host's button shadow is painting on this row"));
     }
   }
 
@@ -570,6 +815,131 @@ try {
     report(defs.declarative && defs.items >= 9 && shown.id === PLUGIN_ID && shown.rows >= 9 && pressedAfter !== pressedBefore && String(saved) === String(pressedBefore !== "true") && before,
       "the settings tab renders from getSettingDefinitions and a toggle round-trips to the view and to data.json",
       "definitions: " + defs.top + " top-level, " + defs.items + " items; rendered " + shown.rows + " rows, " + shown.toggles + " toggles, " + shown.headings + " headings; compact axis button " + pressedBefore + " -> " + pressedAfter + ", data.json compactAxis " + saved);
+  }
+
+  // github#77
+  if (selected("colour picker")) {
+    const TAB = "app.setting.pluginTabs.find(function (t) { return t.id === '" + PLUGIN_ID + "'; })";
+    const ALIGN = "var align = function (el) {" +
+      "  var out = [];" +
+      // github#77
+      "  Array.prototype.forEach.call(el.querySelectorAll('.sws'), function (row) {" +
+      "    var kids = row.querySelectorAll('.swatch');" +
+      "    if (!kids.length) return;" +
+      "    var lo = Infinity, hi = -Infinity, tops = [];" +
+      "    Array.prototype.forEach.call(kids, function (k) {" +
+      "      var b = k.getBoundingClientRect();" +
+      "      if (b.left < lo) lo = b.left;" +
+      "      if (b.right > hi) hi = b.right;" +
+      "      var t = Math.round(b.top);" +
+      "      if (tops.indexOf(t) < 0) tops.push(t);" +
+      "    });" +
+      "    tops.sort(function (x, y) { return x - y; });" +
+      "    var firstRun = 0;" +
+      "    Array.prototype.forEach.call(kids, function (k) {" +
+      "      if (Math.round(k.getBoundingClientRect().top) === tops[0]) firstRun++;" +
+      "    });" +
+      "    out.push({ left: Math.round(lo), w: Math.round(hi - lo)," +
+      "               n: kids.length, lines: tops.length, perLine: firstRun });" +
+      "  });" +
+      "  return out;" +
+      "};";
+    const LOOK = "(function(){" + ALIGN +
+      " var t = app.setting.activeTab; var el = t && (t.containerEl || t.contentEl);" +
+      " if (!el) return { open: false };" +
+      " var sws = el.querySelectorAll('.vault-graph .swatch');" +
+      " var prev = el.querySelectorAll('.vault-graph .swatch svg.prev');" +
+      " var empty = 0, flat = 0;" +
+      " Array.prototype.forEach.call(sws, function (s) {" +
+      "   if (s.querySelector('svg.prev')) return;" +
+      "   var bg = getComputedStyle(s).backgroundColor;" +
+      "   if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') flat++; else empty++;" +
+      " });" +
+      " var one = sws[0], gnd = one && one.querySelector('.gnd');" +
+      " var scope = el.querySelector('.vault-graph.vg-tokens');" +
+      " var over = 0;" +
+      " if (scope) over = Math.max(0, scope.scrollWidth - scope.clientWidth);" +
+      " return { open: true, sws: sws.length, previews: prev.length, flat: flat, empty: empty," +
+      "          ground: gnd ? getComputedStyle(gnd).fill : null," +
+      "          grounds: one ? one.querySelectorAll('.gnd').length : 0," +
+      "          bodyTheme: document.body.classList.contains('theme-light') ? 'light' : 'dark'," +
+      "          scopeTheme: scope ? scope.getAttribute('data-theme') : null," +
+      "          overflowX: over, keptApi: Object.prototype.hasOwnProperty.call(" + TAB + " || {}, 'api')," +
+      "          rows: align(el) };" +
+      "})()";
+    const openTab = async () => {
+      await E("app.setting.open(); app.setting.openTabById('" + PLUGIN_ID + "'); void 0");
+      await sleep(900);
+    };
+
+    await openGraph(c);
+    await sleep(600);
+    await openTab();
+    const withGraph = await E(LOOK);
+
+    // github#77
+    await E("(function(){ var t = app.setting.activeTab; var b = (t.containerEl || t.contentEl)" +
+            ".querySelector('.vault-graph .swatch[aria-checked=\"false\"]'); if (b) b.click(); return !!b; })()");
+    await sleep(800);
+    const afterPick = await E(LOOK);
+
+    // github#77
+    const wasDark = await E("document.body.classList.contains('theme-dark')");
+    await E("app.changeTheme(" + (wasDark ? "'moonstone'" : "'obsidian'") + "); void 0");
+    await sleep(900);
+    const afterTheme = await E(LOOK);
+    await E("app.changeTheme(" + (wasDark ? "'obsidian'" : "'moonstone'") + "); void 0");
+    await sleep(700);
+
+    // github#77
+    await E("app.setting.close(); void 0");
+    await sleep(300);
+    await E("app.workspace.detachLeavesOfType(" + JSON.stringify(VT) + "); void 0");
+    await sleep(800);
+    await openTab();
+    const noGraph = await E(LOOK);
+    await E("app.setting.close(); void 0");
+    await sleep(300);
+    await openGraph(c);
+    await sleep(600);
+
+    const say = (s) => s.open
+      ? `${s.sws} swatches / ${s.previews} previewed / ${s.flat} flat / ${s.empty} EMPTY, overflow ${s.overflowX}px`
+      : "tab did not open";
+    const good = (s, wantPreviews) => s.open && s.sws > 0 && s.empty === 0 && s.overflowX === 0 &&
+      (wantPreviews ? s.previews === s.sws : true);
+    const lightGround = "rgb(252, 252, 251)", darkGround = "rgb(26, 26, 25)";
+    const oneGround = (s) => s.grounds === 1 && (s.ground === lightGround || s.ground === darkGround);
+    const rows = withGraph.rows || [];
+    const lefts = [...new Set(rows.map((r) => r.left))];
+    const widths = [...new Set(rows.map((r) => r.w))];
+    const counts = [...new Set(rows.map((r) => r.n))];
+    const lines = [...new Set(rows.map((r) => r.lines))];
+    const perLine = [...new Set(rows.map((r) => r.perLine))];
+    const aligned = rows.length > 1 && lefts.length === 1 && widths.length === 1 &&
+                    counts.length === 1 && lines.length === 1 && perLine.length === 1 &&
+                    widths[0] > 0;
+    const ok = aligned && good(withGraph, true) && oneGround(withGraph) &&
+               good(afterPick, true) && good(afterTheme, true) && oneGround(afterTheme) &&
+               afterTheme.ground !== withGraph.ground &&
+               good(noGraph, false) && noGraph.previews === 0 &&
+               !withGraph.keptApi && !noGraph.keptApi;
+    report(ok,
+      "the settings tab's colour picker survives every host state, and keeps no handle on a closed graph",
+      "graph open: " + say(withGraph) + "; after a pick: " + say(afterPick) +
+      "; after a live theme change: " + say(afterTheme) + " (ground " +
+      withGraph.ground + " -> " + afterTheme.ground +
+      (afterTheme.ground !== withGraph.ground ? ", followed" : ", DID NOT FOLLOW") + ")" +
+      "; body/scope after the flip: " + afterTheme.bodyTheme + "/" + afterTheme.scopeTheme +
+      " (was " + withGraph.bodyTheme + "/" + withGraph.scopeTheme + ")" +
+      "; graph torn down and the tab reopened: " + say(noGraph) +
+      "; tab retains an api field: " + (withGraph.keptApi || noGraph.keptApi ? "YES" : "no") +
+      "; " + rows.length + " swatch grids, " +
+      (aligned ? "all at x=" + lefts[0] + ", " + widths[0] + "px, " + counts[0] +
+                 " swatches over " + lines[0] + " lines of " + perLine[0]
+               : "RAGGED -- lefts " + lefts.join('/') + ", widths " + widths.join('/') +
+                 ", counts " + counts.join('/') + ", lines " + lines.join('/') +
+                 ", per line " + perLine.join('/')));
   }
 
   // github#40, design/0012
@@ -601,6 +971,25 @@ try {
     await mouse(c, "mouseMoved", 3, 3, { buttons: 0 });
     return at;
   };
+  // github#142
+  if (selected("png export")) {
+    const n0 = errorsBefore();
+    await E("(function(){ var v = " + VIEW + "; var b = v.contentEl.querySelector('#vg-reset'); if (b) b.click(); })(); void 0");
+    await camSettle(c);
+    // github#142
+    await sleep(1500);
+    await E("new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); })");
+    const cap = await E(pngCaptureJs({
+      api: VIEW + ".handle.api",
+      button: VIEW + ".contentEl.querySelector('#vg-png')",
+      logo: VIEW + ".contentEl.querySelector('#vg-logo')",
+      stage: VIEW + ".contentEl.querySelector('#vg-graph')",
+    })).catch((e) => ({ clicked: false, why: e.message }));
+    const errs = errorsSince(n0);
+    report(pngCarriesGraph(cap) && errs.length === 0,
+      "the plugin's Save PNG carries the graph after the disc has been idle",
+      pngCaptureDetail(cap) + (cap.why ? " -- " + cap.why : "") + "; " + errs.length + " errors");
+  }
   if (selected("trail")) {
     const n0 = errorsBefore();
     await clickNote();

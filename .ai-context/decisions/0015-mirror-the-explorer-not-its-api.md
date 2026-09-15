@@ -1,4 +1,4 @@
-# 0013 — Mirror the sortspec text, not the explorer
+# 0015 — Mirror the sortspec text, not the explorer
 
 **Date** 2026-09-08 · **Status** accepted · **Relates to** github#71, `design/0001`, `design/0004`, `decisions/0009`
 
