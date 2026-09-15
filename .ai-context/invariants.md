@@ -4315,18 +4315,28 @@ direct `git push`, not through a pull request, so without it the common path wou
 status at all. Feature branches are absent for the reason the hook also skips them.
 
 **The list is derived, not curated, and then guarded.** `scripts/check-ci-parity.mjs` parses
-the hook's static block and the workflow and fails on any gate the workflow does not run.
-That is not a hypothetical: `release.yml` keeps a hand-written copy of the same set and it has
-already drifted — `check-generator-determinism`, `check-build-order-determinism`,
-`check-data-escape`, `check-link-resolution` and `gallery-nav --check` are all absent from it.
-A list nobody checks becomes a list that lies. Fifteen gates on the tree that added the check,
-about 30 s of check time locally, of which `npm run lint` is 21 s — so lint runs last, and a
-broken tree says so before the toolchain has finished. The check holds three things, each
-measured failing before it was committed: a gate present in the hook and absent from the
-workflow, the job's `name:` (`quality gates` — a job name **is** the required-status context,
-so renaming it silently drops whatever the ruleset requires), and the two markers it anchors
-on still being in the hook. It parses the hook's heredoc refusal messages as prose, not as
-invocations; three of them name a script in a sentence.
+the hook's static block and fails on any gate a checked workflow does not run. That was not a
+hypothetical: `release.yml` kept its own hand-written copy of the same set, unchecked, and it
+drifted — `check-generator-determinism`, `check-build-order-determinism`, `check-data-escape`,
+`check-link-resolution` and `gallery-nav --check` were all absent from it (github#154). A list
+nobody checks becomes a list that lies. Fifteen gates on the tree that added the check, about
+30 s of check time locally, of which `npm run lint` is 21 s — so lint runs last, and a broken
+tree says so before the toolchain has finished. The check holds three things per workflow it
+checks, each measured failing before it was committed: a gate present in the hook and absent
+from the workflow, the job's `name:` where one is asserted (`quality gates` for `quality.yml` —
+a job name **is** the required-status context, so renaming it silently drops whatever the
+ruleset requires; `release.yml`'s job name is templated and asserts nothing, since it is not a
+PR merge-boundary status), and the two markers it anchors on still being in the hook. It parses
+the hook's heredoc refusal messages as prose, not as invocations; three of them name a script
+in a sentence.
+
+**github#154 closed the drift by extending the guard, not by hand-adding five steps.** The
+checker now takes a list of target workflows (`quality.yml` and `release.yml`) and checks each
+against the same derived gate set, so `release.yml` cannot silently fall behind the hook again
+the way it did. One consequence that was not obvious from the drift table: the hook's own
+static block calls `check-ci-parity.mjs` itself, so extending the guard to a second target made
+that target require the same self-check `quality.yml` already carried — six steps landed in
+`release.yml`, not five.
 
 **Two things the workflow states rather than implies, because a green status must not be read
 as more than it is.** `scripts/smoke.mjs` is not in CI: it has no headless path — it spawns
