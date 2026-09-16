@@ -6218,10 +6218,10 @@ check("the disc's right-click does nothing until Developer debug is on", async (
              shutByToggle: menu.hidden };
   })()`);
   const ok = !r.preventedOff && r.hiddenOff && r.preventedOn && r.openOn && r.hasGrid &&
-             r.speeds.join(",") === "1.25,2.5,5,10" && r.swatches === 0 && r.shutByToggle;
+             r.speeds.join(",") === "1,2,4,8" && r.swatches === 0 && r.shutByToggle;
   return { ok, detail: `off: preventDefault=${r.preventedOff} (must be false so the host keeps ` +
     `its own menu), stayed hidden=${r.hiddenOff}; on: preventDefault=${r.preventedOn}, ` +
-    `opened=${r.openOn}, grid item=${r.hasGrid}, speeds=[${r.speeds.join(", ")}], ` +
+    `opened=${r.openOn}, grid item=${r.hasGrid}, speed multipliers=[${r.speeds.join(", ")}], ` +
     `${r.swatches} colour swatches (must be 0 -- this is not the legend's menu); ` +
     `setting off again shut it=${r.shutByToggle}` };
 });
@@ -6317,15 +6317,15 @@ check("the developer menu's slow motion reaches the animation clock", async (p) 
     };
     var before = __vg.timeScale;
     __vg.setDevTools(true);
-    var checked2Before = pick(2.5);
+    var checked2Before = pick(2);
     var at2 = __vg.timeScale;
-    pick(10);
+    pick(8);
     var at8 = __vg.timeScale;
     // Reopened at 8x, the 8x entry is the one that reads checked and Normal does not.
     ${DEV_RIGHT_CLICK};
     var marks = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
       return b.getAttribute("data-speed") + ":" + b.getAttribute("aria-checked"); });
-    menu.querySelector('[data-speed="1.25"]').click();
+    menu.querySelector('[data-speed="1"]').click();
     var back = __vg.timeScale;
     __vg.setDevTools(false);
     __vg.timeScale = before;   // the suite's own fast clock, put back
@@ -6333,10 +6333,11 @@ check("the developer menu's slow motion reaches the animation clock", async (p) 
              marks: marks, back: back, restored: __vg.timeScale };
   })()`);
   const ok = r.checked2Before === "false" && r.at2 === 2.5 && r.at8 === 10 &&
-             r.marks.join(" ") === "1.25:false 2.5:false 5:false 10:true" &&
+             r.marks.join(" ") === "1:false 2:false 4:false 8:true" &&
              r.back === 1.25 && r.restored === r.before;
-  return { ok, detail: `timeScale ${r.before} -> 2x=${r.at2} -> 8x=${r.at8} -> Normal=${r.back}; ` +
-    `reopened at 8x the marks read [${r.marks.join(", ")}]; restored to ${r.restored}` };
+  return { ok, detail: `timeScale ${r.before} -> 2x=${r.at2} -> 8x=${r.at8} -> Normal=${r.back} ` +
+    `(x1, x2, x4, x8 of the 1.25 default); reopened at 8x the marks read ` +
+    `[${r.marks.join(", ")}]; restored to ${r.restored}` };
 });
 
 check("focus web stays above dim notes", async (p) => {

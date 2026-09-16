@@ -7716,15 +7716,21 @@ function mountVaultGraph(root, data, deps) {
       WIN.addEventListener("resize", closeCtxMenu);
     }
 
-    // github#165 -- slower, never faster. Every entry is a multiple of the default rather
-    // than a number of its own, so "at or above the speed the page opens at" is structural:
-    // the menu can only ever help you read a cascade, never race one.
+    // github#165 -- slower, never faster. Each entry is a MULTIPLE of the default, never a
+    // duration of its own, so "at or above the speed the page opens at" is structural: there
+    // is no entry that could be written below the default without writing a multiplier below
+    // one. The multiplier is also what goes in the attribute and what comes back out of it --
+    // an integer round-trips exactly, where a computed duration would not survive a
+    // TIME_SCALE_DEFAULT that is not a binary fraction (1.25 is 5/4, so x2/x4/x8 are exact
+    // today; 1.3 would not be, and the checked mark would silently stop matching).
     var SPEED_ROW = [
       { by: 1, label: "Normal", title: "The speed the disc animates at unless ?slow= says otherwise" },
       { by: 2, label: "2x",     title: "Half speed -- every cascade, tween and timeline sweep takes twice as long" },
       { by: 4, label: "4x",     title: "Quarter speed" },
       { by: 8, label: "8x",     title: "An eighth of speed -- slow enough to read a single dot's arrival" }
-    ].map(function (o) { return { mul: TIME_SCALE_DEFAULT * o.by, label: o.label, title: o.title }; });
+    ];
+    /** @param {number} by */
+    function slowOf(by) { return TIME_SCALE_DEFAULT * by; }
 
     /**
      * github#165 -- the developer menu, opened by right-clicking the disc while the
@@ -7741,10 +7747,13 @@ function mountVaultGraph(root, data, deps) {
         esc("Draw the wedge lattice and the locked rings over the disc") + '">' +
         dotSvg(gridOn) + '<span>Wedge grid</span></button>' +
         '<div class="row devrow"><div class="lbl">Slow motion</div>' +
-        '<div class="mini" role="radiogroup" aria-label="Slow motion">' +
+        // github#165 -- menuitemradio, not radio: #vg-ctxmenu is role="menu", and ARIA lets
+        // a menu hold a group of menuitemradio but not a radiogroup. The legend's swatches
+        // in the same element are menuitemradio for the same reason.
+        '<div class="mini" role="group" aria-label="Slow motion">' +
         SPEED_ROW.map(function (o) {
-          return '<button data-speed="' + o.mul + '" role="radio" aria-checked="' +
-                 (TIME_SCALE === o.mul) + '" title="' + esc(o.title) + '">' +
+          return '<button data-speed="' + o.by + '" role="menuitemradio" aria-checked="' +
+                 (TIME_SCALE === slowOf(o.by)) + '" title="' + esc(o.title) + '">' +
                  esc(o.label) + '</button>';
         }).join("") + '</div></div>');
       /** @type {HTMLElement} */ (el.querySelector("[data-grid]")).onclick = function () {
@@ -7752,7 +7761,7 @@ function mountVaultGraph(root, data, deps) {
       };
       Array.prototype.forEach.call(el.querySelectorAll("[data-speed]"),
         /** @param {HTMLElement} b */ function (b) {
-          b.onclick = function () { setTimeScale(+b.getAttribute("data-speed")); closeCtxMenu(); };
+          b.onclick = function () { setTimeScale(slowOf(+b.getAttribute("data-speed"))); closeCtxMenu(); };
         });
       showCtxMenu(el, x, y);
     }

@@ -338,7 +338,9 @@
   }
   /* github#71 -- the segmented Folder order radio borrows the pressed look */
   .vault-graph .mini button[aria-pressed="true"], .vault-graph button.btn[aria-pressed="true"],
-  .vault-graph .mini button[role="radio"][aria-checked="true"] {
+  .vault-graph .mini button[role="radio"][aria-checked="true"],
+  /* github#165 -- the developer menu's speed row, which is menuitemradio inside role="menu" */
+  .vault-graph .mini button[role="menuitemradio"][aria-checked="true"] {
     background: var(--accent); border-color: var(--accent); color: #fff;
   }
 
