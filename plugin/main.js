@@ -70,8 +70,10 @@ function bareMap() {
  * @property {boolean} panEnabled
  * @property {boolean} compactAxis
  * @property {boolean} unlinkedByFolder
+ * @property {"name" | "explorer" | "size" | undefined} folderOrder
  * @property {boolean} unlinkedTintByFolder
  * @property {boolean} countBars                        github#78, design/0006
+ * @property {boolean} rootInOrder                      github#164
  * @property {boolean} fitCap                           github#41, design/0011
  * @property {"folder" | "tag"} dim                     github#86 -- grouping dimension
  * @property {boolean} liveRefresh                      github#72
@@ -312,6 +314,39 @@ async function readFolders(app) {
   return { templateDirs: Array.from(dirs), dailyDir: dailyDir };
 }
 
+/** github#71, decisions/0015 -- the three places a spec is read; cache-parsed here
+ * @param {import("obsidian").App} app
+ */
+async function readSortSpecs(app) {
+  /** @type {{ folder: string, text: string, origin: string }[]} */
+  const out = [];
+  const seen = new Set();
+  /** @param {import("obsidian").TFile} file */
+  const add = (file) => {
+    if (!file || seen.has(file.path)) return;
+    seen.add(file.path);
+    const fm = (app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+    const text = typeof fm["sorting-spec"] === "string" ? fm["sorting-spec"] : "";
+    if (!text.trim()) return;
+    const dir = file.parent && file.parent.path && file.parent.path !== "/" ? file.parent.path : "";
+    out.push({ folder: dir, text: text, origin: file.path });
+  };
+
+  for (const file of app.vault.getMarkdownFiles()) {
+    const dir = file.parent && file.parent.path && file.parent.path !== "/" ? file.parent.path : "";
+    const parent = dir.indexOf("/") < 0 ? dir : dir.slice(dir.lastIndexOf("/") + 1);
+    // github#71 -- a sortspec.md, or a folder note carrying the key
+    if (file.basename.toLowerCase() === "sortspec" || (parent && file.basename === parent)) add(file);
+  }
+
+  const extra = strField(await readConfigJson(app, "plugins/custom-sort/data.json"), "additionalSortspecFile");
+  if (extra.trim()) {
+    const f = app.vault.getFileByPath(normalizePath(norm(extra)));
+    if (f) add(/** @type {import("obsidian").TFile} */ (f));
+  }
+  return out;
+}
+
 /* ================================================================ the adapter ==
  * The crawl in build-graph.mjs, replaced by asking Obsidian. What used to be a walk, a
  * YAML parser, a wikilink miner, a resolver and an alias table is now four reads of an
@@ -334,6 +369,8 @@ async function readFolders(app) {
 async function buildData(app, opts, version) {
   const t0 = performance.now();
   const folders = await readFolders(app);
+  // github#71
+  const sortSpecs = await readSortSpecs(app);
   const templateDirs = folders.templateDirs, dailyDir = folders.dailyDir;
   /** @param {string} path */
   const isTemplate = (path) => templateDirs.some((d) => under(path, d));
@@ -507,6 +544,8 @@ async function buildData(app, opts, version) {
       ghostsIncluded: !!opts.ghosts,
     },
     readWords: readWords,
+    // github#71
+    sortSpecs: sortSpecs,
     _spike: {
       msIndex: Math.round(tIndex - t0),
       msEdges: Math.round(tEdges - tIndex),
@@ -952,6 +991,14 @@ class VaultGraphView extends ItemView {
         this.plugin.settings.compactAxis = !!v;
         await this.plugin.saveSettings();
       },
+      // github#71
+      // github#71 -- undefined until the reader picks
+      folderOrder: this.plugin.settings.folderOrder,
+      /** @param {"name" | "explorer" | "size"} v */
+      onFolderOrder: async (v) => {
+        this.plugin.settings.folderOrder = v;
+        await this.plugin.saveSettings();
+      },
       // github#3
       unlinkedByFolder: this.plugin.settings.unlinkedByFolder,
       /** @param {boolean} v */
@@ -964,6 +1011,13 @@ class VaultGraphView extends ItemView {
       /** @param {boolean} v */
       onCountBars: async (v) => {
         this.plugin.settings.countBars = !!v;
+        await this.plugin.saveSettings();
+      },
+      // github#164
+      rootInOrder: this.plugin.settings.rootInOrder === true,
+      /** @param {boolean} v */
+      onRootInOrder: async (v) => {
+        this.plugin.settings.rootInOrder = !!v;
         await this.plugin.saveSettings();
       },
       // github#3
@@ -1064,12 +1118,29 @@ const DEFAULTS = {
   unlinkedTintByFolder: false,
   // github#78, design/0006
   countBars: true,
+  // github#164 -- off is the order the disc has always drawn
+  rootInOrder: false,
   // github#41, design/0011
   fitCap: true,
   // github#86 -- folder is the default
   dim: "folder",
   // github#72
   liveRefresh: true,
+  // github#71, decisions/0009 -- absent means nobody has chosen yet
+  folderOrder: undefined,
+};
+
+/* github#71 -- the one view setting that is not a boolean */
+const FOLDER_ORDER_SETTING = {
+  key: /** @type {const} */ ("folderOrder"),
+  name: "Folder order",
+  desc: "Which way the wedges run round the disc. Name is the vault's own folder order, " +
+        "numbers reading as numbers. File explorer follows a Custom File Explorer sorting " +
+        "sortspec -- pinned names first, then order-asc/order-desc a-z, by that plugin's own " +
+        "precedence; only the sections aimed at the vault root and at a top-level folder can " +
+        "reach the disc, and a spec that cannot be read falls back to Name. Size puts the " +
+        "biggest folder first. A folder keeps its colour whichever you pick.",
+  options: { name: "Name", explorer: "File explorer", size: "Size" },
 };
 
 /** @type {{ key: "ghosts" | "templates" | "flatMonths" | "words", name: string, desc: string }[]} */
@@ -1086,11 +1157,11 @@ const BUILD_SETTINGS = [
 
 /**
  * @typedef {Object} ViewSetting
- * @property {"panEnabled" | "compactAxis" | "unlinkedByFolder" | "unlinkedTintByFolder" | "countBars" | "fitCap" | "liveRefresh"} key
+ * @property {"panEnabled" | "compactAxis" | "unlinkedByFolder" | "unlinkedTintByFolder" | "countBars" | "rootInOrder" | "fitCap" | "liveRefresh"} key
  * @property {string} name
  * @property {string} desc
  * @property {boolean} defaultOn
- * @property {"setPanEnabled" | "setCompactAxis" | "setUnlinkedByFolder" | "setUnlinkedTintByFolder" | "setCountBars" | "setFitCap" | ""} api
+ * @property {"setPanEnabled" | "setCompactAxis" | "setUnlinkedByFolder" | "setUnlinkedTintByFolder" | "setCountBars" | "setRootInOrder" | "setFitCap" | ""} api
  * @property {boolean} [host]   the HOST owns this one, not the page, so there is no api to call
  */
 /** @type {ViewSetting[]} */
@@ -1106,6 +1177,9 @@ const VIEW_SETTINGS = [
   // github#78, design/0006
   { key: "countBars", name: "Count bars in the legend", defaultOn: true, api: "setCountBars",
     desc: "Draw a short rule along the bottom of each folder row in the legend, in that folder's own colour, scaled so the largest folder currently shown fills its row and the rest are read against it. The count alone makes a 406-note folder and a 1-note folder look identical. Hovering a count says which folder the bar is measured against." },
+  // github#164
+  { key: "rootInOrder", name: "Vault root sorts with the folders", defaultOn: false, api: "setRootInOrder",
+    desc: "Let (vault root) take the place its own notes sort to, in among the folders, instead of sitting at the front of the disc. It sorts as its alphabetically first note does, which is where the file explorer starts showing them -- so the disc and the tree agree. The archives keep the front, and (untagged) and (unlinked) stay at the end. Off by default, so no disc moves until you ask." },
   // github#41, design/0011
   { key: "fitCap", name: "Size dots from the frame", defaultOn: true, api: "setFitCap",
     desc: "While the disc animates, cap every dot at just under half its distance to the nearest visible note, measured on the frame being drawn, so dots stay apart while rows slide. The disc at rest is unchanged. Experimental: dots breathe while a cascade walks." },
@@ -1213,7 +1287,14 @@ class VaultGraphSettingTab extends PluginSettingTab {
     return [
       ...BUILD_SETTINGS.map((s) => toggle(s, false)),
       { type: /** @type {"group"} */ ("group"), heading: "View",
-        items: VIEW_SETTINGS.map((s) => toggle(s, s.defaultOn)) },
+        items: [
+          // github#71
+          { name: FOLDER_ORDER_SETTING.name, desc: FOLDER_ORDER_SETTING.desc,
+            aliases: ["sortspec", "sort", "order", "explorer", "custom sort"],
+            control: { type: /** @type {"dropdown"} */ ("dropdown"), key: FOLDER_ORDER_SETTING.key,
+                       defaultValue: "name", options: FOLDER_ORDER_SETTING.options } },
+          ...VIEW_SETTINGS.map((s) => toggle(s, s.defaultOn)),
+        ] },
       { type: /** @type {"group"} */ ("group"), heading: "Group colours",
         items: [{
           name: "Group and sub-wedge colours", desc: COLOURS_DESC,
@@ -1229,10 +1310,19 @@ class VaultGraphSettingTab extends PluginSettingTab {
 
   /** @param {string} key */
   getControlValue(key) {
+    // github#71 -- report what the page chose, not the declarative default
+    if (key === FOLDER_ORDER_SETTING.key) {
+      return this.plugin.settings.folderOrder || this.liveFolderOrder() || "name";
+    }
     return this.plugin.settings[/** @type {keyof Settings} */ (key)];
   }
   /** @param {string} key @param {unknown} value */
   async setControlValue(key, value) {
+    // github#71 -- the only non-boolean, settled before the !!value below
+    if (key === FOLDER_ORDER_SETTING.key) {
+      await this.setFolderOrder(String(value));
+      return;
+    }
     const build = BUILD_SETTINGS.find((s) => s.key === key);
     const view = VIEW_SETTINGS.find((s) => s.key === key);
     if (!build && !view) return;
@@ -1256,6 +1346,34 @@ class VaultGraphSettingTab extends PluginSettingTab {
     if (api && def.api && api[def.api]) api[def.api](v);
   }
 
+  // github#71
+  /** @param {string} v */
+  async setFolderOrder(v) {
+    const next = ["name", "explorer", "size"].includes(v)
+      ? /** @type {"name" | "explorer" | "size"} */ (v) : "name";
+    this.plugin.settings.folderOrder = next;
+    await this.plugin.saveSettings();
+    const view = await this.plugin.currentView();
+    const api = view && view.handle && view.handle.api;
+    if (api && api.setFolderOrder) api.setFolderOrder(next);
+  }
+
+  /**
+   * github#71, decisions/0015 -- what the disc is ACTUALLY ordered by
+   * @returns {"" | "name" | "explorer" | "size"}
+   */
+  liveFolderOrder() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      const view = leaf.view;
+      if (!(view instanceof VaultGraphView)) continue;
+      const api = view.handle && view.handle.api;
+      if (!api || !api.folderOrder) continue;
+      const v = api.folderOrder();
+      if (v === "name" || v === "explorer" || v === "size") return v;
+    }
+    return "";
+  }
+
   display() {
     const { containerEl } = this;
     containerEl.empty();
@@ -1274,6 +1392,14 @@ class VaultGraphSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl).setName("View").setHeading();
+    // github#71
+    new Setting(containerEl)
+      .setName(FOLDER_ORDER_SETTING.name)
+      .setDesc(FOLDER_ORDER_SETTING.desc)
+      .addDropdown((d) => d
+        .addOptions(FOLDER_ORDER_SETTING.options)
+        .setValue(this.plugin.settings.folderOrder || this.liveFolderOrder() || "name")
+        .onChange(async (v) => { await this.setFolderOrder(v); }));
     for (const s of VIEW_SETTINGS) {
       new Setting(containerEl)
         .setName(s.name)
@@ -1705,7 +1831,12 @@ class VaultGraphPlugin extends Plugin {
     if (api.setUnlinkedByFolder) api.setUnlinkedByFolder(this.settings.unlinkedByFolder !== false);
     if (api.setUnlinkedTintByFolder) api.setUnlinkedTintByFolder(this.settings.unlinkedTintByFolder === true);
     if (api.setCountBars) api.setCountBars(this.settings.countBars !== false);
+    // github#164
+    if (api.setRootInOrder) api.setRootInOrder(this.settings.rootInOrder === true);
     if (api.setFitCap) api.setFitCap(this.settings.fitCap !== false);
+    // github#71
+    // github#71 -- only push a STORED choice, never a default
+    if (api.setFolderOrder && this.settings.folderOrder) api.setFolderOrder(this.settings.folderOrder);
     if (api.applyHiddenDefaults) api.applyHiddenDefaults();
   }
 

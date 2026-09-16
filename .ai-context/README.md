@@ -48,6 +48,7 @@ numbers stay and the index spells them out.
 | `0012-own-graph-store-and-renderer` | Replacing the two vendored minified bundles with our own TypeScript store and renderer: what was actually used of each, and what that bought (github#58) |
 | `0013-a-tree-is-gated-once` | A green full suite run stamps the git tree it measured; the hook and `release.ps1` skip a stamped tree, and why not by commit, by time or by `SKIP_SMOKE` (github#93) |
 | `0014-a-pin-names-its-note-not-its-position` | Why a pin is stored by the note's path: an id is a position, and a position only holds while the input order does (github#143) |
+| `0015-mirror-the-explorer-not-its-api` | Why the file-explorer order is parsed from the sortspec text, which subset, and why it falls back loudly (github#71) |
 
 ### DDRs — `design/`
 

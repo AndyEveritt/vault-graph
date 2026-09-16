@@ -17,6 +17,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
 const OUT_DIR = join(ROOT, "scripts", "layout-snapshots");
 
+/* github#71 -- MUST AGREE WITH resolveVaults() in smoke.mjs, args included */
 const FIXTURES = [
   { script: "make-demo-vault.mjs", args: [], name: "demo-vault" },
   { script: "make-test-vault.mjs", args: ["--notes", "10000", "--years", "10", "--end", "2026-08-28"], name: "test-vault" },
@@ -24,6 +25,9 @@ const FIXTURES = [
   // github#86, design/0015 -- recorded in the TAG dimension; that is its picture
   { script: "make-tag-vault.mjs", args: ["--end", "2026-09-09"], name: "tag-vault",
     gens: ["make-tag-vault.mjs"], dim: "tag" },
+  // github#71 -- --end pinned: its dated subfolders are date-derived
+  { script: "make-spec-vault.mjs", args: ["--end", "2026-09-08"], name: "spec-vault",
+    gens: ["make-spec-vault.mjs"] },
 ];
 
 const GENERATORS = ["make-demo-vault.mjs", "make-test-vault.mjs", "make-shape-vault.mjs"];
@@ -39,7 +43,7 @@ function storeRoot() {
   return join(ROOT, ".fixtures");
 }
 
-// github#86 -- `gens` must match the list scripts/smoke.mjs hashes
+// github#86, github#71 -- `gens` must match the list scripts/smoke.mjs hashes
 function digestOf(args, gens) {
   const h = createHash("sha256");
   h.update("format:" + FIXTURE_FORMAT);
@@ -77,7 +81,7 @@ function buildFixture(fx) {
   const htmlDir = mkdtempSync(join(tmpdir(), `vg-snap-${fx.name}-`));
   const htmlPath = join(htmlDir, "vault-graph.html");
   const build = spawnSync(process.execPath,
-    [join(ROOT, "src", "build-graph.mjs"), "--vault", dir, "--out", htmlPath],
+    [join(ROOT, "src", "build-graph.mjs"), "--vault", dir, "--out", htmlPath, ...(fx.build || [])],
     { encoding: "utf8" });
   if (build.status !== 0) throw new Error(`build-graph.mjs failed:\n${build.stderr || ""}`);
   return { dir: htmlDir, htmlPath };

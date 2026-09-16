@@ -2836,6 +2836,174 @@ the snapshot. It failed on all three vaults, naming the exact folder that flippe
 the demo vault (`04 - Daily Notes: outer -> inner`) and reporting every moved note's id and
 delta on the other two. Reverted immediately after.
 
+**A VAULT THAT SHIPS A SORTSPEC OPENS IN ITS OWN ORDER.** Since github#71 the default is not
+`Name` — it is *whatever the vault says*. `folderOrder` absent from the deps means **nobody has
+chosen yet**, and the page then resolves it at mount: a parsed spec with at least one section gives
+`explorer`, anything else gives `name`. That is the `sheetOpen`/`bandOpen` idiom from github#82,
+where absence means "decide from the width".
+
+An explicit value always wins and always sticks, which is what makes this safe: the host persists
+on every change (`decisions/0009`), so a reader who picks `Name` on a spec-carrying vault keeps
+`Name`. All three hosts had to stop coercing absence into `"name"` for this to work — `shell.html`
+passes `undefined`, the plugin's `DEFAULTS.folderOrder` is deliberately absent and
+`applyHiddenDefaults` only pushes a *stored* choice, and the exporter omits `folderOrder` from the
+data entirely unless `--folder-order` was passed. **Any one of those regressing to `"name"` silently
+disables the feature for every vault**, and nothing would fail: the disc would simply be in name
+order.
+
+**THE RANK IS THE OUTER SORT KEY, AND THERE ARE NOW TWO OF THEM (github#164).** `groupRank()`
+is the **stable** one -- archives 0, bracketed pseudo-groups 1, real folders 2, `(untagged)` 3,
+`(unlinked)` 4 -- and it is what `byGroupName()` sorts on, which makes it the **name order**,
+which makes it what hands out colour slots (github#71 D-5). `drawRank()` is what the **draw**
+order partitions on, and with **Vault root sorts with the folders** on it ranks `(vault root)`
+as **2**, a real folder, so it seats itself among them.
+
+**Where it seats is its first note, not the end of the list.** The setting was built as "below
+all folders" and that was wrong, caught by the maintainer against his own explorer: the notes in
+`(vault root)` are interleaved with the folders alphabetically, so the group belongs where its
+**alphabetically first note** sorts. On his vault that is between `09 - Work Notes` and `Inbox`,
+because the first root note is `CLAUDE` and the `_`-prefixed folders are pulled out to rank 0.
+`drawKey()` returns that note's name for the root group and the group's own name for everything
+else; `rootKey` is recomputed by `computeOrder()`.
+
+**Three defects, each found by the check rather than by reading:**
+
+1. Moving the rank inside `groupRank()` itself **repainted 17 of 18 groups on the demo vault** --
+   github#71's D-5 reintroduced from the other end, since D-5 had only decoupled the slot order
+   from a *spec-driven* reorder and both orders come off the same comparator. Hence two ranks.
+2. `drawOrder()` returned `names` untouched when the mode was `name`, so the setting worked on
+   `spec-vault` and did **nothing** on the other four. Where the root group sits is not the
+   sortspec's business. The partition runs in every mode now, and under `name` with the setting
+   off it is the **identity**: `names` arrives rank-sorted, so splitting it by rank rebuilds it.
+3. `rootKey` came back **empty on every fixture**. `inDim()` runs `computeOrder()` for the *tag*
+   disc as well, where no group is `(vault root)`, and the unconditional reset at the top of the
+   block wiped the key the folder disc had just derived. It is computed in the folder dimension
+   only.
+
+**The buckets stay at the very end, and that is what the check asserts** -- not that the last
+entries are non-folders, which was true only while the root group always went last. A real
+folder may now follow it: on `shape-vault` it seats between `refs` and `tiny`.
+
+**ONLY `spec-vault` CARRIES A SORTSPEC, and that is deliberate (github#71 D-13).** The other
+four fixtures are spec-free, so **every one of their goldens is byte-identical to the one
+`develop` already held** -- this feature adds a snapshot and moves none. `spec-vault` writes its
+spec to `beta/sortspec.md` and registers it through `.obsidian/plugins/custom-sort/data.json`,
+which is the arrangement a real vault ends up with and the reason its first section must say
+`target-folder: /` rather than `.`; that is the suite's coverage of the `additionalSortspecFile`
+path.
+
+**Why the shared fixtures were left alone.** An earlier pass on this branch wrote a spec into
+`make-test-vault.mjs` -- which reaches both the demo and the 10k vault -- and re-recorded their
+two goldens for it. The argument was that the 10k vault is the only fixture big enough to show
+the colour defect: **17 top-level folders against 12 colour slots**, so the slot walk cycles, and
+a slot that followed the draw order would swap hues between folders sharing one. The premise is
+true and the conclusion does not follow -- the colour check flips **`size`**, which reorders with
+no spec at all, so the 10k vault shows the defect whether or not it carries one. Measured: under
+`size` the order really moves there and every automatic slot is unchanged. The regeneration was
+legitimate -- the fixture genuinely gained a note -- but the repo's first law is that a golden is
+never regenerated to make a check pass, and a legitimate regeneration still spends that norm for
+coverage that was already present. So it was reverted.
+
+**Four spec-free fixtures also keep a check honest that one spec-free fixture only just kept
+alive**: *a vault with no sortspec is laid out in name order* now asserts on the demo, the 10k,
+`shape-vault` and `tag-vault`, rather than on `shape-vault` alone.
+
+**`spec-vault`'s shape is built to provoke, and each part of it provokes something named.** It is
+the only fixture whose wedges are not in name order, so it is where the explorer order is actually
+laid out:
+
+| what | why it is there |
+|---|---|
+| the root section pins **out of name order** | `zeta` and `alpha` are pinned first, so the wedge sequence cannot accidentally agree with the name order it is supposed to be leaving |
+| one **pinned subfolder is tiny** | `alpha/00 pinned tiny` holds 4 notes and is pinned first inside its parent. `ownsWedge()` grants a sub-wedge by **position** while `subCellIndex()` pools the tint by **rows**, so a small folder at position 0 is exactly where the two disagree (github#71 D-10, `decisions/0004`). Measured, not assumed |
+| a dated tree on **`order-desc`** | `gamma/YYYY-MM` reads newest-first, which is the point of `order-desc` on an ISO-prefixed tree and the thing that reads backwards without a spec |
+| a section aimed at a **folder that is gone**, and a line **outside the subset** | the two failure paths, so the fallback and the notice are exercised by a real spec rather than only by the parser's unit checks |
+| registered **globally, from inside a folder** | `.obsidian/plugins/custom-sort/data.json` names `beta/sortspec.md`. That is the arrangement a real vault ends up with, and the reason its root section must say `target-folder: /` rather than `.`. It is the suite's only coverage of the `additionalSortspecFile` path |
+
+Name order would be `alpha, beta, gamma, zeta`; under `explorer` it is `zeta, alpha, beta, gamma`.
+
+**Its `--end` is pinned by every caller and must stay that way.** The `YYYY-MM` subfolders are
+derived from note dates, so moving `--end` moves notes between subfolders and the subfolder cells
+move with them -- the exact failure the 10k vault hit on 2026-09-04, when 893 notes moved on the
+first weekly refresh. A fixture whose golden fails weekly teaches everyone to regenerate goldens to
+make a check pass, which is the one thing this repo forbids. Pinned in `smoke.mjs`,
+`update-layout-snapshots.mjs` and the `suite-stamp.mjs` self-test alike.
+
+**A FOURTH FIXTURE since github#71: `spec-vault`.** 287 notes, and the only one laid out in
+anything but name order — it ships a sortspec and is built with `--folder-order explorer`, so
+the whole suite runs against a disc whose wedges are where a spec put them. Its `--end` is
+**pinned at 2026-09-08**, like the 10k vault's and for the same reason: `gamma/` files its notes
+into `YYYY-MM` subfolders derived from their dates, so a moving `--end` would move notes
+between subfolders and fail its own golden on the first weekly refresh. It carries its own
+digest input list (`make-spec-vault.mjs` alone), because the original trio share one only
+because `make-demo-vault` delegates to `make-test-vault`; adding a fourth to that list would
+regenerate all three for a file they never read.
+
+## A folder keeps its colour when the wedge order changes
+
+github#71. **The goldens cannot catch this**, which is the whole reason it has a check: they
+hold node positions and band assignment, not colour. A change that reordered the wedges *and*
+repainted every one of them would pass "layout matches its golden snapshot" on all four
+fixtures.
+
+The automatic palette slot is handed out as `auto++ % SLOT_COUNT` in `buildColors()` — a
+group's **index in the array being walked**. So the moment the draw order could be something
+other than name order, walking it would have made a folder's hue a function of where the spec
+happened to put it. `design/0001` says name order exists precisely so a group keeps its colour
+as the vault grows, and github#71 lists it as a thing the change must not break.
+
+`computeOrder()` therefore emits **two** arrays: `order[dim]`, the draw order, and
+`slotOrder[dim]`, an always-name-ordered copy that is the only thing the slot walk reads. Under
+`Name` the two are equal and the walk is byte-identical to what it replaced.
+
+```bash
+node scripts/smoke.mjs --only "keeps its colour"
+```
+
+Measured 2026-09-08 on the spec fixture, flipping all three modes: the order really moves under
+both `size` and `explorer` (`alpha, beta, gamma, zeta` → `alpha, gamma, beta, zeta` and →
+`zeta, alpha, beta, gamma`) and **every automatic slot is unchanged** — `alpha=g2` and `zeta=g5`
+in all three. `(vault root)` keeps `g1` and `(unlinked)` keeps the archive slot `g11` throughout,
+which is the rank rule below holding at the same time.
+
+**The rank is the outer key in every mode.** `(vault root)`, the `_`-archives and `(unlinked)`
+keep the positions `design/0001` gave them; only the real-folder bucket is re-sorted. Measured
+in the same run.
+
+## The two group comparators are deliberately not the same
+
+github#71. `computeOrder()` compares names with `localeCompare(..., { numeric: true })`; the
+`subOrder` build compares with a plain `localeCompare`. Unifying them is the obvious tidy-up and
+it is **wrong**: it reorders numbered subfolders on the 10k fixture and fails that vault's
+golden, while reading in the diff like a refactor. The spec path's own `a-z` is plain
+`localeCompare` too, matching what the mirrored plugin's `a-z` means.
+
+## A vault's layout matches its golden snapshot — the sortspec paths
+
+github#71, and all of these are `node scripts/smoke.mjs --only "sortspec"` plus
+`--only "wedge order follows"`. Measured 2026-09-08, 20/20 across all four fixtures:
+
+- **the order follows the spec.** On `spec-vault`, pins land first and in spec order: wedges
+  `zeta, alpha, ...` against name order `alpha, beta, gamma, zeta`; `alpha`'s subs
+  `00 pinned tiny, 04 smaller, 01 big, ...` against the size order `01 big, 02 middling, ...`.
+  Both pin lists are deliberately against *both* name and size order, so neither can pass by
+  accident.
+- **a vault with no spec is untouched.** Asking for `File explorer` in the other three fixtures
+  leaves every group in name order — a no-op, not an empty or half-applied order.
+- **an unreadable spec falls back and names the line.** A `target-folder:` with no value drops
+  its section rather than silently meaning the vault root; a `> a-z` and an
+  `order-asc: modified` are skipped, each carrying its line number and a reason.
+- **a spec naming a folder that is gone is ignored, not fatal, and skips nothing.** Three pins,
+  two naming folders that do not exist → the one that exists still leads and **0 lines are
+  skipped**. A stale pin is wear on a spec, not a syntax error — and a real root section usually
+  pins *files*, which are not folders and can never match.
+
+**The default is what keeps the other three goldens still.** `Name` is the default, no existing
+fixture carries a spec, and the spec path is gated behind a non-default setting. Verified the
+strong way rather than argued: `update-layout-snapshots.mjs` rewrites **all four** snapshots, and
+after github#71 `git status` reported only `spec-vault.json` as new — `demo-vault.json`,
+`test-vault.json` and `shape-vault.json` came back byte-identical.
+
 ## A row-0 dot may not eat past a fixed share of the hub's own radius
 
 github#35, the dot-sizing half (the hub-boundary-*position* half shipped separately in

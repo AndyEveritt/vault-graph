@@ -2,7 +2,7 @@
 // github#58
 
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, relative, sep, basename, dirname, resolve as resolvePath } from "node:path";
+import { join, relative, sep, basename, dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 // github#58
 // decisions/0012
@@ -12,6 +12,8 @@ import { localDay, resolveCreated, dateTally } from "./dates.mjs";
 // github#141
 import { canonicalDest, cleanTarget, ghostId, ghostKey, ghostLabel, isExternalTarget, isRelativeDest, resolveAgainst } from "./links.mjs";
 import { engineBanner } from "./engine/notice.mjs";
+// github#71
+import { readSortingSpec } from "./sortspec-file.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolvePath(HERE, "..");
@@ -98,6 +100,15 @@ const INCLUDE_TEMPLATES = flag("templates");
 const OUT = opt("out", join(VAULT, "vault-graph.html"));
 const FLAT_MONTHS = flag("flat-months");
 const STRIP_NAV = flag("no-nav");
+// github#71, decisions/0009 -- --folder-order overrides; absent, the page decides
+const SORTSPEC_ARG = opt("sortspec", "");
+const FOLDER_ORDER = (() => {
+  const v = String(opt("folder-order", ""));
+  if (!v) return "";   // github#71 -- absent: the page decides from the vault
+  if (["name", "explorer", "size"].includes(v)) return v;
+  console.error(`build-graph: --folder-order ${v} is not name|explorer|size -- letting the page decide`);
+  return "";
+})();
 
 /* ---------------------------------------------------------------- discovery */
 
@@ -272,6 +283,43 @@ const files = walk(VAULT).filter((abs) => {
   if (INCLUDE_TEMPLATES) return true;
   return !isTemplate(relative(VAULT, abs).split(sep).join("/"));
 });
+/* github#71, decisions/0015 -- the three places a spec is read, plus --sortspec */
+const SORT_SPECS = (() => {
+  const out = [];
+  const seen = new Set();
+  const add = (abs, origin) => {
+    const key = resolvePath(abs);
+    if (seen.has(key)) return;
+    seen.add(key);
+    let raw; try { raw = readFileSync(abs, "utf8"); } catch { return; }
+    const text = readSortingSpec(raw);
+    if (!text.trim()) return;
+    const rel = relative(VAULT, abs).split(sep).join("/");
+    const home = rel.indexOf("/") < 0 ? "" : rel.slice(0, rel.lastIndexOf("/"));
+    out.push({ folder: home, text, origin: origin || rel });
+  };
+
+  for (const abs of files) {
+    const rel = relative(VAULT, abs).split(sep).join("/");
+    const name = basename(abs, ".md");
+    const dir = rel.indexOf("/") < 0 ? "" : rel.slice(0, rel.lastIndexOf("/"));
+    const parent = dir.indexOf("/") < 0 ? dir : dir.slice(dir.lastIndexOf("/") + 1);
+    // github#71 -- a sortspec.md, or a folder note carrying the key
+    if (name.toLowerCase() === "sortspec" || (parent && name === parent)) add(abs, rel);
+  }
+
+  const cfg = readJson(".obsidian/plugins/custom-sort/data.json");
+  if (cfg && typeof cfg.additionalSortspecFile === "string" && cfg.additionalSortspecFile.trim()) {
+    add(join(VAULT, norm(cfg.additionalSortspecFile)), norm(cfg.additionalSortspecFile));
+  }
+  if (SORTSPEC_ARG) {
+    const abs = isAbsolute(SORTSPEC_ARG) ? SORTSPEC_ARG : join(VAULT, norm(SORTSPEC_ARG));
+    if (!existsSync(abs)) console.error(`build-graph: --sortspec ${SORTSPEC_ARG} does not exist -- ignored`);
+    else add(abs, "--sortspec");
+  }
+  return out;
+})();
+
 const notes = [];
 const byKey = new Map();
 // github#141
@@ -418,6 +466,9 @@ const data = {
     ghostsIncluded: INCLUDE_GHOSTS,
   },
   dev: DEV_BUILD,
+  // github#71 -- omitted unless told, so absence means nobody has chosen
+  ...(FOLDER_ORDER ? { folderOrder: FOLDER_ORDER } : {}),
+  sortSpecs: SORT_SPECS,
 };
 
 /* ------------------------------------------------------------------ emit */
@@ -478,6 +529,13 @@ writeFileSync(OUT, html, "utf8");
 const kb = (Buffer.byteLength(html) / 1024).toFixed(0);
 console.log(`vault-graph: ${data.stats.nodes} notes, ${data.stats.edges} links, ` +
             `${data.stats.orphans} orphans, ${unresolved} unresolved link(s)`);
+if (SORT_SPECS.length) {
+  console.log(`sortspec: ${SORT_SPECS.length} source(s) -- ` +
+              SORT_SPECS.map((x) => x.origin).join(", ") + `; folder order: ${FOLDER_ORDER || "from the vault (explorer)"}`);
+} else if (FOLDER_ORDER === "explorer") {
+  console.log("sortspec: --folder-order explorer, but no sortspec was found -- the page will " +
+              "fall back to name order");
+}
 console.log(`dated: ${dates.frontmatter} from frontmatter, ${dates.filename} from the ` +
             `filename, ${dates.stamp} from the file stamp` +
             (dates.none ? `, ${dates.none} UNDATED` : ", none undated"));
