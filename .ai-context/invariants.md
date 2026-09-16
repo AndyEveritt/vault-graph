@@ -5130,9 +5130,10 @@ consumes them.
 ```bash
 node scripts/smoke.mjs --only "right-click does nothing"     # the gate
 node scripts/smoke.mjs --only "still pins it"                # the collision, as a check
+node scripts/smoke.mjs --only "the whole grid"               # the half-grid, as a check
 ```
 
-**Four checks, on `demo-vault` only** — none of them asserts anything about a fixture's shape,
+**Five checks, on `demo-vault` only** — none of them asserts anything about a fixture's shape,
 so per *Each check runs where its assertion lives* they take the cheap default rather than
 `"all"`.
 
@@ -5176,9 +5177,9 @@ still exist for `smoke.mjs` and the storyboard, and are still stripped from the 
 count-checked, and the move would buy nothing that is not already there.
 
 The cost of the whole feature, measured by building `main.js` at 9e84932 and again on this
-branch: **538,085 → 542,617 bytes, +4,532 (+0.8%)**. The three stripped regions stay stripped —
+branch: **538,085 → 542,758 bytes, +4,673 (+0.9%)**. The three stripped regions stay stripped —
 `demoAct`, `checkZeroWeightInvariance` and `timeScale` each occur **0** times in the built
-bundle, while `openDevMenu`, `setWedgeGrid` and `setTimeScale` are present.
+bundle, while `openDevMenu`, `setWedgeGrid`, `setTimeScale` and `rightClickStage` are present.
 
 ### One menu element, two openers, one shared tail
 
@@ -5188,6 +5189,25 @@ nothing else. `openCtxMenu`'s thirteen positional parameters are all palette-sha
 grid plus three bespoke trailing toggles) and six checks drive that path; `openDevMenu` has no
 swatches at all. Generalising one function to serve both would mean an item-list abstraction
 *plus* a swatch special case, so the second opener is deliberate (D-2, github#165).
+
+### Turning the overlay on has to re-pack, or it draws the band radii alone
+
+The wedge cells are collected **by** the packer, and only on a pass that ran while `DBG.on`
+was already true — `var dbgCells = DBG.on ? [] : null` in `ringsLayout()`. `wedgeDebug()`
+only called `renderer.refresh()`, which repaints and re-runs no layout. So turning the
+overlay on at rest had nothing to draw the wedges from: it drew the band-radius circles and
+**nothing else**, until some filter or resize happened to re-pack.
+
+That has always been true and never mattered, because the only way in was
+`__vg.wedgeDebug()` from a console with a relayout a keystroke away. A menu item makes it
+the **first** thing anyone does with the feature, so `wedgeDebug()` now asks for the pass it
+needs: `applyLayout(false)` when `DBG.on && !DBG.cells`. That re-runs the packer without
+touching `bandLock` or `geomLock`; `hardRelayout()` would reset both and is the wrong tool.
+
+**The fix buys the grid by re-packing, so the no-op had to be proven rather than assumed.**
+Measured on the demo mirror: wedge cells **0 → 43** on one click, **86** seam-trace rows, and
+of **1403 notes, 0 moved, worst 0 units**. Without the fix the check reads `0 -> 0` cells and
+`0` seam-trace rows.
 
 ### Slow motion is a scale, and it only ever slows
 
