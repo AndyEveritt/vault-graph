@@ -6348,6 +6348,57 @@ check("the grid drawn from the menu is the whole grid, and no dot moves to get i
 });
 
 // github#165
+check("the grid's key sits bottom right, clear of both sets of view controls", async (p) => {
+  // The key is drawn on canvas, so there is no element to measure -- DBG.legendBox is where
+  // drawWedgeLegend() put it, in host coordinates, and the two control groups are measured
+  // against that. It used to sit at 12,12, straight on top of the host's top-left buttons.
+  await p.j(`(function(){ __vg.setDevTools(true); return __vg.setWedgeGrid(true); })()`);
+  await settle(p);
+  const r = await p.j(`(function(){
+    var host = document.getElementById("vg-graph");
+    var hb = host.getBoundingClientRect();
+    var box = __vg.wedgeLegendBox();
+    if (!box) return { missing: true };
+    // Host coordinates -> viewport, so the sibling control group is comparable.
+    var key = { left: hb.left + box.x, top: hb.top + box.y,
+                right: hb.left + box.x + box.w, bottom: hb.top + box.y + box.h };
+    var hits = [];
+    ["vg-cam", "vg-viewbtns", "vg-tools"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el || el.hidden) return;
+      var b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      if (key.left < b.right && key.right > b.left &&
+          key.top < b.bottom && key.bottom > b.top) hits.push(id);
+    });
+    // Every button that actually sits over the graph, whatever it is called.
+    var overlapAny = [];
+    [].forEach.call(host.parentElement.querySelectorAll("button"), function (el) {
+      var b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      if (key.left < b.right && key.right > b.left &&
+          key.top < b.bottom && key.bottom > b.top) overlapAny.push(el.id || el.title || "?");
+    });
+    var inHost = box.x >= 0 && box.y >= 0 &&
+                 box.x + box.w <= host.clientWidth + 0.5 &&
+                 box.y + box.h <= host.clientHeight + 0.5;
+    // Bottom right: past the midpoint on both axes.
+    var bottomRight = box.x + box.w / 2 > host.clientWidth / 2 &&
+                      box.y + box.h / 2 > host.clientHeight / 2;
+    __vg.setWedgeGrid(false);
+    __vg.setDevTools(false);
+    return { missing: false, box: box, host: [host.clientWidth, host.clientHeight],
+             hits: hits, overlapAny: overlapAny, inHost: inHost, bottomRight: bottomRight };
+  })()`);
+  if (r.missing) return { ok: false, detail: "the overlay drew no key -- DBG.legendBox is null" };
+  const ok = r.hits.length === 0 && r.overlapAny.length === 0 && r.inHost && r.bottomRight;
+  return { ok, detail: `key ${r.box.w}x${r.box.h} at ${r.box.x},${r.box.y} in a ` +
+    `${r.host[0]}x${r.host[1]} host: bottom-right=${r.bottomRight}, inside=${r.inHost}, ` +
+    `named control groups overlapped=[${r.hits.join(", ") || "none"}], ` +
+    `any button over the graph overlapped=[${r.overlapAny.join(", ") || "none"}]` };
+});
+
+// github#165
 check("the developer menu's slow motion reaches the animation clock", async (p) => {
   const r = await p.j(`(function(){
     var menu = document.querySelector('[id$="ctxmenu"]');

@@ -1903,9 +1903,11 @@ function mountVaultGraph(root, data, deps) {
    * @property {HTMLCanvasElement | null} canvas
    * @property {unknown[] | null} [trace]
    * @property {number} [traceR]
+   * github#165 -- where drawWedgeLegend() last put the key, in host coordinates
+   * @property {{ x: number, y: number, w: number, h: number } | null} legendBox
    */
   /** @type {DebugState} */
-  var DBG = { on: false, cells: null, canvas: null };
+  var DBG = { on: false, cells: null, canvas: null, legendBox: null };
   var SEAM_YELLOW = "rgb(255,196,0)";
   var SEAM_YELLOW_45 = "rgba(255,196,0,0.45)";
   /** @type {Record<string, boolean>} */
@@ -3974,12 +3976,27 @@ function mountVaultGraph(root, data, deps) {
       ["dotted yellow", "seam centre"],
       ["dashed yellow", "band radius"]
     ];
-    var pad = 8, lh = 16, sw = 34, x = 12, y = 12;
+    var pad = 8, lh = 16, sw = 34, inset = 12;
     g2.font = "11px ui-monospace, monospace";
     g2.textBaseline = "middle";
     var wide = 0;
     rows.forEach(function (r) { wide = Math.max(wide, g2.measureText(r[1]).width); });
     var w = sw + 8 + wide + pad * 2, h = lh * (rows.length + 1) + pad * 2;
+    // github#165 -- bottom right, not top left: the two view buttons live in the host's top
+    // left corner and the key sat straight on top of them. The zoom/fit column (#vg-cam) is
+    // a SIBLING of the host rather than a child, so its width is measured here rather than
+    // assumed -- the key moves with it if it is ever restyled or repositioned.
+    var host = $("graph");
+    var hostW = host ? host.clientWidth : 0, hostH = host ? host.clientHeight : 0;
+    var clearRight = 0;
+    var camEl = $("cam");
+    if (host && camEl) {
+      var hostBox = host.getBoundingClientRect(), camBox = camEl.getBoundingClientRect();
+      if (camBox.width > 0) clearRight = Math.max(0, hostBox.right - camBox.left) + 8;
+    }
+    var x = Math.max(inset, hostW - w - inset - clearRight);
+    var y = Math.max(inset, hostH - h - inset);
+    DBG.legendBox = { x: x, y: y, w: w, h: h };
     g2.globalAlpha = 0.72; g2.fillStyle = "#000";
     g2.fillRect(x, y, w, h);
     g2.globalAlpha = 1;
@@ -11327,6 +11344,10 @@ function mountVaultGraph(root, data, deps) {
                     get lazyEdges() { return lazyEdges; },
                     isOrphan: isOrphan,
                     wedgeDebug: wedgeDebug, wedgeEdges: wedgeEdges,
+                    // github#165 -- where the key landed, in host coordinates. Canvas, so
+                    // there is no element to measure and the check would have nothing to
+                    // assert against the view controls it has to stay clear of.
+                    wedgeLegendBox: function () { return DBG.legendBox || null; },
                     bandRef: function () { return geomLock ? geomLock.bandR : null; },
                     // github#86 -- the rings as locked, and the dimension they were taken from
                     get geomLock() { return geomLock; },
