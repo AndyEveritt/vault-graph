@@ -6171,6 +6171,140 @@ check("the picker stays inside the mount", async (p) => {
                    `${r.inside ? "inside" : "OUTSIDE the mount"}` };
 });
 
+// github#165
+check("the disc's right-click does nothing until Developer debug is on", async (p) => {
+  const r = await p.j(`(function(){
+    var host = document.getElementById("vg-graph");
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    var rect = host.getBoundingClientRect();
+    var fire = function () {
+      var ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+        clientX: Math.round(rect.left + rect.width / 2),
+        clientY: Math.round(rect.top + rect.height / 2) });
+      host.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    // The page under test opens with the setting OFF, whatever the host handed it.
+    __vg.setDevTools(false);
+    var preventedOff = fire();
+    var hiddenOff = menu.hidden;
+
+    __vg.setDevTools(true);
+    var preventedOn = fire();
+    var openOn = !menu.hidden;
+    var grid = menu.querySelector("[data-grid]");
+    var speeds = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
+      return b.getAttribute("data-speed"); });
+    var swatches = menu.querySelectorAll(".swatch").length;
+
+    // Turning the setting off must shut a menu it opened, not leave one behind it.
+    __vg.setDevTools(false);
+    var shutByToggle = menu.hidden;
+    return { preventedOff: preventedOff, hiddenOff: hiddenOff, preventedOn: preventedOn,
+             openOn: openOn, hasGrid: !!grid, speeds: speeds, swatches: swatches,
+             shutByToggle: shutByToggle };
+  })()`);
+  const ok = !r.preventedOff && r.hiddenOff && r.preventedOn && r.openOn && r.hasGrid &&
+             r.speeds.join(",") === "1.25,2.5,5,10" && r.swatches === 0 && r.shutByToggle;
+  return { ok, detail: `off: preventDefault=${r.preventedOff} (must be false so the host keeps ` +
+    `its own menu), stayed hidden=${r.hiddenOff}; on: preventDefault=${r.preventedOn}, ` +
+    `opened=${r.openOn}, grid item=${r.hasGrid}, speeds=[${r.speeds.join(", ")}], ` +
+    `${r.swatches} colour swatches (must be 0 -- this is not the legend's menu); ` +
+    `setting off again shut it=${r.shutByToggle}` };
+}, { on: "all" });
+
+// github#165
+const DEV_RIGHT_CLICK = `(function(){
+  var host = document.getElementById("vg-graph");
+  var rect = host.getBoundingClientRect();
+  host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+    clientX: Math.round(rect.left + rect.width / 2),
+    clientY: Math.round(rect.top + rect.height / 2) }));
+  return document.querySelector('[id$="ctxmenu"]');
+})()`;
+
+check("the developer menu's grid item draws the wedge overlay", async (p) => {
+  // The overlay is painted by the renderer's draw hook, not by the click, so each half of
+  // this settles before it reads the canvas -- otherwise it would be asserting that a
+  // freshly CREATED canvas defaults to visible, which is true of the first run only.
+  const before = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    __vg.setDevTools(true);
+    var b = ${DEV_RIGHT_CLICK}.querySelector("[data-grid]");
+    var pressed = b.getAttribute("aria-pressed");
+    b.click();
+    return { started: !!cv && !cv.hidden, pressed: pressed,
+             closed: document.querySelector('[id$="ctxmenu"]').hidden };
+  })()`);
+  await settle(p);
+  const on = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    // Read the canvas BEFORE reopening the menu and clicking: the click turns the overlay
+    // back off, and a property read after it would be measuring the wrong half.
+    var out = { drawn: !!cv && !cv.hidden,
+                inHost: !!(cv && cv.parentElement && cv.parentElement.id === "vg-graph"),
+                painted: !!(cv && cv.width > 0 && cv.height > 0) };
+    var b = ${DEV_RIGHT_CLICK}.querySelector("[data-grid]");
+    out.pressed = b.getAttribute("aria-pressed");
+    b.click();
+    return out;
+  })()`);
+  await settle(p);
+  const off = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    __vg.setDevTools(false);
+    return { gone: !!cv && cv.hidden };
+  })()`);
+  const ok = !before.started && before.pressed === "false" && before.closed &&
+             on.drawn && on.inHost && on.painted && on.pressed === "true" && off.gone;
+  return { ok, detail: `overlay at rest=${before.started} (must be false); the item reads ` +
+    `pressed=${before.pressed} and closes the menu=${before.closed}; a frame later the ` +
+    `lattice is drawn=${on.drawn} on a ${on.painted ? "sized" : "ZERO-SIZED"} canvas, ` +
+    `inside #vg-graph=${on.inHost}, and the item now reads ` +
+    `pressed=${on.pressed}; clicking again hides it=${off.gone}` };
+}, { on: "all" });
+
+// github#165
+check("the developer menu's slow motion reaches the animation clock", async (p) => {
+  const r = await p.j(`(function(){
+    var host = document.getElementById("vg-graph");
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    var rect = host.getBoundingClientRect();
+    var pick = function (mul) {
+      host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+        clientX: Math.round(rect.left + rect.width / 2),
+        clientY: Math.round(rect.top + rect.height / 2) }));
+      var b = menu.querySelector('[data-speed="' + mul + '"]');
+      var checked = b.getAttribute("aria-checked");
+      b.click();
+      return checked;
+    };
+    var before = __vg.timeScale;
+    __vg.setDevTools(true);
+    var checkedNormalFirst = pick(2.5);
+    var at2 = __vg.timeScale;
+    pick(10);
+    var at8 = __vg.timeScale;
+    // Reopened at 8x, the 8x entry is the one that reads checked and Normal does not.
+    host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+      clientX: Math.round(rect.left + rect.width / 2),
+      clientY: Math.round(rect.top + rect.height / 2) }));
+    var marks = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
+      return b.getAttribute("data-speed") + ":" + b.getAttribute("aria-checked"); });
+    menu.querySelector('[data-speed="1.25"]').click();
+    var back = __vg.timeScale;
+    __vg.setDevTools(false);
+    __vg.timeScale = before;
+    return { before: before, checkedNormalFirst: checkedNormalFirst, at2: at2, at8: at8,
+             marks: marks, back: back, restored: __vg.timeScale };
+  })()`);
+  const ok = r.checkedNormalFirst === "false" && r.at2 === 2.5 && r.at8 === 10 &&
+             r.marks.join(" ") === "1.25:false 2.5:false 5:false 10:true" &&
+             r.back === 1.25 && r.restored === r.before;
+  return { ok, detail: `timeScale ${r.before} -> 2x=${r.at2} -> 8x=${r.at8} -> Normal=${r.back}; ` +
+    `reopened at 8x the marks read [${r.marks.join(", ")}]; restored to ${r.restored}` };
+}, { on: "all" });
+
 check("focus web stays above dim notes", async (p) => {
   const r = await p.j(`__vg.checkFocusWeb()`);
   if (!r.geomGaps) return { ok: true, detail: `${r.node} (degree ${r.degree}): no in-disc samples on this shape, nothing to measure` };

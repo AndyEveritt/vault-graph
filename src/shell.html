@@ -91,6 +91,11 @@ mountVaultGraph(
     // github#164 -- absent means off, which is the order the disc has always drawn
     rootInOrder: loadSettings().rootInOrder === true,
     onRootInOrder: function (v) { saveSettings({ rootInOrder: v }); },
+    // github#165 -- left UNDEFINED when nobody has chosen, so the page falls back to
+    // VAULT_DATA.dev: a build made with --dev opens with the developer menu already armed,
+    // and once the reader has flipped it here localStorage is what remembers.
+    devTools: typeof loadSettings().devTools === "boolean" ? loadSettings().devTools : undefined,
+    onDevTools: function (v) { saveSettings({ devTools: v }); },
     // github#86 -- absent means "folder", so a page nobody has switched is today's page
     dim: loadSettings().dim,
     onDim: function (v) { saveSettings({ dim: v }); },

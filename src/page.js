@@ -131,6 +131,8 @@
  * @property {boolean} [countBars]              github#78, design/0006
  * @property {boolean} [rootInOrder]            github#164 -- off is today's order
  * @property {(v: boolean) => void} [onRootInOrder]  github#164
+ * @property {boolean} [devTools]               github#165 -- absent means "follow DATA.dev"
+ * @property {(v: boolean) => void} [onDevTools]     github#165
  * @property {"folder" | "tag"} [dim]         github#86, design/0015 -- absent means "folder"
  * @property {boolean} [fitCap]               github#41, design/0011
  * @property {boolean} [sheetOpen]            github#82 -- absent means "decide from the width"
@@ -217,6 +219,9 @@
  * @property {(v: boolean) => void} setUnlinkedTintByFolder
  * @property {(v: boolean) => void} setCountBars
  * @property {(v: boolean) => void} setRootInOrder                github#164
+ * @property {(v: boolean) => void} setDevTools                   github#165
+ * @property {(v: boolean) => boolean} setWedgeGrid               github#165
+ * @property {(v: number) => number} setTimeScale                 github#165
  * @property {(v: string) => string} setDim                        github#86
  * @property {(id: string) => { g: string, sub: string, dirs: string[] }} filingOf
  * @property {(id: string) => string} noteOf
@@ -698,6 +703,16 @@ function mountVaultGraph(root, data, deps) {
   // github#164 -- the name the root group SORTS as: its first note
   var rootKey = "";
   var onCountBars = typeof deps.onCountBars === "function" ? deps.onCountBars : null;
+  // github#165 -- the developer menu on the disc. A build made with `--dev` opens with it
+  // already armed, so a fixture needs no trip through settings; everywhere else it is off
+  // until a reader asks, and the disc's right-click does nothing at all.
+  var devTools = typeof deps.devTools === "boolean" ? deps.devTools : !!(DATA && DATA.dev);
+  var onDevTools = typeof deps.onDevTools === "function" ? deps.onDevTools : null;
+  // github#165 -- buildTools() owns the context menu and everything that closes it. This is
+  // the one handle the outer scope needs, so the setting can shut a menu it opened; the same
+  // reason onDestroy.push(closeCtxMenu) reaches out of that scope.
+  /** @type {(() => void) | null} */
+  var closeMenus = null;
   // github#86, design/0015
   /** @type {("folder" | "tag")[]} */
   var DIMS = ["folder", "tag"];
@@ -7575,6 +7590,8 @@ function mountVaultGraph(root, data, deps) {
       WIN.removeEventListener("resize", closeCtxMenu);
     }
     onDestroy.push(closeCtxMenu);
+    // github#165
+    closeMenus = closeCtxMenu;
     /** @param {MouseEvent} ev */
     function ctxOutside(ev) {
       var el = $("ctxmenu");
@@ -7658,6 +7675,16 @@ function mountVaultGraph(root, data, deps) {
       if (onToggleTint) {
         /** @type {HTMLElement} */ (el.querySelector("[data-tint]")).onclick = function () { onToggleTint(); closeCtxMenu(); };
       }
+      showCtxMenu(el, x, y);
+    }
+
+    /**
+     * github#165 -- the half of opening a menu that has nothing to do with what is in it:
+     * unhide, clamp inside the root, and arm the three ways it closes again. Shared by the
+     * legend's colour menu and the disc's developer menu, which agree on nothing else.
+     * @param {HTMLElement} el @param {number} x @param {number} y
+     */
+    function showCtxMenu(el, x, y) {
       el.hidden = false;
       var root0 = ROOT.getBoundingClientRect();
       var rx = x - root0.left, ry = y - root0.top;
@@ -7668,6 +7695,54 @@ function mountVaultGraph(root, data, deps) {
       DOC.addEventListener("keydown", ctxKey, true);
       WIN.addEventListener("resize", closeCtxMenu);
     }
+
+    // github#165 -- slower, never faster: every entry is at or above the built-in 1.25, so
+    // the menu can only ever help you see a cascade, not race one.
+    var SPEED_ROW = [
+      { mul: 1.25, label: "Normal", title: "The speed the disc always animates at" },
+      { mul: 2.5,  label: "2x",     title: "Half speed -- every cascade, tween and timeline sweep takes twice as long" },
+      { mul: 5,    label: "4x",     title: "Quarter speed" },
+      { mul: 10,   label: "8x",     title: "An eighth of speed -- slow enough to read a single dot's arrival" }
+    ];
+
+    /**
+     * github#165 -- the developer menu, opened by right-clicking the disc while the
+     * Developer debug setting is on. Deliberately NOT openCtxMenu: that one's thirteen
+     * parameters are all palette-shaped, and this menu has no swatches in it.
+     * @param {number} x @param {number} y
+     */
+    function openDevMenu(x, y) {
+      var el = $("ctxmenu");
+      if (!el) return;
+      var gridOn = !!DBG.on;
+      setHTML(el,
+        '<button class="vis" data-grid aria-pressed="' + gridOn + '" title="' +
+        esc("Draw the wedge lattice and the locked rings over the disc") + '">' +
+        dotSvg(gridOn) + '<span>Wedge grid</span></button>' +
+        '<div class="row devrow"><div class="lbl">Slow motion</div>' +
+        '<div class="mini" role="radiogroup" aria-label="Slow motion">' +
+        SPEED_ROW.map(function (o) {
+          return '<button data-speed="' + o.mul + '" role="radio" aria-checked="' +
+                 (TIME_SCALE === o.mul) + '" title="' + esc(o.title) + '">' +
+                 esc(o.label) + '</button>';
+        }).join("") + '</div></div>');
+      /** @type {HTMLElement} */ (el.querySelector("[data-grid]")).onclick = function () {
+        setWedgeGrid(!DBG.on); closeCtxMenu();
+      };
+      Array.prototype.forEach.call(el.querySelectorAll("[data-speed]"),
+        /** @param {HTMLElement} b */ function (b) {
+          b.onclick = function () { setTimeScale(+b.getAttribute("data-speed")); closeCtxMenu(); };
+        });
+      showCtxMenu(el, x, y);
+    }
+
+    // github#165 -- the disc's own right-click. Off by default, and while it is off this
+    // returns before preventDefault, so the host's own menu is untouched.
+    $("graph").addEventListener("contextmenu", function (ev) {
+      if (!devTools) return;
+      ev.preventDefault();
+      openDevMenu(ev.clientX, ev.clientY);
+    });
 
     $("legend").addEventListener("contextmenu", function (ev) {
       var t = ev.target instanceof Element ? ev.target : null;
@@ -7806,7 +7881,12 @@ function mountVaultGraph(root, data, deps) {
       { key: "rootInOrder", label: "Vault root sorts with the folders",
         title: "Let (vault root) take the place its own notes sort to, in among the folders, instead of sitting at the front. It sorts as its first note does, which is where the file explorer starts showing them. The archives keep the front, and (untagged) and (unlinked) stay at the end",
         get: function () { return rootInOrder; },
-        set: function (v) { setRootInOrder(v === true, true); } }
+        set: function (v) { setRootInOrder(v === true, true); } },
+      // github#165
+      { key: "devTools", label: "Developer debug",
+        title: "Right-click the disc for a developer menu: draw the wedge lattice over it, and slow every animation down so a cascade can be read a dot at a time. Off by default, and while it is off the disc's right-click does nothing",
+        get: function () { return devTools; },
+        set: function (v) { setDevTools(v === true, true); } }
     ];
     // github#71 -- the first non-boolean setting; keys must match FOLDER_ORDERS
     var FOLDER_ORDER_ROW = [
@@ -8575,6 +8655,32 @@ function mountVaultGraph(root, data, deps) {
     if (persist && onCountBars) onCountBars(countBars);
     return countBars;
   }
+
+  /**
+   * github#165 -- the switch the developer menu hangs off. Turning it off closes the menu
+   * as well as hiding it, so the setting cannot leave one open behind its own back.
+   * @param {boolean} on @param {boolean} [persist]
+   */
+  function setDevTools(on, persist) {
+    devTools = !!on;
+    var btn = $("opt-devTools");
+    if (btn) btn.setAttribute("aria-pressed", devTools ? "true" : "false");
+    if (!devTools && closeMenus) closeMenus();
+    if (persist && onDevTools) onDevTools(devTools);
+    return devTools;
+  }
+
+  /**
+   * github#165 -- the two product-side names for what the debug API already reaches.
+   * `wedgeDebug` and `TIME_SCALE` are product code and always shipped; only their `__vg`
+   * accessors sit inside the block build-plugin.mjs strips, so the plugin has the drawing
+   * and the clock but no way to ask for either. These are that way, and they are the whole
+   * of what the menu calls.
+   * @param {boolean} v
+   */
+  function setWedgeGrid(v) { return wedgeDebug(v === true); }
+  /** @param {number} v */
+  function setTimeScale(v) { TIME_SCALE = +v > 0 ? +v : 1; return TIME_SCALE; }
 
   function savePng() {
     // github#142
@@ -10935,6 +11041,10 @@ function mountVaultGraph(root, data, deps) {
                     setCountBars: function (v) { return setCountBars(v !== false, false); },
                     // github#164 -- instant, like setFolderOrder: the host is not watching
                     setRootInOrder: /** @param {boolean} v */ function (v) { return setRootInOrder(v, false, true); },
+                    // github#165
+                    setDevTools: /** @param {boolean} v */ function (v) { return setDevTools(v === true, false); },
+                    setWedgeGrid: /** @param {boolean} v */ function (v) { return setWedgeGrid(v === true); },
+                    setTimeScale: /** @param {number} v */ function (v) { return setTimeScale(v); },
                     applyHiddenDefaults: function () {
                       seedHidden();
                       buildLegend();

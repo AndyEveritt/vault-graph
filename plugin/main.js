@@ -74,6 +74,7 @@ function bareMap() {
  * @property {boolean} unlinkedTintByFolder
  * @property {boolean} countBars                        github#78, design/0006
  * @property {boolean} rootInOrder                      github#164
+ * @property {boolean} devTools                        github#165
  * @property {boolean} fitCap                           github#41, design/0011
  * @property {"folder" | "tag"} dim                     github#86 -- grouping dimension
  * @property {boolean} liveRefresh                      github#72
@@ -1020,6 +1021,13 @@ class VaultGraphView extends ItemView {
         this.plugin.settings.rootInOrder = !!v;
         await this.plugin.saveSettings();
       },
+      // github#165
+      devTools: this.plugin.settings.devTools === true,
+      /** @param {boolean} v */
+      onDevTools: async (v) => {
+        this.plugin.settings.devTools = !!v;
+        await this.plugin.saveSettings();
+      },
       // github#3
       unlinkedTintByFolder: this.plugin.settings.unlinkedTintByFolder,
       /** @param {boolean} v */
@@ -1120,6 +1128,8 @@ const DEFAULTS = {
   countBars: true,
   // github#164 -- off is the order the disc has always drawn
   rootInOrder: false,
+  // github#165 -- off: a reader's right-click on the disc is the host's, not ours
+  devTools: false,
   // github#41, design/0011
   fitCap: true,
   // github#86 -- folder is the default
@@ -1157,11 +1167,11 @@ const BUILD_SETTINGS = [
 
 /**
  * @typedef {Object} ViewSetting
- * @property {"panEnabled" | "compactAxis" | "unlinkedByFolder" | "unlinkedTintByFolder" | "countBars" | "rootInOrder" | "fitCap" | "liveRefresh"} key
+ * @property {"panEnabled" | "compactAxis" | "unlinkedByFolder" | "unlinkedTintByFolder" | "countBars" | "rootInOrder" | "fitCap" | "liveRefresh" | "devTools"} key
  * @property {string} name
  * @property {string} desc
  * @property {boolean} defaultOn
- * @property {"setPanEnabled" | "setCompactAxis" | "setUnlinkedByFolder" | "setUnlinkedTintByFolder" | "setCountBars" | "setRootInOrder" | "setFitCap" | ""} api
+ * @property {"setPanEnabled" | "setCompactAxis" | "setUnlinkedByFolder" | "setUnlinkedTintByFolder" | "setCountBars" | "setRootInOrder" | "setFitCap" | "setDevTools" | ""} api
  * @property {boolean} [host]   the HOST owns this one, not the page, so there is no api to call
  */
 /** @type {ViewSetting[]} */
@@ -1186,6 +1196,10 @@ const VIEW_SETTINGS = [
   // github#72
   { key: "liveRefresh", name: "Follow the vault", defaultOn: true, api: "", host: true,
     desc: "Take a note you have just written, moved or linked into the disc where it stands, instead of waiting for Refresh to rebuild the whole thing. Only a change that decides where a note SITS moves anything -- writing prose does not, so typing is still. Off, the disc is a snapshot until you press Refresh." },
+  // github#165 -- last on purpose: the only row here that is about working ON the graph
+  // rather than about reading a vault with it.
+  { key: "devTools", name: "Developer debug", defaultOn: false, api: "setDevTools",
+    desc: "Right-click the disc for a developer menu: draw the wedge lattice the notes are packed onto over the top of them, and slow every animation down 2x, 4x or 8x so a cascade can be read a dot at a time. Off, the disc's right-click does nothing and Obsidian's own menu is untouched." },
 ];
 
 const COLOURS_DESC = "Twelve slots, handed out in group order and round again. Folders and tags keep their own colours; the tabs choose which. Setting one group never moves another, and two may share a colour. Each swatch shows the slot at the sizes the disc really draws, over both grounds. Its contrast figure is for a solid area of the colour; a dot a pixel across is mostly antialiasing and reads lower than the number.";
@@ -1833,6 +1847,8 @@ class VaultGraphPlugin extends Plugin {
     if (api.setCountBars) api.setCountBars(this.settings.countBars !== false);
     // github#164
     if (api.setRootInOrder) api.setRootInOrder(this.settings.rootInOrder === true);
+    // github#165
+    if (api.setDevTools) api.setDevTools(this.settings.devTools === true);
     if (api.setFitCap) api.setFitCap(this.settings.fitCap !== false);
     // github#71
     // github#71 -- only push a STORED choice, never a default
