@@ -6171,12 +6171,7 @@ check("the picker stays inside the mount", async (p) => {
                    `${r.inside ? "inside" : "OUTSIDE the mount"}` };
 });
 
-/* ------------------------------------------------------------------ github#165
- * The developer menu hangs off rightClickStage, not off a raw contextmenu listener over
- * the host: rightClickNode already owns a right-click on a NOTE and pins it, and one DOM
- * listener over #vg-graph would fire on top of that. So every check here aims at a point
- * the renderer's own hit test agrees is empty, and the last one aims at a note on purpose.
- */
+/* ------------------------------------------------------------------ github#165 */
 const DEV_EMPTY_POINT = `(function(){
   var o = document.getElementById("vg-graph").getBoundingClientRect();
   // A corner inset, not the centre: the hub hole in the middle of the disc holds the
@@ -6265,9 +6260,7 @@ check("a right-click on a note still pins it, and opens no developer menu", asyn
 
 // github#165
 check("the developer menu's grid item draws the wedge overlay", async (p) => {
-  // The overlay is painted by the renderer's draw hook, not by the click, so each half of
-  // this settles before it reads the canvas -- otherwise it would be asserting that a
-  // freshly CREATED canvas defaults to visible, which is true of the first run only.
+  // github#165 -- settles between halves; the draw hook paints, not the click
   const before = await p.j(`(function(){
     var cv = document.querySelector(".vg-wedge-debug");
     __vg.setDevTools(true);
@@ -6307,11 +6300,7 @@ check("the developer menu's grid item draws the wedge overlay", async (p) => {
 
 // github#165
 check("the grid drawn from the menu is the whole grid, and no dot moves to get it", async (p) => {
-  // The wedge cells are collected by the packer, and only on a pass that ran while the
-  // overlay was already on. Toggling it from the menu at rest used to leave DBG.cells null,
-  // so the overlay drew the band radii and NOTHING ELSE until some filter happened to
-  // re-pack. Two assertions: the four line kinds are all present, and buying them moved
-  // no note -- applyLayout() re-runs the packer, and the resting layout must be a no-op.
+  // github#165 -- two assertions: the cells came back, and no note moved
   const before = await p.j(`(function(){
     __vg.setDevTools(true);
     __vg.setWedgeGrid(false);            // start from cells-are-null, the reachable state
@@ -6349,9 +6338,7 @@ check("the grid drawn from the menu is the whole grid, and no dot moves to get i
 
 // github#165
 check("the grid's key sits bottom left, clear of every button over the graph", async (p) => {
-  // The key is drawn on canvas, so there is no element to measure -- DBG.legendBox is where
-  // drawWedgeLegend() put it, in host coordinates, and the two control groups are measured
-  // against that. It used to sit at 12,12, straight on top of #vg-sheet and #vg-band.
+  // github#165 -- canvas, so DBG.legendBox is the only thing to measure
   await p.j(`(function(){ __vg.setDevTools(true); return __vg.setWedgeGrid(true); })()`);
   await settle(p);
   const r = await p.j(`(function(){

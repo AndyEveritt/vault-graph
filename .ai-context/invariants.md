@@ -5180,7 +5180,7 @@ still exist for `smoke.mjs` and the storyboard, and are still stripped from the 
 count-checked, and the move would buy nothing that is not already there.
 
 The cost of the whole feature, measured by building `main.js` at 9e84932 and again on this
-branch: **538,085 → 542,867 bytes, +4,782 (+0.9%)**. The three stripped regions stay stripped —
+branch: **538,085 → 542,746 bytes, +4,661 (+0.9%)**. The three stripped regions stay stripped —
 `demoAct`, `checkZeroWeightInvariance` and `timeScale` each occur **0** times in the built
 bundle, while `openDevMenu`, `setWedgeGrid`, `setTimeScale` and `rightClickStage` are present.
 
@@ -5248,6 +5248,72 @@ rely on a list. Measured at the placement that ships: key **131×96 at 12, 1017*
 **1.25 (Normal, the built-in default), 2.5, 5, 10** — that is 1×, 2×, 4× and 8× against the
 default, and every one of them is at or above it. The menu can make a cascade readable; it
 cannot make one race. `?slow=<n>` still sets any value at load, unchanged.
+
+### What each `github#165` pointer in the code stands for
+
+Comments in `plugin/`, `src/` and `scripts/` are pointers (github#61), so the reasoning that
+would otherwise sit beside these lines is here. In source order:
+
+**`src/page.js`**
+
+- **`devTools`, and its fallback to `DATA.dev`.** A build made with `--dev` opens with the menu
+  already armed, so a fixture needs no trip through settings. Everywhere else it is off and the
+  disc's right-click does nothing at all.
+- **`closeMenus` and `openDev`, the two cross-scope handles.** `buildTools()` owns the context
+  menu and everything that closes it, while the renderer's events are wired in a different
+  function entirely. Two things have to cross that line: one so the setting can shut a menu it
+  opened, one so a right-click on the stage can open it. Same reason
+  `onDestroy.push(closeCtxMenu)` already reaches out of that scope.
+- **`DBG.legendBox`.** Where `drawWedgeLegend()` last put the key, in host coordinates. The key
+  is canvas, so without this a check has nothing to assert against the controls it must clear.
+- **The key's box is the text's own extent.** With the plate gone there is no drawn edge for the
+  `built <date>` line to fall outside of; `rows.length + 1` counts that line.
+- **`TIME_SCALE_DEFAULT`.** Named because the menu's *Normal* entry is this value, and a second
+  copy of the number would be free to drift from the one the page actually opens at.
+- **`SPEED_ROW` carries a multiplier, not a duration.** Two reasons. "At or above the speed the
+  page opens at" becomes structural — no entry can be written below the default without writing
+  a multiplier below one. And the multiplier is what goes into `data-speed` and what comes back
+  out of it: an integer round-trips through a string attribute exactly, where a computed
+  duration would not survive a `TIME_SCALE_DEFAULT` that is not a binary fraction. 1.25 is 5/4,
+  so ×2/×4/×8 are exact today; 1.3 would not be, and the checked mark would silently stop
+  matching with nothing failing. `slowOf()` is the one place that turns one into the other.
+- **`role="menuitemradio"`, not `role="radio"`.** `#vg-ctxmenu` is `role="menu"`, and ARIA lets
+  a menu hold a group of `menuitemradio` but not a `radiogroup`. The legend's swatches in the
+  same element are `menuitemradio` for the same reason.
+- **`setDevTools` closes the menu as well as hiding the feature**, so the setting cannot leave
+  one open behind its own back.
+- **`setWedgeGrid` on the api is `wedgeDebug` itself.** It is already a setter and needs no
+  second name. The clock does need one — assigning `TIME_SCALE` has two callers — so
+  `setTimeScale` exists as a function where `setWedgeGrid` does not.
+- **`showCtxMenu()`** is the half of opening a menu that has nothing to do with what is in it:
+  unhide, clamp inside the root, arm the three ways it closes.
+
+**`plugin/main.js`**
+
+- **`devTools: false` in `DEFAULTS`.** A reader's right-click on the disc belongs to the host
+  until they ask otherwise.
+- **The row is last in `VIEW_SETTINGS`, on purpose** — the only row there about working *on* the
+  graph rather than about reading a vault with it. It sits under **View** rather than in a
+  Developer group of its own because both settings renderers are built from the same tables
+  (github#59), so a row costs nothing while a new group means touching both paths. That is a
+  presentation call, not a structural one.
+
+**`scripts/smoke.mjs`**
+
+- **Every github#165 check aims at a point the renderer's own hit test agrees is empty**, and
+  the last one aims at a note on purpose — see the `rightClickStage` section above for why the
+  two cases must not collide.
+- **The grid check settles between its halves.** The overlay is painted by the renderer's draw
+  hook, not by the click. Reading the canvas straight after the click would be asserting that a
+  freshly *created* canvas defaults to visible, which is true of the first run only.
+- **The whole-grid check asserts two things, not one**: that the cells came back, and that
+  buying them moved no note.
+
+**`src/engine/types.ts`**
+
+- **`rightClickStage` on the public `RendererEvents`** — see the `rightClickStage` section
+  above. `downStage`, `upNode` and `upStage` are in the same position and stay private until
+  something consumes them.
 
 ### `--dev` arms the menu, and the suite does not pass it
 

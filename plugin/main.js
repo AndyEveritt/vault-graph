@@ -1128,7 +1128,7 @@ const DEFAULTS = {
   countBars: true,
   // github#164 -- off is the order the disc has always drawn
   rootInOrder: false,
-  // github#165 -- off: a reader's right-click on the disc is the host's, not ours
+  // github#165 -- off; the disc's right-click stays the host's
   devTools: false,
   // github#41, design/0011
   fitCap: true,
@@ -1196,8 +1196,7 @@ const VIEW_SETTINGS = [
   // github#72
   { key: "liveRefresh", name: "Follow the vault", defaultOn: true, api: "", host: true,
     desc: "Take a note you have just written, moved or linked into the disc where it stands, instead of waiting for Refresh to rebuild the whole thing. Only a change that decides where a note SITS moves anything -- writing prose does not, so typing is still. Off, the disc is a snapshot until you press Refresh." },
-  // github#165 -- last on purpose: the only row here that is about working ON the graph
-  // rather than about reading a vault with it.
+  // github#165 -- last on purpose
   { key: "devTools", name: "Developer debug", defaultOn: false, api: "setDevTools",
     desc: "Right-click the disc for a developer menu: draw the wedge lattice the notes are packed onto over the top of them, and slow every animation down 2x, 4x or 8x so a cascade can be read a dot at a time. Off, the disc's right-click does nothing and Obsidian's own menu is untouched." },
 ];
