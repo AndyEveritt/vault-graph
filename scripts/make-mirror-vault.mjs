@@ -244,11 +244,16 @@ if (specNotes.length) {
       }
       if (target === null) { specDropped++; continue; }   // github#71 -- in a section we could not map
       if (/^order-(asc|desc)\s*:/.test(line)) { out.push(line); continue; }
-      // github#71 -- a bare line is a pin
-      const asFolder = mapPath((target ? target + "/" : "") + line.replace(/\.md$/, ""));
-      if (asFolder) { out.push(asFolder.split("/").pop()); continue; }
+      // github#71, decisions/0015 -- a .md pin is a NOTE, never a folder
       const asNote = nameMap.get(key(line));
-      if (asNote) { out.push(asNote + (/\.md$/i.test(line) ? ".md" : "")); continue; }
+      if (/\.md$/i.test(line)) {
+        if (asNote) { out.push(asNote + ".md"); continue; }
+        specDropped++;
+        continue;
+      }
+      const asFolder = mapPath((target ? target + "/" : "") + line);
+      if (asFolder) { out.push(asFolder.split("/").pop()); continue; }
+      if (asNote) { out.push(asNote); continue; }
       specDropped++;
     }
     while (out.length && !out[out.length - 1].trim()) out.pop();

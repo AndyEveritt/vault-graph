@@ -153,6 +153,14 @@ wrong tool for exactly the check it exists for. So the mirror carries one — un
   names. That is not tidiness. A person folder under a 1-on-1 tree **is a real person**, and
   copying a spec verbatim would put every one of them into a vault whose entire purpose is that it
   holds none. Comments go too, being prose someone wrote.
+- **A pin ending in `.md` is a NOTE, and is resolved against the note map alone.** The first cut
+  tried the *folder* map first, on the name with `.md` stripped, so a pinned note whose basename
+  matched a folder silently became a **folder pin** — and that is not cosmetic: a file pin moves no
+  wedge, a folder pin moves one. Caught on the real vault, whose root section pins three files:
+  `Inbox.md` came out as the folder `Inbox`, which floated a wedge to second on the mirror's disc
+  while the real explorer had it last. The branch order is now the guard — a `.md` line never
+  reaches the folder map — so the class of bug cannot be reintroduced by a lookup that happens to
+  hit.
 - **A line naming something not in the mirror is dropped, not passed through.** The page treats an
   unresolvable pin as ordinary wear and would carry on, but a mirror that kept real names for what
   it failed to map would be leaking the thing it cannot leak.
