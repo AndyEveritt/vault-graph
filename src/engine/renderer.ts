@@ -12,7 +12,6 @@ import { createNormalization, getMatrixImpact, graphExtent, identity, matrixFrom
          multiplyVec2, type Extent, type Mat3, type Normalization } from "./viewport";
 
 interface EventMap extends RendererEvents {
-  rightClickStage: StageEvent;
   downStage: StageEvent;
   upNode: NodeEvent;
   upStage: StageEvent;

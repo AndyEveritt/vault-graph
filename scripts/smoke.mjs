@@ -6171,26 +6171,40 @@ check("the picker stays inside the mount", async (p) => {
                    `${r.inside ? "inside" : "OUTSIDE the mount"}` };
 });
 
-// github#165
+/* ------------------------------------------------------------------ github#165
+ * The developer menu hangs off rightClickStage, not off a raw contextmenu listener over
+ * the host: rightClickNode already owns a right-click on a NOTE and pins it, and one DOM
+ * listener over #vg-graph would fire on top of that. So every check here aims at a point
+ * the renderer's own hit test agrees is empty, and the last one aims at a note on purpose.
+ */
+const DEV_EMPTY_POINT = `(function(){
+  var o = document.getElementById("vg-graph").getBoundingClientRect();
+  // A corner inset, not the centre: the hub hole in the middle of the disc holds the
+  // unlinked notes on the fixtures that have any, so the centre is not reliably empty.
+  // The event goes to the MOUSE CANVAS, not to #vg-graph: that canvas is where the
+  // renderer's captor listens, and an event dispatched at the host would bubble past it
+  // without ever reaching a listener on a descendant.
+  return { host: __vg.renderer.getCanvases().mouse,
+           x: Math.round(o.left + 18), y: Math.round(o.top + 18) };
+})()`;
+const DEV_RIGHT_CLICK = `(function(){
+  var at = ${DEV_EMPTY_POINT};
+  var ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+                                           clientX: at.x, clientY: at.y });
+  at.host.dispatchEvent(ev);
+  return { menu: document.querySelector('[id$="ctxmenu"]'), prevented: ev.defaultPrevented };
+})()`;
+
 check("the disc's right-click does nothing until Developer debug is on", async (p) => {
   const r = await p.j(`(function(){
-    var host = document.getElementById("vg-graph");
     var menu = document.querySelector('[id$="ctxmenu"]');
-    var rect = host.getBoundingClientRect();
-    var fire = function () {
-      var ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
-        clientX: Math.round(rect.left + rect.width / 2),
-        clientY: Math.round(rect.top + rect.height / 2) });
-      host.dispatchEvent(ev);
-      return ev.defaultPrevented;
-    };
-    // The page under test opens with the setting OFF, whatever the host handed it.
+    // Whatever the host handed this page, assert from a known state.
     __vg.setDevTools(false);
-    var preventedOff = fire();
+    var off = ${DEV_RIGHT_CLICK};
     var hiddenOff = menu.hidden;
 
     __vg.setDevTools(true);
-    var preventedOn = fire();
+    var on = ${DEV_RIGHT_CLICK};
     var openOn = !menu.hidden;
     var grid = menu.querySelector("[data-grid]");
     var speeds = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
@@ -6199,10 +6213,9 @@ check("the disc's right-click does nothing until Developer debug is on", async (
 
     // Turning the setting off must shut a menu it opened, not leave one behind it.
     __vg.setDevTools(false);
-    var shutByToggle = menu.hidden;
-    return { preventedOff: preventedOff, hiddenOff: hiddenOff, preventedOn: preventedOn,
+    return { preventedOff: off.prevented, hiddenOff: hiddenOff, preventedOn: on.prevented,
              openOn: openOn, hasGrid: !!grid, speeds: speeds, swatches: swatches,
-             shutByToggle: shutByToggle };
+             shutByToggle: menu.hidden };
   })()`);
   const ok = !r.preventedOff && r.hiddenOff && r.preventedOn && r.openOn && r.hasGrid &&
              r.speeds.join(",") === "1.25,2.5,5,10" && r.swatches === 0 && r.shutByToggle;
@@ -6211,18 +6224,46 @@ check("the disc's right-click does nothing until Developer debug is on", async (
     `opened=${r.openOn}, grid item=${r.hasGrid}, speeds=[${r.speeds.join(", ")}], ` +
     `${r.swatches} colour swatches (must be 0 -- this is not the legend's menu); ` +
     `setting off again shut it=${r.shutByToggle}` };
-}, { on: "all" });
+});
 
 // github#165
-const DEV_RIGHT_CLICK = `(function(){
-  var host = document.getElementById("vg-graph");
-  var rect = host.getBoundingClientRect();
-  host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
-    clientX: Math.round(rect.left + rect.width / 2),
-    clientY: Math.round(rect.top + rect.height / 2) }));
-  return document.querySelector('[id$="ctxmenu"]');
-})()`;
+check("a right-click on a note still pins it, and opens no developer menu", async (p) => {
+  const r = await p.j(`(function(){
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    var o = document.getElementById("vg-graph").getBoundingClientRect();
+    var host = __vg.renderer.getCanvases().mouse;   // where the captor listens
+    // The biggest visible note, so the hit test lands on it rather than near it.
+    var best = null, bs = -1;
+    __vg.graph.forEachNode(function (id) {
+      if (!__vg.visible(id) || (__vg.alpha[id] || 0) < 0.9) return;
+      var dd = __vg.renderer.getNodeDisplayData(id);
+      if (!dd || dd.hidden) return;
+      var sz = __vg.renderer.scaleSize(dd.size);
+      if (sz > bs) { bs = sz; best = id; }
+    });
+    if (!best) return { skip: true };
+    var a = __vg.graph.getNodeAttributes(best);
+    var v = __vg.renderer.graphToViewport({ x: a.x, y: a.y });
 
+    __vg.setDevTools(true);
+    var was = __vg.isPinned(best);
+    host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+      clientX: Math.round(v.x + o.left), clientY: Math.round(v.y + o.top) }));
+    var pinned = __vg.isPinned(best);
+    var stayedShut = menu.hidden;
+    if (__vg.isPinned(best) !== was) __vg.togglePin(best);   // leave the page as found
+    __vg.setDevTools(false);
+    return { skip: false, size: Math.round(bs * 10) / 10, was: was,
+             pinned: pinned, stayedShut: stayedShut, restored: __vg.isPinned(best) === was };
+  })()`);
+  if (r.skip) return { ok: true, detail: "no visible note to aim at on this shape" };
+  const ok = r.pinned !== r.was && r.stayedShut && r.restored;
+  return { ok, detail: `aimed at a ${r.size}px note with Developer debug ON: pinned ` +
+    `${r.was} -> ${r.pinned} (rightClickNode still owns it), developer menu stayed ` +
+    `shut=${r.stayedShut}, pin restored=${r.restored}` };
+});
+
+// github#165
 check("the developer menu's grid item draws the wedge overlay", async (p) => {
   // The overlay is painted by the renderer's draw hook, not by the click, so each half of
   // this settles before it reads the canvas -- otherwise it would be asserting that a
@@ -6230,7 +6271,7 @@ check("the developer menu's grid item draws the wedge overlay", async (p) => {
   const before = await p.j(`(function(){
     var cv = document.querySelector(".vg-wedge-debug");
     __vg.setDevTools(true);
-    var b = ${DEV_RIGHT_CLICK}.querySelector("[data-grid]");
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
     var pressed = b.getAttribute("aria-pressed");
     b.click();
     return { started: !!cv && !cv.hidden, pressed: pressed,
@@ -6244,7 +6285,7 @@ check("the developer menu's grid item draws the wedge overlay", async (p) => {
     var out = { drawn: !!cv && !cv.hidden,
                 inHost: !!(cv && cv.parentElement && cv.parentElement.id === "vg-graph"),
                 painted: !!(cv && cv.width > 0 && cv.height > 0) };
-    var b = ${DEV_RIGHT_CLICK}.querySelector("[data-grid]");
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
     out.pressed = b.getAttribute("aria-pressed");
     b.click();
     return out;
@@ -6262,48 +6303,41 @@ check("the developer menu's grid item draws the wedge overlay", async (p) => {
     `lattice is drawn=${on.drawn} on a ${on.painted ? "sized" : "ZERO-SIZED"} canvas, ` +
     `inside #vg-graph=${on.inHost}, and the item now reads ` +
     `pressed=${on.pressed}; clicking again hides it=${off.gone}` };
-}, { on: "all" });
+});
 
 // github#165
 check("the developer menu's slow motion reaches the animation clock", async (p) => {
   const r = await p.j(`(function(){
-    var host = document.getElementById("vg-graph");
     var menu = document.querySelector('[id$="ctxmenu"]');
-    var rect = host.getBoundingClientRect();
     var pick = function (mul) {
-      host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
-        clientX: Math.round(rect.left + rect.width / 2),
-        clientY: Math.round(rect.top + rect.height / 2) }));
-      var b = menu.querySelector('[data-speed="' + mul + '"]');
+      var b = ${DEV_RIGHT_CLICK}.menu.querySelector('[data-speed="' + mul + '"]');
       var checked = b.getAttribute("aria-checked");
       b.click();
       return checked;
     };
     var before = __vg.timeScale;
     __vg.setDevTools(true);
-    var checkedNormalFirst = pick(2.5);
+    var checked2Before = pick(2.5);
     var at2 = __vg.timeScale;
     pick(10);
     var at8 = __vg.timeScale;
     // Reopened at 8x, the 8x entry is the one that reads checked and Normal does not.
-    host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
-      clientX: Math.round(rect.left + rect.width / 2),
-      clientY: Math.round(rect.top + rect.height / 2) }));
+    ${DEV_RIGHT_CLICK};
     var marks = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
       return b.getAttribute("data-speed") + ":" + b.getAttribute("aria-checked"); });
     menu.querySelector('[data-speed="1.25"]').click();
     var back = __vg.timeScale;
     __vg.setDevTools(false);
-    __vg.timeScale = before;
-    return { before: before, checkedNormalFirst: checkedNormalFirst, at2: at2, at8: at8,
+    __vg.timeScale = before;   // the suite's own fast clock, put back
+    return { before: before, checked2Before: checked2Before, at2: at2, at8: at8,
              marks: marks, back: back, restored: __vg.timeScale };
   })()`);
-  const ok = r.checkedNormalFirst === "false" && r.at2 === 2.5 && r.at8 === 10 &&
+  const ok = r.checked2Before === "false" && r.at2 === 2.5 && r.at8 === 10 &&
              r.marks.join(" ") === "1.25:false 2.5:false 5:false 10:true" &&
              r.back === 1.25 && r.restored === r.before;
   return { ok, detail: `timeScale ${r.before} -> 2x=${r.at2} -> 8x=${r.at8} -> Normal=${r.back}; ` +
     `reopened at 8x the marks read [${r.marks.join(", ")}]; restored to ${r.restored}` };
-}, { on: "all" });
+});
 
 check("focus web stays above dim notes", async (p) => {
   const r = await p.j(`__vg.checkFocusWeb()`);

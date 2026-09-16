@@ -708,11 +708,14 @@ function mountVaultGraph(root, data, deps) {
   // until a reader asks, and the disc's right-click does nothing at all.
   var devTools = typeof deps.devTools === "boolean" ? deps.devTools : !!(DATA && DATA.dev);
   var onDevTools = typeof deps.onDevTools === "function" ? deps.onDevTools : null;
-  // github#165 -- buildTools() owns the context menu and everything that closes it. This is
-  // the one handle the outer scope needs, so the setting can shut a menu it opened; the same
-  // reason onDestroy.push(closeCtxMenu) reaches out of that scope.
+  // github#165 -- buildTools() owns the context menu, and the renderer's own events are
+  // wired somewhere else entirely. These are the two handles that have to cross that line:
+  // one so the setting can shut a menu it opened, one so a right-click on the stage can open
+  // it. Same reason onDestroy.push(closeCtxMenu) reaches out of that scope.
   /** @type {(() => void) | null} */
   var closeMenus = null;
+  /** @type {((x: number, y: number) => void) | null} */
+  var openDev = null;
   // github#86, design/0015
   /** @type {("folder" | "tag")[]} */
   var DIMS = ["folder", "tag"];
@@ -6265,6 +6268,19 @@ function mountVaultGraph(root, data, deps) {
       if (e.event && e.event.original) e.event.original.preventDefault();
       togglePin(e.node);
     });
+    // github#165 -- the STAGE's right-click, never a node's: rightClickNode above already
+    // owns a right-click on a note and pins it, and both would fire on one raw contextmenu
+    // listener over the host. While Developer debug is off this returns before
+    // preventDefault, so the host's own menu is untouched.
+    /** @param {RendererEvent} e */
+    var onRightClickStage = function (e) {
+      if (!devTools || !openDev) return;
+      var orig = e.event && e.event.original;
+      if (!orig || !("clientX" in orig)) return;
+      orig.preventDefault();
+      openDev(orig.clientX, orig.clientY);
+    };
+    renderer.on("rightClickStage", onRightClickStage);
     bindNodeDrag();
 
     // github#58
@@ -7590,8 +7606,9 @@ function mountVaultGraph(root, data, deps) {
       WIN.removeEventListener("resize", closeCtxMenu);
     }
     onDestroy.push(closeCtxMenu);
-    // github#165
+    // github#165 -- the two handles the outer scope needs; see the declarations for why
     closeMenus = closeCtxMenu;
+    openDev = openDevMenu;
     /** @param {MouseEvent} ev */
     function ctxOutside(ev) {
       var el = $("ctxmenu");
@@ -7735,14 +7752,6 @@ function mountVaultGraph(root, data, deps) {
         });
       showCtxMenu(el, x, y);
     }
-
-    // github#165 -- the disc's own right-click. Off by default, and while it is off this
-    // returns before preventDefault, so the host's own menu is untouched.
-    $("graph").addEventListener("contextmenu", function (ev) {
-      if (!devTools) return;
-      ev.preventDefault();
-      openDevMenu(ev.clientX, ev.clientY);
-    });
 
     $("legend").addEventListener("contextmenu", function (ev) {
       var t = ev.target instanceof Element ? ev.target : null;
