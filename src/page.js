@@ -4012,7 +4012,15 @@ function mountVaultGraph(root, data, deps) {
       }
     }
     if (!DBG.on) { DBG.cells = null; if (DBG.canvas) DBG.canvas.hidden = true; }
-    if (renderer) renderer.refresh({ skipIndexation: true });
+    // github#165 -- the wedge cells are collected BY the packer, and only on a pass that ran
+    // while DBG.on was already true (`var dbgCells = DBG.on ? [] : null`). Turning the
+    // overlay on at rest therefore had nothing to draw the wedges from: it drew the band
+    // radii alone until some filter or resize happened to re-pack. That was reachable only
+    // from a console, and a menu item makes it the FIRST thing anyone does -- so the overlay
+    // asks for the pass it needs. applyLayout(false) re-runs the packer without touching
+    // bandLock or geomLock, and the resting layout is deterministic, so no dot moves.
+    if (DBG.on && !DBG.cells && renderer) applyLayout(false);
+    else if (renderer) renderer.refresh({ skipIndexation: true });
     return DBG.on;
   }
 

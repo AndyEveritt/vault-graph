@@ -6306,6 +6306,48 @@ check("the developer menu's grid item draws the wedge overlay", async (p) => {
 });
 
 // github#165
+check("the grid drawn from the menu is the whole grid, and no dot moves to get it", async (p) => {
+  // The wedge cells are collected by the packer, and only on a pass that ran while the
+  // overlay was already on. Toggling it from the menu at rest used to leave DBG.cells null,
+  // so the overlay drew the band radii and NOTHING ELSE until some filter happened to
+  // re-pack. Two assertions: the four line kinds are all present, and buying them moved
+  // no note -- applyLayout() re-runs the packer, and the resting layout must be a no-op.
+  const before = await p.j(`(function(){
+    __vg.setDevTools(true);
+    __vg.setWedgeGrid(false);            // start from cells-are-null, the reachable state
+    var pos = {};
+    __vg.graph.forEachNode(function (id, a) { pos[id] = [a.x, a.y]; });
+    window.__smokeGrid = pos;
+    return { cells: (__vg.wedgeCells() || []).length, notes: Object.keys(pos).length };
+  })()`);
+  await settle(p);
+  const after = await p.j(`(function(){
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
+    b.click();
+    var cells = (__vg.wedgeCells() || []).length;
+    var was = window.__smokeGrid, moved = 0, worst = 0;
+    __vg.graph.forEachNode(function (id, a) {
+      var w = was[id];
+      if (!w) return;
+      var d = Math.hypot(a.x - w[0], a.y - w[1]);
+      if (d > 0.5) moved++;
+      if (d > worst) worst = d;
+    });
+    // wedgeTrace() walks the seam geometry the overlay draws between adjacent cells, so a
+    // non-empty trace is a second, independent witness that the cells came back.
+    var trace = (__vg.wedgeTrace() || []).length;
+    delete window.__smokeGrid;
+    __vg.setWedgeGrid(false);
+    __vg.setDevTools(false);
+    return { cells: cells, moved: moved, worst: Math.round(worst * 100) / 100, trace: trace };
+  })()`);
+  const ok = before.cells === 0 && after.cells > 0 && after.moved === 0 && after.trace > 0;
+  return { ok, detail: `wedge cells ${before.cells} -> ${after.cells} on one click of the ` +
+    `menu item (0 after would mean the band radii drawn alone); ${after.trace} seam-trace ` +
+    `rows; of ${before.notes} notes ${after.moved} moved, worst ${after.worst} units` };
+});
+
+// github#165
 check("the developer menu's slow motion reaches the animation clock", async (p) => {
   const r = await p.j(`(function(){
     var menu = document.querySelector('[id$="ctxmenu"]');
