@@ -206,11 +206,7 @@ export interface RendererEvents {
   leaveNode: NodeEvent;
   clickStage: StageEvent;
   doubleClickStage: StageEvent;
-  // github#165 -- emitted since the captor was written, but declared only in renderer.ts's
-  // private EventMap, so `on()` (typed on keyof RendererEvents) could not admit it and no
-  // consumer could subscribe. The page needs it to tell a right-click on the disc's empty
-  // stage from one on a note, which rightClickNode already owns. downStage, upNode and
-  // upStage are in the same position and stay private until something consumes them.
+  // github#165 -- was emitted but undeclared, so nothing could subscribe
   rightClickStage: StageEvent;
   afterRender: void;
   // github#144 -- the engine says it; the page draws the notice
