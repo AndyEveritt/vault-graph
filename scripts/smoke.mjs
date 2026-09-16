@@ -6348,10 +6348,10 @@ check("the grid drawn from the menu is the whole grid, and no dot moves to get i
 });
 
 // github#165
-check("the grid's key sits bottom right, clear of both sets of view controls", async (p) => {
+check("the grid's key sits bottom left, clear of every button over the graph", async (p) => {
   // The key is drawn on canvas, so there is no element to measure -- DBG.legendBox is where
   // drawWedgeLegend() put it, in host coordinates, and the two control groups are measured
-  // against that. It used to sit at 12,12, straight on top of the host's top-left buttons.
+  // against that. It used to sit at 12,12, straight on top of #vg-sheet and #vg-band.
   await p.j(`(function(){ __vg.setDevTools(true); return __vg.setWedgeGrid(true); })()`);
   await settle(p);
   const r = await p.j(`(function(){
@@ -6382,18 +6382,18 @@ check("the grid's key sits bottom right, clear of both sets of view controls", a
     var inHost = box.x >= 0 && box.y >= 0 &&
                  box.x + box.w <= host.clientWidth + 0.5 &&
                  box.y + box.h <= host.clientHeight + 0.5;
-    // Bottom right: past the midpoint on both axes.
-    var bottomRight = box.x + box.w / 2 > host.clientWidth / 2 &&
-                      box.y + box.h / 2 > host.clientHeight / 2;
+    // Bottom left: left of the midpoint, below it.
+    var bottomLeft = box.x + box.w / 2 < host.clientWidth / 2 &&
+                     box.y + box.h / 2 > host.clientHeight / 2;
     __vg.setWedgeGrid(false);
     __vg.setDevTools(false);
     return { missing: false, box: box, host: [host.clientWidth, host.clientHeight],
-             hits: hits, overlapAny: overlapAny, inHost: inHost, bottomRight: bottomRight };
+             hits: hits, overlapAny: overlapAny, inHost: inHost, bottomLeft: bottomLeft };
   })()`);
   if (r.missing) return { ok: false, detail: "the overlay drew no key -- DBG.legendBox is null" };
-  const ok = r.hits.length === 0 && r.overlapAny.length === 0 && r.inHost && r.bottomRight;
+  const ok = r.hits.length === 0 && r.overlapAny.length === 0 && r.inHost && r.bottomLeft;
   return { ok, detail: `key ${r.box.w}x${r.box.h} at ${r.box.x},${r.box.y} in a ` +
-    `${r.host[0]}x${r.host[1]} host: bottom-right=${r.bottomRight}, inside=${r.inHost}, ` +
+    `${r.host[0]}x${r.host[1]} host: bottom-left=${r.bottomLeft}, inside=${r.inHost}, ` +
     `named control groups overlapped=[${r.hits.join(", ") || "none"}], ` +
     `any button over the graph overlapped=[${r.overlapAny.join(", ") || "none"}]` };
 });

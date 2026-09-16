@@ -3982,19 +3982,13 @@ function mountVaultGraph(root, data, deps) {
     var wide = 0;
     rows.forEach(function (r) { wide = Math.max(wide, g2.measureText(r[1]).width); });
     var w = sw + 8 + wide + pad * 2, h = lh * (rows.length + 1) + pad * 2;
-    // github#165 -- bottom right, not top left: the two view buttons live in the host's top
-    // left corner and the key sat straight on top of them. The zoom/fit column (#vg-cam) is
-    // a SIBLING of the host rather than a child, so its width is measured here rather than
-    // assumed -- the key moves with it if it is ever restyled or repositioned.
+    // github#165 -- bottom left. It used to sit at 12,12, and the host's two view buttons
+    // (#vg-sheet, #vg-band) are exactly there, so the key covered them. The bottom-left
+    // corner is the one corner of the host with nothing drawn over it: the zoom/fit column
+    // is bottom RIGHT and the sidebar is outside the host entirely.
     var host = $("graph");
-    var hostW = host ? host.clientWidth : 0, hostH = host ? host.clientHeight : 0;
-    var clearRight = 0;
-    var camEl = $("cam");
-    if (host && camEl) {
-      var hostBox = host.getBoundingClientRect(), camBox = camEl.getBoundingClientRect();
-      if (camBox.width > 0) clearRight = Math.max(0, hostBox.right - camBox.left) + 8;
-    }
-    var x = Math.max(inset, hostW - w - inset - clearRight);
+    var hostH = host ? host.clientHeight : 0;
+    var x = inset;
     var y = Math.max(inset, hostH - h - inset);
     DBG.legendBox = { x: x, y: y, w: w, h: h };
     g2.globalAlpha = 0.72; g2.fillStyle = "#000";
