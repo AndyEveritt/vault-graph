@@ -1012,3 +1012,137 @@
   @media (max-width: 720px) and (prefers-reduced-motion: reduce) {
     .vault-graph #vg-sidebar { transition: none; }
   }
+
+  /* github#170, design/0013 -- the phone: the disc whole at the top of a page that scrolls,
+     everything that used to float over it in the flow beneath it.
+
+     `(pointer: coarse)` as well as the width, and the pair is the whole decision. Width alone
+     would hand pan-off and 44px chrome to a narrow desktop window and to a 320px Obsidian
+     sidebar on a PC, where a mouse loses function and gains nothing; coarse alone would hand it
+     to a touchscreen laptop at 1440px, where the two-column layout is right and design/0013
+     already left the iPad on it deliberately. It needs no host branch either: Obsidian mobile
+     reports coarse at 390px, so the plugin and the exported page take one road and
+     Platform.isMobile -- which the exported page cannot ask about at all -- never enters it.
+     NARROW_PX in page.js carries the same number and the same must-match comment.
+
+     This block comes AFTER the (max-width: 720px) one on purpose. Both are id-scoped, so
+     specificity ties and source order is what decides; the sheet rules above are being undone
+     here, not fought on points. */
+  @media (max-width: 720px) and (pointer: coarse) {
+    /* The page scrolls. That is the fix: the disc no longer has to share one viewport-sized
+       box with the controls, so nothing has to be drawn over it. */
+    .vault-graph {
+      grid-template-columns: 1fr; grid-template-rows: auto auto;
+      overflow-y: auto; overflow-x: hidden;
+    }
+    /* Both panels are forced on below here. [data-band="off"] and [data-sheet="off"] live
+       outside any media query, so a fold chosen on a desktop would otherwise reach a phone and
+       hide a panel whose toggle is no longer drawn -- the inverse of design/0013's known "a
+       desktop choice reaches a phone" wart, and worse, because there would be no way back. */
+    /* order, because #vg-sidebar comes FIRST in the DOM and the sheet rules above made that
+       irrelevant by taking it out of the flow. Back in the flow it would land above the disc,
+       which is the layout this issue is replacing. */
+    .vault-graph #vg-stage,
+    .vault-graph[data-band="off"] #vg-stage,
+    .vault-graph[data-band="on"] #vg-stage {
+      grid-template-rows: auto auto; overflow: visible; order: 1;
+    }
+    .vault-graph #vg-heat,
+    .vault-graph[data-band="off"] #vg-heat { display: flex; order: 2; }
+    /* The sidebar leaves the sheet and rejoins the flow, whatever data-sheet says. Nothing
+       reads the attribute here; it is simply inert, which is why the JS setters did not need a
+       phone branch -- only the two auto-closes did, and for the store's sake rather than the
+       layout's. */
+    .vault-graph #vg-sidebar,
+    .vault-graph[data-sheet="on"] #vg-sidebar,
+    .vault-graph[data-sheet="off"] #vg-sidebar {
+      position: static; transform: none; visibility: visible; order: 2;
+      max-height: none; width: auto; overflow-y: visible;
+      border-top: 1px solid var(--border); border-right: 0; border-radius: 0;
+      box-shadow: none; z-index: auto; transition: none;
+    }
+    /* The indent existed to step aside for the floating toggles, which are gone. */
+    .vault-graph[data-band="on"][data-sheet="on"] .brand { padding-left: 0; }
+
+    /* The disc is a SQUARE at the top, and that is arithmetic rather than taste:
+       matrixFromCamera scales by min(width, height), so the 390x530 box this replaced was
+       already fitting the disc to its 390px width. A 390x390 box draws the same disc at the
+       same radius with no dead space above and below it -- measured, see changelog-detail. */
+    .vault-graph #vg-canvas {
+      order: 1; overflow: visible;
+      display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto auto;
+    }
+    .vault-graph #vg-graph {
+      position: relative; inset: auto; aspect-ratio: 1 / 1; overflow: hidden;
+    }
+    /* The camera cluster stops floating and becomes a row under the disc. This is want #1
+       answered by want #3: the buttons are sized for the width they are drawn at because they
+       are no longer standing on a disc that needs the room. */
+    .vault-graph #vg-cam {
+      position: static; z-index: auto;
+      flex-direction: row; justify-content: center; gap: 10px; padding: 8px 0;
+    }
+    .vault-graph #vg-cam button { width: 44px; height: 44px; opacity: .8; }
+    /* Pan is off here and is not a choice, so a toggle for it would be a lie. `#vg-cam button`
+       carries an id, a class and a type, so a bare `#vg-pan` loses to it on specificity and the
+       button stayed drawn; qualifying it is what makes this rule reach. */
+    .vault-graph #vg-cam button#vg-pan { display: none; }
+    /* Nothing is left to summon: both panels are in the flow. */
+    .vault-graph #vg-mob { display: none; }
+    /* github#79, design/0017 -- the tile is a hover-revealed pointer affordance, and with pan
+       off only a zoom can crop the disc. Its whole job -- where the frame sits, click to fit --
+       is the Fit button now sitting at 44px directly under the disc. */
+    .vault-graph #vg-ov { display: none; }
+    /* The card was a sheet over the disc because there was nowhere else to put it. Now there
+       is, and in the flow it can be as tall as it needs instead of capped at 46%. */
+    .vault-graph #vg-detail {
+      position: static; left: auto; right: auto; top: auto; bottom: auto;
+      width: auto; max-height: none; margin: 10px 12px 12px; z-index: auto;
+    }
+
+    /* github#70 declared --vg-hrow-h so ONE height could reach every control in the band's row
+       by `height` rather than by each control's own padding. This is that lever being pulled. */
+    .vault-graph #vg-heat .hrow { --vg-hrow-h: 44px; row-gap: 8px; }
+    /* The segment is a 1px-bordered shell, so its buttons come out 2px short of the row's
+       height. They carry the 44 themselves here and the shell takes what that gives it. */
+    .vault-graph #vg-heatsrc { height: auto; }
+    .vault-graph #vg-heatsrc button { height: 44px; padding: 0 12px; }
+    .vault-graph #vg-recent button { min-width: 44px; }
+    /* The compact toggle was the only child of .hrow with no `order`, so it stayed on line 1
+       beside the source segment while #vg-recent, #vg-heatnote and #vg-rangebox were given
+       2/3/4 and wrapped away from it. Measured at 390px: x=191 on line 1, three lines and
+       ~100px from the date range it compacts. It joins that range's line now. */
+    .vault-graph #vg-compact { order: 4; margin-left: 0; }
+    .vault-graph #vg-rangebox { flex-wrap: wrap; row-gap: 8px; margin-left: 0; }
+    .vault-graph #vg-rangebox .dt { font-size: 14px; padding: 0 8px; }
+    .vault-graph #vg-rangeall { min-width: 44px; }
+
+    /* The year strip is the one place "every button at least 44x44" cannot be met. The chips
+       are absolutely positioned on a date axis, so their x IS the data: measured at 390px they
+       sit 36-41px apart, and widening each to 44 makes neighbours overlap by ~8px, which is
+       strictly worse for a finger than 25px chips with clear air between them. So the hit box
+       grows in height only and the pill keeps its look, drawn by ::before inside it. */
+    .vault-graph #vg-years { height: 44px; margin-top: 0; }
+    .vault-graph #vg-years button {
+      height: 44px; padding: 0 5px; min-width: 26px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: 0; border-radius: 0;
+      font: 600 11px/1 ui-sans-serif, "Segoe UI", system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    .vault-graph #vg-years button::before {
+      content: ""; position: absolute; z-index: -1;
+      left: 0; right: 0; top: 15px; height: 14px; border-radius: 4px;
+      border: 1px solid var(--border);
+      background: color-mix(in oklab, var(--text-3) 14%, transparent);
+    }
+    .vault-graph #vg-years button[aria-pressed="true"]::before {
+      background: color-mix(in oklab, var(--accent) 14%, transparent);
+    }
+
+    /* The panel's own controls are reached with a finger here too. */
+    .vault-graph .dimseg.dimfull button { min-height: 44px; }
+    .vault-graph .dimall button,
+    .vault-graph .tools button { min-height: 44px; min-width: 44px; }
+    .vault-graph #vg-q { height: 44px; font-size: 14px; }
+  }

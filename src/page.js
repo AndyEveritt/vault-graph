@@ -640,8 +640,22 @@ function mountVaultGraph(root, data, deps) {
   /** @param {string} [dim] @returns {SlotMap} */
   function subColorsFor(dim) { return dimSubColors[dim || state.dim] || dimSubColors.folder; }
 
+  // github#73, design/0013
+  // github#82 -- NARROW_PX must match the breakpoint in page.css
+  var NARROW_PX = 720;
+  function narrow() {
+    return !!(WIN.matchMedia && WIN.matchMedia("(max-width: " + NARROW_PX + "px)").matches);
+  }
+
+  // github#170, design/0013 -- must match page.css's phone block
+  function phone() {
+    return !!(WIN.matchMedia &&
+              WIN.matchMedia("(max-width: " + NARROW_PX + "px) and (pointer: coarse)").matches);
+  }
+
   // github#4
-  var panEnabled = deps.panEnabled === false ? false : true;
+  // github#170 -- a layout state on a phone, never a stored choice
+  var panEnabled = phone() ? false : (deps.panEnabled === false ? false : true);
   var onPanEnabled = typeof deps.onPanEnabled === "function" ? deps.onPanEnabled : null;
 
   // github#23
@@ -668,13 +682,6 @@ function mountVaultGraph(root, data, deps) {
   // github#71, github#86 -- D-12: a sortspec names FOLDERS only
   function specOrders() {
     return state.dim === "folder" && usingSpec();
-  }
-
-  // github#73, design/0013
-  // github#82 -- NARROW_PX must match the breakpoint in page.css
-  var NARROW_PX = 720;
-  function narrow() {
-    return !!(WIN.matchMedia && WIN.matchMedia("(max-width: " + NARROW_PX + "px)").matches);
   }
 
   // github#82, decisions/0009 -- absent means nobody chose; width decides
@@ -6267,8 +6274,9 @@ function mountVaultGraph(root, data, deps) {
     });
     // github#73, design/0013
     // github#82 -- only a sheet closes itself; a column does not
+    // github#170 -- and on a phone the panel is in the scroll flow
     renderer.on("clickStage", function () {
-      if (sheetOpen && narrow()) setSheet(false);
+      if (sheetOpen && narrow() && !phone()) setSheet(false);
       select(null);
     });
     renderer.on("rightClickNode", function (e) {
@@ -6460,7 +6468,8 @@ function mountVaultGraph(root, data, deps) {
     if (id) id = noteOf(id);
     // github#73, design/0013
     // github#82 -- same: only the phone's sheet gets out of the way
-    if (id && sheetOpen && narrow()) setSheet(false);
+    // github#170 -- a panel in the scroll flow is not in the way
+    if (id && sheetOpen && narrow() && !phone()) setSheet(false);
     // github#40, design/0012
     if (!trailHop && (!id || id !== state.selected)) trail.length = 0;
     trailHop = false;
@@ -11688,6 +11697,8 @@ function mountVaultGraph(root, data, deps) {
                     get sheetOpen() { return sheetOpen; },
                     get bandOpen() { return bandOpen; },
                     get narrow() { return narrow(); },
+                    // github#170
+                    get phone() { return phone(); },
                     hl: hl,
                     get hlBusy() { return !!hlRaf; },
                     get dateSpan() { return dateSpan; },
