@@ -4114,10 +4114,13 @@ function mountVaultGraph(root, data, deps) {
   var SPREAD_PER  = 0.17;
   var SPREAD_MIN  = 24;
   // github#41, design/0011
+  // github#165 -- named because the developer menu's "Normal" entry is this value, and a
+  // second copy of the number would be free to drift from the one the page actually opens at.
+  var TIME_SCALE_DEFAULT = 1.25;
   var TIME_SCALE  = (function () {
     var m = /(^|[?&#])slow=([0-9.]+)/.exec(String(WIN.location ? WIN.location.search : "") + " " +
                                            String(WIN.location ? WIN.location.hash : ""));
-    return m && +m[2] > 0 ? +m[2] : 1.25;
+    return m && +m[2] > 0 ? +m[2] : TIME_SCALE_DEFAULT;
   })();
   var TIMELINE_MS = 4500;
   // github#113
@@ -7713,14 +7716,15 @@ function mountVaultGraph(root, data, deps) {
       WIN.addEventListener("resize", closeCtxMenu);
     }
 
-    // github#165 -- slower, never faster: every entry is at or above the built-in 1.25, so
-    // the menu can only ever help you see a cascade, not race one.
+    // github#165 -- slower, never faster. Every entry is a multiple of the default rather
+    // than a number of its own, so "at or above the speed the page opens at" is structural:
+    // the menu can only ever help you read a cascade, never race one.
     var SPEED_ROW = [
-      { mul: 1.25, label: "Normal", title: "The speed the disc always animates at" },
-      { mul: 2.5,  label: "2x",     title: "Half speed -- every cascade, tween and timeline sweep takes twice as long" },
-      { mul: 5,    label: "4x",     title: "Quarter speed" },
-      { mul: 10,   label: "8x",     title: "An eighth of speed -- slow enough to read a single dot's arrival" }
-    ];
+      { by: 1, label: "Normal", title: "The speed the disc animates at unless ?slow= says otherwise" },
+      { by: 2, label: "2x",     title: "Half speed -- every cascade, tween and timeline sweep takes twice as long" },
+      { by: 4, label: "4x",     title: "Quarter speed" },
+      { by: 8, label: "8x",     title: "An eighth of speed -- slow enough to read a single dot's arrival" }
+    ].map(function (o) { return { mul: TIME_SCALE_DEFAULT * o.by, label: o.label, title: o.title }; });
 
     /**
      * github#165 -- the developer menu, opened by right-clicking the disc while the
@@ -7744,7 +7748,7 @@ function mountVaultGraph(root, data, deps) {
                  esc(o.label) + '</button>';
         }).join("") + '</div></div>');
       /** @type {HTMLElement} */ (el.querySelector("[data-grid]")).onclick = function () {
-        setWedgeGrid(!DBG.on); closeCtxMenu();
+        wedgeDebug(!DBG.on); closeCtxMenu();
       };
       Array.prototype.forEach.call(el.querySelectorAll("[data-speed]"),
         /** @param {HTMLElement} b */ function (b) {
@@ -8680,15 +8684,13 @@ function mountVaultGraph(root, data, deps) {
   }
 
   /**
-   * github#165 -- the two product-side names for what the debug API already reaches.
-   * `wedgeDebug` and `TIME_SCALE` are product code and always shipped; only their `__vg`
-   * accessors sit inside the block build-plugin.mjs strips, so the plugin has the drawing
-   * and the clock but no way to ask for either. These are that way, and they are the whole
-   * of what the menu calls.
-   * @param {boolean} v
+   * github#165 -- `wedgeDebug` and `TIME_SCALE` are product code and always shipped; only
+   * their `__vg` accessors sit inside the block build-plugin.mjs strips, so the plugin has
+   * the drawing and the clock but no way to ask for either. `setWedgeGrid` on the api is
+   * `wedgeDebug` itself, which is already a setter and needs no second name; the clock does
+   * need one, because assigning TIME_SCALE has two callers.
+   * @param {number} v
    */
-  function setWedgeGrid(v) { return wedgeDebug(v === true); }
-  /** @param {number} v */
   function setTimeScale(v) { TIME_SCALE = +v > 0 ? +v : 1; return TIME_SCALE; }
 
   function savePng() {
@@ -11052,7 +11054,7 @@ function mountVaultGraph(root, data, deps) {
                     setRootInOrder: /** @param {boolean} v */ function (v) { return setRootInOrder(v, false, true); },
                     // github#165
                     setDevTools: /** @param {boolean} v */ function (v) { return setDevTools(v === true, false); },
-                    setWedgeGrid: /** @param {boolean} v */ function (v) { return setWedgeGrid(v === true); },
+                    setWedgeGrid: /** @param {boolean} v */ function (v) { return wedgeDebug(v === true); },
                     setTimeScale: /** @param {number} v */ function (v) { return setTimeScale(v); },
                     applyHiddenDefaults: function () {
                       seedHidden();
