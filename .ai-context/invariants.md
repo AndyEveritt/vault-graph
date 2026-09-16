@@ -5131,9 +5131,10 @@ consumes them.
 node scripts/smoke.mjs --only "right-click does nothing"     # the gate
 node scripts/smoke.mjs --only "still pins it"                # the collision, as a check
 node scripts/smoke.mjs --only "the whole grid"               # the half-grid, as a check
+node scripts/smoke.mjs --only "the grid's key"               # the key's placement
 ```
 
-**Five checks, on `demo-vault` only** — none of them asserts anything about a fixture's shape,
+**Six checks, on `demo-vault` only** — none of them asserts anything about a fixture's shape,
 so per *Each check runs where its assertion lives* they take the cheap default rather than
 `"all"`.
 
@@ -5177,7 +5178,7 @@ still exist for `smoke.mjs` and the storyboard, and are still stripped from the 
 count-checked, and the move would buy nothing that is not already there.
 
 The cost of the whole feature, measured by building `main.js` at 9e84932 and again on this
-branch: **538,085 → 542,758 bytes, +4,673 (+0.9%)**. The three stripped regions stay stripped —
+branch: **538,085 → 542,867 bytes, +4,782 (+0.9%)**. The three stripped regions stay stripped —
 `demoAct`, `checkZeroWeightInvariance` and `timeScale` each occur **0** times in the built
 bundle, while `openDevMenu`, `setWedgeGrid`, `setTimeScale` and `rightClickStage` are present.
 
@@ -5208,6 +5209,36 @@ touching `bandLock` or `geomLock`; `hardRelayout()` would reset both and is the 
 Measured on the demo mirror: wedge cells **0 → 43** on one click, **86** seam-trace rows, and
 of **1403 notes, 0 moved, worst 0 units**. Without the fix the check reads `0 -> 0` cells and
 `0` seam-trace rows.
+
+### The grid's key sits bottom left, and nothing drawn over the graph is under it
+
+`drawWedgeLegend()` put the key at `12, 12`. The host's two view buttons (`#vg-sheet`,
+`#vg-band`) are exactly there, so the overlay covered them — found by the maintainer looking
+at the review build, not by any check. It is now **bottom left**, which is the one corner of
+the host with nothing drawn over it: the zoom/fit column (`#vg-cam`) is bottom right, and the
+sidebar is outside the host entirely.
+
+**There is no plate behind it.** The key used to sit on a 72%-black rectangle, and the
+`built <date>` line fell outside that rectangle's bottom edge. The plate is gone rather than
+resized: it was also the only reason white type was safe there. Without it the type and the
+`wedge centre` sample rule take **`THEME.text`** — the same token the renderer gives its own
+node labels — so both read on the light ground as well as the dark one. The `wedge centre`
+rule was `#fff`, which is the colour the disc actually draws, and would have vanished on
+light the moment the plate went.
+
+The key is drawn on canvas, so there is no element for a check to measure. `DBG.legendBox`
+records where it landed in host coordinates and `__vg.wedgeLegendBox()` hands it over.
+
+```bash
+node scripts/smoke.mjs --only "the grid's key"
+```
+
+It asserts the box is inside the host, left of the midpoint and below it, and overlaps
+**neither** the named control groups **nor any `button` drawn over the graph**. That second
+test is the one with teeth: reverting the placement to `12, 12` fails it naming `vg-sheet,
+vg-band` — two ids the named list does not contain, which is exactly why the check does not
+rely on a list. Measured at the placement that ships: key **131×96 at 12, 1017** in a
+2256×1125 host, **0 overlaps**.
 
 ### Slow motion is a scale, and it only ever slows
 

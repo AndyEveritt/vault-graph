@@ -3981,6 +3981,8 @@ function mountVaultGraph(root, data, deps) {
     g2.textBaseline = "middle";
     var wide = 0;
     rows.forEach(function (r) { wide = Math.max(wide, g2.measureText(r[1]).width); });
+    // github#165 -- no plate, so the box is the text's own extent rather than a drawn edge
+    // the "built" line could fall outside of. rows.length + 1 counts that line.
     var w = sw + 8 + wide + pad * 2, h = lh * (rows.length + 1) + pad * 2;
     // github#165 -- bottom left. It used to sit at 12,12, and the host's two view buttons
     // (#vg-sheet, #vg-band) are exactly there, so the key covered them. The bottom-left
@@ -3991,21 +3993,24 @@ function mountVaultGraph(root, data, deps) {
     var x = inset;
     var y = Math.max(inset, hostH - h - inset);
     DBG.legendBox = { x: x, y: y, w: w, h: h };
-    g2.globalAlpha = 0.72; g2.fillStyle = "#000";
-    g2.fillRect(x, y, w, h);
-    g2.globalAlpha = 1;
+    // github#165 -- straight on the background, no plate behind it. The plate was what made
+    // white text safe; without it the type takes THEME.text, the same token the renderer
+    // gives its own labels, so the key reads on the light ground as well as the dark one.
+    // The "wedge centre" rule is drawn in that colour too -- it was "#fff", which is the
+    // line the disc actually draws and was invisible on light the moment the plate went.
+    var ink = THEME.text || "#fff";
     rows.forEach(function (r, i) {
       var yy = y + pad + lh * i + lh / 2;
-      g2.strokeStyle = i === 0 ? "#e66767" : i === 1 ? "#fff" : SEAM_YELLOW;
+      g2.strokeStyle = i === 0 ? "#e66767" : i === 1 ? ink : SEAM_YELLOW;
       g2.globalAlpha = i === 0 ? 0.9 : i === 1 ? 0.5 : i === 2 ? 0.75 : 0.45;
       g2.lineWidth = i === 0 ? 1.5 : 1;
       g2.setLineDash(i === 0 ? [] : i === 1 ? [5, 5] : i === 2 ? [3, 4] : [4, 4]);
       g2.beginPath(); g2.moveTo(x + pad, yy); g2.lineTo(x + pad + sw, yy); g2.stroke();
       g2.setLineDash([]);
-      g2.globalAlpha = 0.85; g2.fillStyle = "#fff";
+      g2.globalAlpha = 0.85; g2.fillStyle = ink;
       g2.fillText(r[1], x + pad + sw + 8, yy);
     });
-    g2.globalAlpha = 0.55; g2.fillStyle = "#fff";
+    g2.globalAlpha = 0.55; g2.fillStyle = ink;
     g2.fillText("built " + (DATA && DATA.generated ? DATA.generated : "?"),
                 x + pad, y + pad + lh * rows.length + lh / 2);
     g2.globalAlpha = 1;
