@@ -292,6 +292,15 @@ try {
   try { Invoke-Native node @((Join-Path $here 'check-notice.mjs')) }
   catch { throw "the Sigma notice is missing from a build -- not releasing" }
 
+  # COMMENTS ARE POINTERS HERE TOO (github#61, github#137). .githooks/pre-push and
+  # release.yml both run check-comments.mjs already; this script did not, so a green -DryRun
+  # meant nothing about the one gate that actually broke cutting 2.7.0 -- the branch was
+  # pushed, the dry run was green, and the workflow went red on this exact check. Same bar as
+  # the notice check just above: fast, pure Node, no skip flag.
+  Write-Host "`n=== comments ===" -ForegroundColor Cyan
+  try { Invoke-Native node @((Join-Path $here 'check-comments.mjs')) }
+  catch { throw "comment check failed -- not releasing (read the counts above; CONTRIBUTING.md explains the pointer rule, github#61)" }
+
   Write-Host "`n=== build (pre-flight) ===" -ForegroundColor Cyan
   try { Invoke-Native node @((Join-Path $here 'build-plugin.mjs')) }
   catch {
