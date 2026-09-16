@@ -1373,6 +1373,43 @@ check("a folder keeps its colour when the wedge order changes", async (p) => {
                           : "; every automatic slot unchanged")
   };
 }, { on: "all" });   // github#71 -- MUST reach test-vault, where the slot walk cycles
+check("the vault root can sit below the folders, and keeps its colour there", async (p) => {
+  const r = await p.j(`(function(){
+    var was = __vg.rootLast;
+    var read = function(){
+      var o = __vg.groupOrder(), s = {};
+      o.forEach(function(g){ s[g] = __vg.autoSlotOf(g); });
+      return { order: o, slots: s };
+    };
+    __vg.setRootLast(false); var off = read();
+    __vg.setRootLast(true);  var on  = read();
+    __vg.setRootLast(was === true);
+    return { off: off, on: on };
+  })()`);
+  const ROOT = "(vault root)";
+  if (r.off.order.indexOf(ROOT) < 0) {
+    return { ok: true, detail: `NOT ASSERTED: this vault has no ${ROOT} group` };
+  }
+  // github#164 -- only the root group moves, and it lands last
+  const real = (o) => o.filter((g) => g.charAt(0) !== "_" && g.charAt(0) !== "(");
+  const iOff = r.off.order.indexOf(ROOT), iOn = r.on.order.indexOf(ROOT);
+  const lastReal = r.on.order.lastIndexOf(real(r.on.order)[real(r.on.order).length - 1]);
+  const tail = r.on.order.slice(iOn + 1);
+  const movedDown = iOn > iOff;
+  const afterFolders = iOn === lastReal + 1;
+  const tailOk = tail.every((g) => g === "(untagged)" || g === "(unlinked)");
+  const sameSet = r.off.order.slice().sort().join("|") === r.on.order.slice().sort().join("|");
+  // github#164, github#71 -- a bearing change must not repaint
+  const drift = Object.keys(r.off.slots).filter((g) => r.on.slots[g] !== r.off.slots[g]);
+  return {
+    ok: movedDown && afterFolders && tailOk && sameSet && drift.length === 0,
+    detail: `${ROOT} ${iOff} -> ${iOn} of ${r.on.order.length}; after the last folder: ${afterFolders}; ` +
+            `tail [${tail.join(", ") || "none"}]; same groups: ${sameSet}; ` +
+            (drift.length ? `${drift.length} REPAINTED: ${drift.slice(0, 4).join(", ")}`
+                          : "every automatic slot unchanged")
+  };
+}, { on: "all" });   // github#164 -- every fixture that has a root group
+
 /* ------------------------------------------------- github#86 D-9, design/0015 */
 
 check("a marked heatmap day haloes but never pushes", async (p) => {

@@ -88,6 +88,9 @@ mountVaultGraph(
     // github#3
     unlinkedTintByFolder: loadSettings().unlinkedTintByFolder,
     onUnlinkedTintByFolder: function (v) { saveSettings({ unlinkedTintByFolder: v }); },
+    // github#164 -- absent means off, which is the order the disc has always drawn
+    rootLast: loadSettings().rootLast === true,
+    onRootLast: function (v) { saveSettings({ rootLast: v }); },
     // github#86 -- absent means "folder", so a page nobody has switched is today's page
     dim: loadSettings().dim,
     onDim: function (v) { saveSettings({ dim: v }); },

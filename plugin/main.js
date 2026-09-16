@@ -73,6 +73,7 @@ function bareMap() {
  * @property {"name" | "explorer" | "size" | undefined} folderOrder
  * @property {boolean} unlinkedTintByFolder
  * @property {boolean} countBars                        github#78, design/0006
+ * @property {boolean} rootLast                         github#164
  * @property {boolean} fitCap                           github#41, design/0011
  * @property {"folder" | "tag"} dim                     github#86 -- grouping dimension
  * @property {boolean} liveRefresh                      github#72
@@ -1012,6 +1013,13 @@ class VaultGraphView extends ItemView {
         this.plugin.settings.countBars = !!v;
         await this.plugin.saveSettings();
       },
+      // github#164
+      rootLast: this.plugin.settings.rootLast === true,
+      /** @param {boolean} v */
+      onRootLast: async (v) => {
+        this.plugin.settings.rootLast = !!v;
+        await this.plugin.saveSettings();
+      },
       // github#3
       unlinkedTintByFolder: this.plugin.settings.unlinkedTintByFolder,
       /** @param {boolean} v */
@@ -1110,6 +1118,8 @@ const DEFAULTS = {
   unlinkedTintByFolder: false,
   // github#78, design/0006
   countBars: true,
+  // github#164 -- off is the order the disc has always drawn
+  rootLast: false,
   // github#41, design/0011
   fitCap: true,
   // github#86 -- folder is the default
@@ -1147,11 +1157,11 @@ const BUILD_SETTINGS = [
 
 /**
  * @typedef {Object} ViewSetting
- * @property {"panEnabled" | "compactAxis" | "unlinkedByFolder" | "unlinkedTintByFolder" | "countBars" | "fitCap" | "liveRefresh"} key
+ * @property {"panEnabled" | "compactAxis" | "unlinkedByFolder" | "unlinkedTintByFolder" | "countBars" | "rootLast" | "fitCap" | "liveRefresh"} key
  * @property {string} name
  * @property {string} desc
  * @property {boolean} defaultOn
- * @property {"setPanEnabled" | "setCompactAxis" | "setUnlinkedByFolder" | "setUnlinkedTintByFolder" | "setCountBars" | "setFitCap" | ""} api
+ * @property {"setPanEnabled" | "setCompactAxis" | "setUnlinkedByFolder" | "setUnlinkedTintByFolder" | "setCountBars" | "setRootLast" | "setFitCap" | ""} api
  * @property {boolean} [host]   the HOST owns this one, not the page, so there is no api to call
  */
 /** @type {ViewSetting[]} */
@@ -1167,6 +1177,9 @@ const VIEW_SETTINGS = [
   // github#78, design/0006
   { key: "countBars", name: "Count bars in the legend", defaultOn: true, api: "setCountBars",
     desc: "Draw a short rule along the bottom of each folder row in the legend, in that folder's own colour, scaled so the largest folder currently shown fills its row and the rest are read against it. The count alone makes a 406-note folder and a 1-note folder look identical. Hovering a count says which folder the bar is measured against." },
+  // github#164
+  { key: "rootLast", name: "Vault root below the folders", defaultOn: false, api: "setRootLast",
+    desc: "Put (vault root) after the last folder instead of at the front of the disc. That is where the file explorer shows those notes -- folders first, then the loose files at the top level -- so the disc and the tree agree. The archives keep their place at the front, and (untagged) and (unlinked) stay at the end. Off by default, so no disc moves until you ask." },
   // github#41, design/0011
   { key: "fitCap", name: "Size dots from the frame", defaultOn: true, api: "setFitCap",
     desc: "While the disc animates, cap every dot at just under half its distance to the nearest visible note, measured on the frame being drawn, so dots stay apart while rows slide. The disc at rest is unchanged. Experimental: dots breathe while a cascade walks." },
@@ -1818,6 +1831,8 @@ class VaultGraphPlugin extends Plugin {
     if (api.setUnlinkedByFolder) api.setUnlinkedByFolder(this.settings.unlinkedByFolder !== false);
     if (api.setUnlinkedTintByFolder) api.setUnlinkedTintByFolder(this.settings.unlinkedTintByFolder === true);
     if (api.setCountBars) api.setCountBars(this.settings.countBars !== false);
+    // github#164
+    if (api.setRootLast) api.setRootLast(this.settings.rootLast === true);
     if (api.setFitCap) api.setFitCap(this.settings.fitCap !== false);
     // github#71
     // github#71 -- only push a STORED choice, never a default

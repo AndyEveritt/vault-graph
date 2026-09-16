@@ -129,6 +129,8 @@
  * @property {boolean} [unlinkedByFolder]
  * @property {boolean} [unlinkedTintByFolder]
  * @property {boolean} [countBars]              github#78, design/0006
+ * @property {boolean} [rootLast]               github#164 -- off is today's order
+ * @property {(v: boolean) => void} [onRootLast]  github#164
  * @property {"folder" | "tag"} [dim]         github#86, design/0015 -- absent means "folder"
  * @property {boolean} [fitCap]               github#41, design/0011
  * @property {boolean} [sheetOpen]            github#82 -- absent means "decide from the width"
@@ -214,6 +216,7 @@
  * @property {(v: boolean) => void} setUnlinkedByFolder
  * @property {(v: boolean) => void} setUnlinkedTintByFolder
  * @property {(v: boolean) => void} setCountBars
+ * @property {(v: boolean) => void} setRootLast                   github#164
  * @property {(v: string) => string} setDim                        github#86
  * @property {(id: string) => { g: string, sub: string, dirs: string[] }} filingOf
  * @property {(id: string) => string} noteOf
@@ -689,6 +692,9 @@ function mountVaultGraph(root, data, deps) {
 
   // github#78, design/0006
   var countBars = deps.countBars === false ? false : true;
+  // github#164 -- OFF is today's disc, so nothing moves until a reader asks
+  var rootLast = deps.rootLast === true;
+  var onRootLast = typeof deps.onRootLast === "function" ? deps.onRootLast : null;
   var onCountBars = typeof deps.onCountBars === "function" ? deps.onCountBars : null;
   // github#86, design/0015
   /** @type {("folder" | "tag")[]} */
@@ -1007,6 +1013,8 @@ function mountVaultGraph(root, data, deps) {
   var UNLINKED = "(unlinked)";
   // github#86, design/0015 -- D-2: the bucket, shown, grey, second to last
   var UNTAGGED = "(untagged)";
+  // github#164 -- the hosts' paraFolder() emits this
+  var ROOT_GROUP = "(vault root)";
 
   // github#86, design/0015 -- the filing: where a note sits in this dimension
   /** @type {Record<string, { g: string, sub: string, dirs: string[] }>} */
@@ -1257,18 +1265,18 @@ function mountVaultGraph(root, data, deps) {
    * @returns {string[]}
    */
   function drawOrder(names, count) {
-    if (folderOrder === "name") return names;
-    var body = names.filter(function (n) { return groupRank(n) === 2; });
+    // github#164 -- the partition runs in EVERY mode, name included
+    var body = names.filter(function (n) { return drawRank(n) === 2; });
     if (folderOrder === "size") {
       body.sort(function (a, b) { return (count[b] || 0) - (count[a] || 0) || byGroupName(a, b); });
-    } else {
+    } else if (folderOrder === "explorer") {
       // github#71, github#86 -- D-12: a sortspec names FOLDERS, so gate on the dim
       var sec = specOrders() ? sortSectionFor(sortSpec, "") : null;
-      if (!sec) return names;
-      body = orderBySortSection(body, sec);
+      if (sec) body = orderBySortSection(body, sec);
     }
-    return names.filter(function (n) { return groupRank(n) < 2; })
-      .concat(body, names.filter(function (n) { return groupRank(n) > 2; }));
+    // github#164 -- rank-partitioning a rank-sorted array is the identity
+    return names.filter(function (n) { return drawRank(n) < 2; })
+      .concat(body, names.filter(function (n) { return drawRank(n) > 2; }));
   }
 
   // github#3, github#86 -- archives, brackets, groups, (untagged), (unlinked)
@@ -1279,6 +1287,14 @@ function mountVaultGraph(root, data, deps) {
     var c = s.charAt(0);
     return c === "_" ? 0 : c === "(" ? 1 : 2;
   }
+  /**
+   * github#164, github#71 -- the DRAW rank; groupRank stays stable for the slot order
+   * @param {string} s
+   */
+  function drawRank(s) {
+    return rootLast && s === ROOT_GROUP ? 2.5 : groupRank(s);
+  }
+
   /** @param {string} a @param {string} b */
   function byGroupName(a, b) {
     return groupRank(a) - groupRank(b) || a.localeCompare(b, undefined, { numeric: true });
@@ -7757,7 +7773,12 @@ function mountVaultGraph(root, data, deps) {
       { key: "countBars", label: "Count bars in the legend",
         title: "Draw a short rule along the bottom of each folder row, in that folder's own colour, scaled so the largest folder currently shown fills its row -- the count alone makes 406 notes and 1 note look the same",
         get: function () { return countBars; },
-        set: function (v) { setCountBars(v, true); } }
+        set: function (v) { setCountBars(v, true); } },
+      // github#164
+      { key: "rootLast", label: "Vault root below the folders",
+        title: "Put (vault root) after the last folder instead of at the front. That is where the file explorer shows those notes: folders first, then the loose files at the top level. The archives keep their place, and (untagged) and (unlinked) stay at the end",
+        get: function () { return rootLast; },
+        set: function (v) { setRootLast(v === true, true); } }
     ];
     // github#71 -- the first non-boolean setting; keys must match FOLDER_ORDERS
     var FOLDER_ORDER_ROW = [
@@ -8500,6 +8521,21 @@ function mountVaultGraph(root, data, deps) {
     if (!barShown) return;
     barShown = null;
     if (barNow) paintBars(barNow);
+  }
+
+  // github#164
+  /** @param {boolean} on @param {boolean} [persist] @param {boolean} [instant] */
+  function setRootLast(on, persist, instant) {
+    var next = !!on;
+    if (next === rootLast) return rootLast;
+    rootLast = next;
+    var btn = $("opt-rootLast");
+    if (btn) btn.setAttribute("aria-pressed", rootLast ? "true" : "false");
+    // github#164 -- a relayout, not a repaint; `instant` is for the suite
+    hardRelayout(!instant);
+    attempt(placeLogo); attempt(heatBuild); attempt(buildLegend);
+    if (persist && onRootLast) onRootLast(rootLast);
+    return rootLast;
   }
 
   // github#78, design/0006
@@ -10869,6 +10905,8 @@ function mountVaultGraph(root, data, deps) {
                     setFitCap: function (v) { return setFitCap(v === true); },
                     setUnlinkedTintByFolder: function (v) { return setUnlinkedTintByFolder(v === true, false); },
                     setCountBars: function (v) { return setCountBars(v !== false, false); },
+                    // github#164 -- instant, like setFolderOrder: the host is not watching
+                    setRootLast: /** @param {boolean} v */ function (v) { return setRootLast(v, false, true); },
                     applyHiddenDefaults: function () {
                       seedHidden();
                       buildLegend();
@@ -11166,6 +11204,7 @@ function mountVaultGraph(root, data, deps) {
                     get unlinkedByFolder() { return unlinkedByFolder; },
                     get unlinkedTintByFolder() { return unlinkedTintByFolder; },
                     get countBars() { return countBars; },
+                    get rootLast() { return rootLast; },
                     get unlinkedTintColors() { return unlinkedTintColors.slice(); },
                     get subTailRank() { return SUB_SLOTS - 1; },
                     hiddenByDefault: hiddenByDefault,

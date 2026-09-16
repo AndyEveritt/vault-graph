@@ -2851,6 +2851,28 @@ data entirely unless `--folder-order` was passed. **Any one of those regressing 
 disables the feature for every vault**, and nothing would fail: the disc would simply be in name
 order.
 
+**THE RANK IS THE OUTER SORT KEY, AND THERE ARE NOW TWO OF THEM (github#164).** `groupRank()`
+is the **stable** one -- archives 0, bracketed pseudo-groups 1, real folders 2, `(untagged)` 3,
+`(unlinked)` 4 -- and it is what `byGroupName()` sorts on, which makes it what the **name order**
+is, which makes it what hands out colour slots (github#71 D-5). `drawRank()` is the one the
+**draw** order partitions on, and it differs in exactly one place: with **Vault root below the
+folders** on, `(vault root)` ranks **2.5**, landing after the last real folder and before the two
+buckets.
+
+**They have to be two functions, and that is measured rather than argued.** The first cut moved
+`(vault root)` inside `groupRank()` itself, which changed the name order, which changed the slot
+walk: **17 of 18 groups repainted on the demo vault** the first time the check ran. That is the
+defect github#71's D-5 exists to prevent, reintroduced from the other end -- D-5 decoupled the
+slot order from a *spec-driven* reorder, and a rank change reached it anyway because both are
+derived from `byGroupName()`.
+
+**And the partition runs in every mode.** `drawOrder()` used to return `names` untouched when the
+mode was `name`, so the setting did nothing on any vault without a sortspec -- it worked on
+`spec-vault` and silently did nothing on the other four. Where the root group sits is not the
+sortspec's business. Under `name` with the setting off the partition is the **identity**:
+`names` arrives rank-sorted, so splitting it by rank rebuilds it exactly, which is why all five
+goldens are byte-identical.
+
 **ONLY `spec-vault` CARRIES A SORTSPEC, and that is deliberate (github#71 D-13).** The other
 four fixtures are spec-free, so **every one of their goldens is byte-identical to the one
 `develop` already held** -- this feature adds a snapshot and moves none. `spec-vault` writes its
