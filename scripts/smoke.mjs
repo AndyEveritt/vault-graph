@@ -6171,6 +6171,268 @@ check("the picker stays inside the mount", async (p) => {
                    `${r.inside ? "inside" : "OUTSIDE the mount"}` };
 });
 
+/* ------------------------------------------------------------------ github#165
+ * The developer menu hangs off rightClickStage, not off a raw contextmenu listener over
+ * the host: rightClickNode already owns a right-click on a NOTE and pins it, and one DOM
+ * listener over #vg-graph would fire on top of that. So every check here aims at a point
+ * the renderer's own hit test agrees is empty, and the last one aims at a note on purpose.
+ */
+const DEV_EMPTY_POINT = `(function(){
+  var o = document.getElementById("vg-graph").getBoundingClientRect();
+  // A corner inset, not the centre: the hub hole in the middle of the disc holds the
+  // unlinked notes on the fixtures that have any, so the centre is not reliably empty.
+  // The event goes to the MOUSE CANVAS, not to #vg-graph: that canvas is where the
+  // renderer's captor listens, and an event dispatched at the host would bubble past it
+  // without ever reaching a listener on a descendant.
+  return { host: __vg.renderer.getCanvases().mouse,
+           x: Math.round(o.left + 18), y: Math.round(o.top + 18) };
+})()`;
+const DEV_RIGHT_CLICK = `(function(){
+  var at = ${DEV_EMPTY_POINT};
+  var ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+                                           clientX: at.x, clientY: at.y });
+  at.host.dispatchEvent(ev);
+  return { menu: document.querySelector('[id$="ctxmenu"]'), prevented: ev.defaultPrevented };
+})()`;
+
+check("the disc's right-click does nothing until Developer debug is on", async (p) => {
+  const r = await p.j(`(function(){
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    // Whatever the host handed this page, assert from a known state.
+    __vg.setDevTools(false);
+    var off = ${DEV_RIGHT_CLICK};
+    var hiddenOff = menu.hidden;
+
+    __vg.setDevTools(true);
+    var on = ${DEV_RIGHT_CLICK};
+    var openOn = !menu.hidden;
+    var grid = menu.querySelector("[data-grid]");
+    var speeds = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
+      return b.getAttribute("data-speed"); });
+    var swatches = menu.querySelectorAll(".swatch").length;
+
+    // Turning the setting off must shut a menu it opened, not leave one behind it.
+    __vg.setDevTools(false);
+    return { preventedOff: off.prevented, hiddenOff: hiddenOff, preventedOn: on.prevented,
+             openOn: openOn, hasGrid: !!grid, speeds: speeds, swatches: swatches,
+             shutByToggle: menu.hidden };
+  })()`);
+  const ok = !r.preventedOff && r.hiddenOff && r.preventedOn && r.openOn && r.hasGrid &&
+             r.speeds.join(",") === "1,2,4,8" && r.swatches === 0 && r.shutByToggle;
+  return { ok, detail: `off: preventDefault=${r.preventedOff} (must be false so the host keeps ` +
+    `its own menu), stayed hidden=${r.hiddenOff}; on: preventDefault=${r.preventedOn}, ` +
+    `opened=${r.openOn}, grid item=${r.hasGrid}, speed multipliers=[${r.speeds.join(", ")}], ` +
+    `${r.swatches} colour swatches (must be 0 -- this is not the legend's menu); ` +
+    `setting off again shut it=${r.shutByToggle}` };
+});
+
+// github#165
+check("a right-click on a note still pins it, and opens no developer menu", async (p) => {
+  const r = await p.j(`(function(){
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    var o = document.getElementById("vg-graph").getBoundingClientRect();
+    var host = __vg.renderer.getCanvases().mouse;   // where the captor listens
+    // The biggest visible note, so the hit test lands on it rather than near it.
+    var best = null, bs = -1;
+    __vg.graph.forEachNode(function (id) {
+      if (!__vg.visible(id) || (__vg.alpha[id] || 0) < 0.9) return;
+      var dd = __vg.renderer.getNodeDisplayData(id);
+      if (!dd || dd.hidden) return;
+      var sz = __vg.renderer.scaleSize(dd.size);
+      if (sz > bs) { bs = sz; best = id; }
+    });
+    if (!best) return { skip: true };
+    var a = __vg.graph.getNodeAttributes(best);
+    var v = __vg.renderer.graphToViewport({ x: a.x, y: a.y });
+
+    __vg.setDevTools(true);
+    var was = __vg.isPinned(best);
+    host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+      clientX: Math.round(v.x + o.left), clientY: Math.round(v.y + o.top) }));
+    var pinned = __vg.isPinned(best);
+    var stayedShut = menu.hidden;
+    if (__vg.isPinned(best) !== was) __vg.togglePin(best);   // leave the page as found
+    __vg.setDevTools(false);
+    return { skip: false, size: Math.round(bs * 10) / 10, was: was,
+             pinned: pinned, stayedShut: stayedShut, restored: __vg.isPinned(best) === was };
+  })()`);
+  if (r.skip) return { ok: true, detail: "no visible note to aim at on this shape" };
+  const ok = r.pinned !== r.was && r.stayedShut && r.restored;
+  return { ok, detail: `aimed at a ${r.size}px note with Developer debug ON: pinned ` +
+    `${r.was} -> ${r.pinned} (rightClickNode still owns it), developer menu stayed ` +
+    `shut=${r.stayedShut}, pin restored=${r.restored}` };
+});
+
+// github#165
+check("the developer menu's grid item draws the wedge overlay", async (p) => {
+  // The overlay is painted by the renderer's draw hook, not by the click, so each half of
+  // this settles before it reads the canvas -- otherwise it would be asserting that a
+  // freshly CREATED canvas defaults to visible, which is true of the first run only.
+  const before = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    __vg.setDevTools(true);
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
+    var pressed = b.getAttribute("aria-pressed");
+    b.click();
+    return { started: !!cv && !cv.hidden, pressed: pressed,
+             closed: document.querySelector('[id$="ctxmenu"]').hidden };
+  })()`);
+  await settle(p);
+  const on = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    // Read the canvas BEFORE reopening the menu and clicking: the click turns the overlay
+    // back off, and a property read after it would be measuring the wrong half.
+    var out = { drawn: !!cv && !cv.hidden,
+                inHost: !!(cv && cv.parentElement && cv.parentElement.id === "vg-graph"),
+                painted: !!(cv && cv.width > 0 && cv.height > 0) };
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
+    out.pressed = b.getAttribute("aria-pressed");
+    b.click();
+    return out;
+  })()`);
+  await settle(p);
+  const off = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    __vg.setDevTools(false);
+    return { gone: !!cv && cv.hidden };
+  })()`);
+  const ok = !before.started && before.pressed === "false" && before.closed &&
+             on.drawn && on.inHost && on.painted && on.pressed === "true" && off.gone;
+  return { ok, detail: `overlay at rest=${before.started} (must be false); the item reads ` +
+    `pressed=${before.pressed} and closes the menu=${before.closed}; a frame later the ` +
+    `lattice is drawn=${on.drawn} on a ${on.painted ? "sized" : "ZERO-SIZED"} canvas, ` +
+    `inside #vg-graph=${on.inHost}, and the item now reads ` +
+    `pressed=${on.pressed}; clicking again hides it=${off.gone}` };
+});
+
+// github#165
+check("the grid drawn from the menu is the whole grid, and no dot moves to get it", async (p) => {
+  // The wedge cells are collected by the packer, and only on a pass that ran while the
+  // overlay was already on. Toggling it from the menu at rest used to leave DBG.cells null,
+  // so the overlay drew the band radii and NOTHING ELSE until some filter happened to
+  // re-pack. Two assertions: the four line kinds are all present, and buying them moved
+  // no note -- applyLayout() re-runs the packer, and the resting layout must be a no-op.
+  const before = await p.j(`(function(){
+    __vg.setDevTools(true);
+    __vg.setWedgeGrid(false);            // start from cells-are-null, the reachable state
+    var pos = {};
+    __vg.graph.forEachNode(function (id, a) { pos[id] = [a.x, a.y]; });
+    window.__smokeGrid = pos;
+    return { cells: (__vg.wedgeCells() || []).length, notes: Object.keys(pos).length };
+  })()`);
+  await settle(p);
+  const after = await p.j(`(function(){
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
+    b.click();
+    var cells = (__vg.wedgeCells() || []).length;
+    var was = window.__smokeGrid, moved = 0, worst = 0;
+    __vg.graph.forEachNode(function (id, a) {
+      var w = was[id];
+      if (!w) return;
+      var d = Math.hypot(a.x - w[0], a.y - w[1]);
+      if (d > 0.5) moved++;
+      if (d > worst) worst = d;
+    });
+    // wedgeTrace() walks the seam geometry the overlay draws between adjacent cells, so a
+    // non-empty trace is a second, independent witness that the cells came back.
+    var trace = (__vg.wedgeTrace() || []).length;
+    delete window.__smokeGrid;
+    __vg.setWedgeGrid(false);
+    __vg.setDevTools(false);
+    return { cells: cells, moved: moved, worst: Math.round(worst * 100) / 100, trace: trace };
+  })()`);
+  const ok = before.cells === 0 && after.cells > 0 && after.moved === 0 && after.trace > 0;
+  return { ok, detail: `wedge cells ${before.cells} -> ${after.cells} on one click of the ` +
+    `menu item (0 after would mean the band radii drawn alone); ${after.trace} seam-trace ` +
+    `rows; of ${before.notes} notes ${after.moved} moved, worst ${after.worst} units` };
+});
+
+// github#165
+check("the grid's key sits bottom left, clear of every button over the graph", async (p) => {
+  // The key is drawn on canvas, so there is no element to measure -- DBG.legendBox is where
+  // drawWedgeLegend() put it, in host coordinates, and the two control groups are measured
+  // against that. It used to sit at 12,12, straight on top of #vg-sheet and #vg-band.
+  await p.j(`(function(){ __vg.setDevTools(true); return __vg.setWedgeGrid(true); })()`);
+  await settle(p);
+  const r = await p.j(`(function(){
+    var host = document.getElementById("vg-graph");
+    var hb = host.getBoundingClientRect();
+    var box = __vg.wedgeLegendBox();
+    if (!box) return { missing: true };
+    // Host coordinates -> viewport, so the sibling control group is comparable.
+    var key = { left: hb.left + box.x, top: hb.top + box.y,
+                right: hb.left + box.x + box.w, bottom: hb.top + box.y + box.h };
+    var hits = [];
+    ["vg-cam", "vg-viewbtns", "vg-tools"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el || el.hidden) return;
+      var b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      if (key.left < b.right && key.right > b.left &&
+          key.top < b.bottom && key.bottom > b.top) hits.push(id);
+    });
+    // Every button that actually sits over the graph, whatever it is called.
+    var overlapAny = [];
+    [].forEach.call(host.parentElement.querySelectorAll("button"), function (el) {
+      var b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      if (key.left < b.right && key.right > b.left &&
+          key.top < b.bottom && key.bottom > b.top) overlapAny.push(el.id || el.title || "?");
+    });
+    var inHost = box.x >= 0 && box.y >= 0 &&
+                 box.x + box.w <= host.clientWidth + 0.5 &&
+                 box.y + box.h <= host.clientHeight + 0.5;
+    // Bottom left: left of the midpoint, below it.
+    var bottomLeft = box.x + box.w / 2 < host.clientWidth / 2 &&
+                     box.y + box.h / 2 > host.clientHeight / 2;
+    __vg.setWedgeGrid(false);
+    __vg.setDevTools(false);
+    return { missing: false, box: box, host: [host.clientWidth, host.clientHeight],
+             hits: hits, overlapAny: overlapAny, inHost: inHost, bottomLeft: bottomLeft };
+  })()`);
+  if (r.missing) return { ok: false, detail: "the overlay drew no key -- DBG.legendBox is null" };
+  const ok = r.hits.length === 0 && r.overlapAny.length === 0 && r.inHost && r.bottomLeft;
+  return { ok, detail: `key ${r.box.w}x${r.box.h} at ${r.box.x},${r.box.y} in a ` +
+    `${r.host[0]}x${r.host[1]} host: bottom-left=${r.bottomLeft}, inside=${r.inHost}, ` +
+    `named control groups overlapped=[${r.hits.join(", ") || "none"}], ` +
+    `any button over the graph overlapped=[${r.overlapAny.join(", ") || "none"}]` };
+});
+
+// github#165
+check("the developer menu's slow motion reaches the animation clock", async (p) => {
+  const r = await p.j(`(function(){
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    var pick = function (mul) {
+      var b = ${DEV_RIGHT_CLICK}.menu.querySelector('[data-speed="' + mul + '"]');
+      var checked = b.getAttribute("aria-checked");
+      b.click();
+      return checked;
+    };
+    var before = __vg.timeScale;
+    __vg.setDevTools(true);
+    var checked2Before = pick(2);
+    var at2 = __vg.timeScale;
+    pick(8);
+    var at8 = __vg.timeScale;
+    // Reopened at 8x, the 8x entry is the one that reads checked and Normal does not.
+    ${DEV_RIGHT_CLICK};
+    var marks = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
+      return b.getAttribute("data-speed") + ":" + b.getAttribute("aria-checked"); });
+    menu.querySelector('[data-speed="1"]').click();
+    var back = __vg.timeScale;
+    __vg.setDevTools(false);
+    __vg.timeScale = before;   // the suite's own fast clock, put back
+    return { before: before, checked2Before: checked2Before, at2: at2, at8: at8,
+             marks: marks, back: back, restored: __vg.timeScale };
+  })()`);
+  const ok = r.checked2Before === "false" && r.at2 === 2.5 && r.at8 === 10 &&
+             r.marks.join(" ") === "1:false 2:false 4:false 8:true" &&
+             r.back === 1.25 && r.restored === r.before;
+  return { ok, detail: `timeScale ${r.before} -> 2x=${r.at2} -> 8x=${r.at8} -> Normal=${r.back} ` +
+    `(x1, x2, x4, x8 of the 1.25 default); reopened at 8x the marks read ` +
+    `[${r.marks.join(", ")}]; restored to ${r.restored}` };
+});
+
 check("focus web stays above dim notes", async (p) => {
   const r = await p.j(`__vg.checkFocusWeb()`);
   if (!r.geomGaps) return { ok: true, detail: `${r.node} (degree ${r.degree}): no in-disc samples on this shape, nothing to measure` };

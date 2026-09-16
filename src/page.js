@@ -131,6 +131,8 @@
  * @property {boolean} [countBars]              github#78, design/0006
  * @property {boolean} [rootInOrder]            github#164 -- off is today's order
  * @property {(v: boolean) => void} [onRootInOrder]  github#164
+ * @property {boolean} [devTools]               github#165 -- absent means "follow DATA.dev"
+ * @property {(v: boolean) => void} [onDevTools]     github#165
  * @property {"folder" | "tag"} [dim]         github#86, design/0015 -- absent means "folder"
  * @property {boolean} [fitCap]               github#41, design/0011
  * @property {boolean} [sheetOpen]            github#82 -- absent means "decide from the width"
@@ -217,6 +219,9 @@
  * @property {(v: boolean) => void} setUnlinkedTintByFolder
  * @property {(v: boolean) => void} setCountBars
  * @property {(v: boolean) => void} setRootInOrder                github#164
+ * @property {(v: boolean) => void} setDevTools                   github#165
+ * @property {(v: boolean) => boolean} setWedgeGrid               github#165
+ * @property {(v: number) => number} setTimeScale                 github#165
  * @property {(v: string) => string} setDim                        github#86
  * @property {(id: string) => { g: string, sub: string, dirs: string[] }} filingOf
  * @property {(id: string) => string} noteOf
@@ -698,6 +703,19 @@ function mountVaultGraph(root, data, deps) {
   // github#164 -- the name the root group SORTS as: its first note
   var rootKey = "";
   var onCountBars = typeof deps.onCountBars === "function" ? deps.onCountBars : null;
+  // github#165 -- the developer menu on the disc. A build made with `--dev` opens with it
+  // already armed, so a fixture needs no trip through settings; everywhere else it is off
+  // until a reader asks, and the disc's right-click does nothing at all.
+  var devTools = typeof deps.devTools === "boolean" ? deps.devTools : !!(DATA && DATA.dev);
+  var onDevTools = typeof deps.onDevTools === "function" ? deps.onDevTools : null;
+  // github#165 -- buildTools() owns the context menu, and the renderer's own events are
+  // wired somewhere else entirely. These are the two handles that have to cross that line:
+  // one so the setting can shut a menu it opened, one so a right-click on the stage can open
+  // it. Same reason onDestroy.push(closeCtxMenu) reaches out of that scope.
+  /** @type {(() => void) | null} */
+  var closeMenus = null;
+  /** @type {((x: number, y: number) => void) | null} */
+  var openDev = null;
   // github#86, design/0015
   /** @type {("folder" | "tag")[]} */
   var DIMS = ["folder", "tag"];
@@ -1885,9 +1903,11 @@ function mountVaultGraph(root, data, deps) {
    * @property {HTMLCanvasElement | null} canvas
    * @property {unknown[] | null} [trace]
    * @property {number} [traceR]
+   * github#165 -- where drawWedgeLegend() last put the key, in host coordinates
+   * @property {{ x: number, y: number, w: number, h: number } | null} legendBox
    */
   /** @type {DebugState} */
-  var DBG = { on: false, cells: null, canvas: null };
+  var DBG = { on: false, cells: null, canvas: null, legendBox: null };
   var SEAM_YELLOW = "rgb(255,196,0)";
   var SEAM_YELLOW_45 = "rgba(255,196,0,0.45)";
   /** @type {Record<string, boolean>} */
@@ -3956,27 +3976,41 @@ function mountVaultGraph(root, data, deps) {
       ["dotted yellow", "seam centre"],
       ["dashed yellow", "band radius"]
     ];
-    var pad = 8, lh = 16, sw = 34, x = 12, y = 12;
+    var pad = 8, lh = 16, sw = 34, inset = 12;
     g2.font = "11px ui-monospace, monospace";
     g2.textBaseline = "middle";
     var wide = 0;
     rows.forEach(function (r) { wide = Math.max(wide, g2.measureText(r[1]).width); });
+    // github#165 -- no plate, so the box is the text's own extent rather than a drawn edge
+    // the "built" line could fall outside of. rows.length + 1 counts that line.
     var w = sw + 8 + wide + pad * 2, h = lh * (rows.length + 1) + pad * 2;
-    g2.globalAlpha = 0.72; g2.fillStyle = "#000";
-    g2.fillRect(x, y, w, h);
-    g2.globalAlpha = 1;
+    // github#165 -- bottom left. It used to sit at 12,12, and the host's two view buttons
+    // (#vg-sheet, #vg-band) are exactly there, so the key covered them. The bottom-left
+    // corner is the one corner of the host with nothing drawn over it: the zoom/fit column
+    // is bottom RIGHT and the sidebar is outside the host entirely.
+    var host = $("graph");
+    var hostH = host ? host.clientHeight : 0;
+    var x = inset;
+    var y = Math.max(inset, hostH - h - inset);
+    DBG.legendBox = { x: x, y: y, w: w, h: h };
+    // github#165 -- straight on the background, no plate behind it. The plate was what made
+    // white text safe; without it the type takes THEME.text, the same token the renderer
+    // gives its own labels, so the key reads on the light ground as well as the dark one.
+    // The "wedge centre" rule is drawn in that colour too -- it was "#fff", which is the
+    // line the disc actually draws and was invisible on light the moment the plate went.
+    var ink = THEME.text || "#fff";
     rows.forEach(function (r, i) {
       var yy = y + pad + lh * i + lh / 2;
-      g2.strokeStyle = i === 0 ? "#e66767" : i === 1 ? "#fff" : SEAM_YELLOW;
+      g2.strokeStyle = i === 0 ? "#e66767" : i === 1 ? ink : SEAM_YELLOW;
       g2.globalAlpha = i === 0 ? 0.9 : i === 1 ? 0.5 : i === 2 ? 0.75 : 0.45;
       g2.lineWidth = i === 0 ? 1.5 : 1;
       g2.setLineDash(i === 0 ? [] : i === 1 ? [5, 5] : i === 2 ? [3, 4] : [4, 4]);
       g2.beginPath(); g2.moveTo(x + pad, yy); g2.lineTo(x + pad + sw, yy); g2.stroke();
       g2.setLineDash([]);
-      g2.globalAlpha = 0.85; g2.fillStyle = "#fff";
+      g2.globalAlpha = 0.85; g2.fillStyle = ink;
       g2.fillText(r[1], x + pad + sw + 8, yy);
     });
-    g2.globalAlpha = 0.55; g2.fillStyle = "#fff";
+    g2.globalAlpha = 0.55; g2.fillStyle = ink;
     g2.fillText("built " + (DATA && DATA.generated ? DATA.generated : "?"),
                 x + pad, y + pad + lh * rows.length + lh / 2);
     g2.globalAlpha = 1;
@@ -3994,7 +4028,15 @@ function mountVaultGraph(root, data, deps) {
       }
     }
     if (!DBG.on) { DBG.cells = null; if (DBG.canvas) DBG.canvas.hidden = true; }
-    if (renderer) renderer.refresh({ skipIndexation: true });
+    // github#165 -- the wedge cells are collected BY the packer, and only on a pass that ran
+    // while DBG.on was already true (`var dbgCells = DBG.on ? [] : null`). Turning the
+    // overlay on at rest therefore had nothing to draw the wedges from: it drew the band
+    // radii alone until some filter or resize happened to re-pack. That was reachable only
+    // from a console, and a menu item makes it the FIRST thing anyone does -- so the overlay
+    // asks for the pass it needs. applyLayout(false) re-runs the packer without touching
+    // bandLock or geomLock, and the resting layout is deterministic, so no dot moves.
+    if (DBG.on && !DBG.cells && renderer) applyLayout(false);
+    else if (renderer) renderer.refresh({ skipIndexation: true });
     return DBG.on;
   }
 
@@ -4096,10 +4138,13 @@ function mountVaultGraph(root, data, deps) {
   var SPREAD_PER  = 0.17;
   var SPREAD_MIN  = 24;
   // github#41, design/0011
+  // github#165 -- named because the developer menu's "Normal" entry is this value, and a
+  // second copy of the number would be free to drift from the one the page actually opens at.
+  var TIME_SCALE_DEFAULT = 1.25;
   var TIME_SCALE  = (function () {
     var m = /(^|[?&#])slow=([0-9.]+)/.exec(String(WIN.location ? WIN.location.search : "") + " " +
                                            String(WIN.location ? WIN.location.hash : ""));
-    return m && +m[2] > 0 ? +m[2] : 1.25;
+    return m && +m[2] > 0 ? +m[2] : TIME_SCALE_DEFAULT;
   })();
   var TIMELINE_MS = 4500;
   // github#113
@@ -6250,6 +6295,19 @@ function mountVaultGraph(root, data, deps) {
       if (e.event && e.event.original) e.event.original.preventDefault();
       togglePin(e.node);
     });
+    // github#165 -- the STAGE's right-click, never a node's: rightClickNode above already
+    // owns a right-click on a note and pins it, and both would fire on one raw contextmenu
+    // listener over the host. While Developer debug is off this returns before
+    // preventDefault, so the host's own menu is untouched.
+    /** @param {RendererEvent} e */
+    var onRightClickStage = function (e) {
+      if (!devTools || !openDev) return;
+      var orig = e.event && e.event.original;
+      if (!orig || !("clientX" in orig)) return;
+      orig.preventDefault();
+      openDev(orig.clientX, orig.clientY);
+    };
+    renderer.on("rightClickStage", onRightClickStage);
     bindNodeDrag();
 
     // github#58
@@ -7575,6 +7633,9 @@ function mountVaultGraph(root, data, deps) {
       WIN.removeEventListener("resize", closeCtxMenu);
     }
     onDestroy.push(closeCtxMenu);
+    // github#165 -- the two handles the outer scope needs; see the declarations for why
+    closeMenus = closeCtxMenu;
+    openDev = openDevMenu;
     /** @param {MouseEvent} ev */
     function ctxOutside(ev) {
       var el = $("ctxmenu");
@@ -7658,6 +7719,16 @@ function mountVaultGraph(root, data, deps) {
       if (onToggleTint) {
         /** @type {HTMLElement} */ (el.querySelector("[data-tint]")).onclick = function () { onToggleTint(); closeCtxMenu(); };
       }
+      showCtxMenu(el, x, y);
+    }
+
+    /**
+     * github#165 -- the half of opening a menu that has nothing to do with what is in it:
+     * unhide, clamp inside the root, and arm the three ways it closes again. Shared by the
+     * legend's colour menu and the disc's developer menu, which agree on nothing else.
+     * @param {HTMLElement} el @param {number} x @param {number} y
+     */
+    function showCtxMenu(el, x, y) {
       el.hidden = false;
       var root0 = ROOT.getBoundingClientRect();
       var rx = x - root0.left, ry = y - root0.top;
@@ -7667,6 +7738,56 @@ function mountVaultGraph(root, data, deps) {
       DOC.addEventListener("mousedown", ctxOutside, true);
       DOC.addEventListener("keydown", ctxKey, true);
       WIN.addEventListener("resize", closeCtxMenu);
+    }
+
+    // github#165 -- slower, never faster. Each entry is a MULTIPLE of the default, never a
+    // duration of its own, so "at or above the speed the page opens at" is structural: there
+    // is no entry that could be written below the default without writing a multiplier below
+    // one. The multiplier is also what goes in the attribute and what comes back out of it --
+    // an integer round-trips exactly, where a computed duration would not survive a
+    // TIME_SCALE_DEFAULT that is not a binary fraction (1.25 is 5/4, so x2/x4/x8 are exact
+    // today; 1.3 would not be, and the checked mark would silently stop matching).
+    var SPEED_ROW = [
+      { by: 1, label: "Normal", title: "The speed the disc animates at unless ?slow= says otherwise" },
+      { by: 2, label: "2x",     title: "Half speed -- every cascade, tween and timeline sweep takes twice as long" },
+      { by: 4, label: "4x",     title: "Quarter speed" },
+      { by: 8, label: "8x",     title: "An eighth of speed -- slow enough to read a single dot's arrival" }
+    ];
+    /** @param {number} by */
+    function slowOf(by) { return TIME_SCALE_DEFAULT * by; }
+
+    /**
+     * github#165 -- the developer menu, opened by right-clicking the disc while the
+     * Developer debug setting is on. Deliberately NOT openCtxMenu: that one's thirteen
+     * parameters are all palette-shaped, and this menu has no swatches in it.
+     * @param {number} x @param {number} y
+     */
+    function openDevMenu(x, y) {
+      var el = $("ctxmenu");
+      if (!el) return;
+      var gridOn = !!DBG.on;
+      setHTML(el,
+        '<button class="vis" data-grid aria-pressed="' + gridOn + '" title="' +
+        esc("Draw the wedge lattice and the locked rings over the disc") + '">' +
+        dotSvg(gridOn) + '<span>Wedge grid</span></button>' +
+        '<div class="row devrow"><div class="lbl">Slow motion</div>' +
+        // github#165 -- menuitemradio, not radio: #vg-ctxmenu is role="menu", and ARIA lets
+        // a menu hold a group of menuitemradio but not a radiogroup. The legend's swatches
+        // in the same element are menuitemradio for the same reason.
+        '<div class="mini" role="group" aria-label="Slow motion">' +
+        SPEED_ROW.map(function (o) {
+          return '<button data-speed="' + o.by + '" role="menuitemradio" aria-checked="' +
+                 (TIME_SCALE === slowOf(o.by)) + '" title="' + esc(o.title) + '">' +
+                 esc(o.label) + '</button>';
+        }).join("") + '</div></div>');
+      /** @type {HTMLElement} */ (el.querySelector("[data-grid]")).onclick = function () {
+        wedgeDebug(!DBG.on); closeCtxMenu();
+      };
+      Array.prototype.forEach.call(el.querySelectorAll("[data-speed]"),
+        /** @param {HTMLElement} b */ function (b) {
+          b.onclick = function () { setTimeScale(slowOf(+b.getAttribute("data-speed"))); closeCtxMenu(); };
+        });
+      showCtxMenu(el, x, y);
     }
 
     $("legend").addEventListener("contextmenu", function (ev) {
@@ -7806,7 +7927,12 @@ function mountVaultGraph(root, data, deps) {
       { key: "rootInOrder", label: "Vault root sorts with the folders",
         title: "Let (vault root) take the place its own notes sort to, in among the folders, instead of sitting at the front. It sorts as its first note does, which is where the file explorer starts showing them. The archives keep the front, and (untagged) and (unlinked) stay at the end",
         get: function () { return rootInOrder; },
-        set: function (v) { setRootInOrder(v === true, true); } }
+        set: function (v) { setRootInOrder(v === true, true); } },
+      // github#165
+      { key: "devTools", label: "Developer debug",
+        title: "Right-click the disc for a developer menu: draw the wedge lattice over it, and slow every animation down so a cascade can be read a dot at a time. Off by default, and while it is off the disc's right-click does nothing",
+        get: function () { return devTools; },
+        set: function (v) { setDevTools(v === true, true); } }
     ];
     // github#71 -- the first non-boolean setting; keys must match FOLDER_ORDERS
     var FOLDER_ORDER_ROW = [
@@ -8575,6 +8701,30 @@ function mountVaultGraph(root, data, deps) {
     if (persist && onCountBars) onCountBars(countBars);
     return countBars;
   }
+
+  /**
+   * github#165 -- the switch the developer menu hangs off. Turning it off closes the menu
+   * as well as hiding it, so the setting cannot leave one open behind its own back.
+   * @param {boolean} on @param {boolean} [persist]
+   */
+  function setDevTools(on, persist) {
+    devTools = !!on;
+    var btn = $("opt-devTools");
+    if (btn) btn.setAttribute("aria-pressed", devTools ? "true" : "false");
+    if (!devTools && closeMenus) closeMenus();
+    if (persist && onDevTools) onDevTools(devTools);
+    return devTools;
+  }
+
+  /**
+   * github#165 -- `wedgeDebug` and `TIME_SCALE` are product code and always shipped; only
+   * their `__vg` accessors sit inside the block build-plugin.mjs strips, so the plugin has
+   * the drawing and the clock but no way to ask for either. `setWedgeGrid` on the api is
+   * `wedgeDebug` itself, which is already a setter and needs no second name; the clock does
+   * need one, because assigning TIME_SCALE has two callers.
+   * @param {number} v
+   */
+  function setTimeScale(v) { TIME_SCALE = +v > 0 ? +v : 1; return TIME_SCALE; }
 
   function savePng() {
     // github#142
@@ -10935,6 +11085,10 @@ function mountVaultGraph(root, data, deps) {
                     setCountBars: function (v) { return setCountBars(v !== false, false); },
                     // github#164 -- instant, like setFolderOrder: the host is not watching
                     setRootInOrder: /** @param {boolean} v */ function (v) { return setRootInOrder(v, false, true); },
+                    // github#165
+                    setDevTools: /** @param {boolean} v */ function (v) { return setDevTools(v === true, false); },
+                    setWedgeGrid: /** @param {boolean} v */ function (v) { return wedgeDebug(v === true); },
+                    setTimeScale: /** @param {number} v */ function (v) { return setTimeScale(v); },
                     applyHiddenDefaults: function () {
                       seedHidden();
                       buildLegend();
@@ -11189,6 +11343,10 @@ function mountVaultGraph(root, data, deps) {
                     get lazyEdges() { return lazyEdges; },
                     isOrphan: isOrphan,
                     wedgeDebug: wedgeDebug, wedgeEdges: wedgeEdges,
+                    // github#165 -- where the key landed, in host coordinates. Canvas, so
+                    // there is no element to measure and the check would have nothing to
+                    // assert against the view controls it has to stay clear of.
+                    wedgeLegendBox: function () { return DBG.legendBox || null; },
                     bandRef: function () { return geomLock ? geomLock.bandR : null; },
                     // github#86 -- the rings as locked, and the dimension they were taken from
                     get geomLock() { return geomLock; },

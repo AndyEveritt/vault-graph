@@ -5103,3 +5103,157 @@ reintroducing a real defect with the file out of the include and watching 22 dia
 `strictNullChecks` over the JavaScript -- github#145 calls it a separate, later, measured step,
 and github#55's ratchet owns it. `src/build-graph.mjs` and `scripts/**` are in no type program
 today; widening the program is its own measurement.
+
+## The disc's right-click is the host's until a reader asks for it (github#165)
+
+Right-clicking the **empty stage** opens a developer menu — the wedge grid, and a slow-motion
+scale — and it does so **only** while the **Developer debug** setting is on. The setting is
+`defaultOn: false` in `VIEW_SETTINGS` and `false` in `DEFAULTS`, and the handler returns
+*before* `preventDefault()` when it is off. That ordering is the invariant, not a detail: a
+handler that prevented the default and then decided would suppress Obsidian's own context
+menu on the disc for every reader who never asked for this.
+
+### It hangs off `rightClickStage`, and that is the whole of why a note still pins
+
+The first cut bound a plain `contextmenu` listener to `#vg-graph`. That is wrong, and the
+check that caught it is the one worth keeping: **`rightClickNode` already owns a right-click
+on a note and toggles its pin** (`src/page.js`, beside this handler). A DOM listener over the
+host sits above both cases, so with the setting on, right-clicking a note pinned it **and**
+opened the developer menu. `rightClickStage` fires only when the renderer's own hit test
+finds nothing under the pointer, so the two cannot collide by construction.
+
+That cost one line of contract. `rightClickStage` has been emitted since the captor was
+written but was declared only in `renderer.ts`'s private `EventMap`, so `on()` — typed
+`<K extends keyof RendererEvents>` — could not admit it and **no consumer could subscribe at
+all**. It is now in the public `RendererEvents` in `src/engine/types.ts`. `downStage`,
+`upNode` and `upStage` are in the same position and deliberately stay private until something
+consumes them.
+
+```bash
+node scripts/smoke.mjs --only "right-click does nothing"     # the gate
+node scripts/smoke.mjs --only "still pins it"                # the collision, as a check
+node scripts/smoke.mjs --only "the whole grid"               # the half-grid, as a check
+node scripts/smoke.mjs --only "the grid's key"               # the key's placement
+```
+
+**Six checks, on `demo-vault` only** — none of them asserts anything about a fixture's shape,
+so per *Each check runs where its assertion lives* they take the cheap default rather than
+`"all"`.
+
+The first fires a cancelable `contextmenu` with the setting off and asserts
+`defaultPrevented === false` and the menu still hidden; then with it on, asserts
+`defaultPrevented === true`, the menu open, the grid item present, the four speed entries at
+`1.25, 2.5, 5, 10`, and **zero `.swatch` elements** — the last of those is what separates this
+menu from the legend's, which shares the same `#vg-ctxmenu` element. Finally it turns the
+setting off again and asserts the open menu shut: `setDevTools(false)` calls `closeMenus()`,
+so a menu cannot outlive the switch that opened it. The second aims at the largest visible
+note with the setting **on** and asserts the pin flipped and the menu stayed shut — measured
+`false -> true` on a 7.7px note, against `false -> false` and a menu that opened on the
+`#vg-graph` version.
+
+**A synthetic event must be dispatched at the MOUSE CANVAS, not at `#vg-graph`.** The captor
+listens on `renderer.getCanvases().mouse`, a descendant of the host, so an event dispatched at
+the host bubbles *upward* past it and reaches nothing. All four checks aim at a corner inset
+18px into the host rather than the centre: the hub hole in the middle of the disc holds the
+unlinked notes on the fixtures that have any, so the centre is not reliably empty stage.
+
+### The implementation was already in the plugin; only the accessors were not
+
+`scripts/build-plugin.mjs` (`stripDemoAndDebug`) removes the text between three marker pairs
+in `src/page.js`. Measured at 9e84932:
+
+| region | lines |
+|---|---|
+| the `demoCursorAt` cluster | 3247–3280 |
+| the `demoMode` / `demoAct` / `demoApi` cluster | 9877–10636 |
+| the `debugAPI` slice of `window.__vg` | 11166–11693 |
+
+`wedgeDebug()` is defined at **3985**, `TIME_SCALE` at **4099**, `wantWedgeDebug()` at
+**9825** and its caller at **6263** — every one of them outside every region, and therefore
+already shipped in the plugin. What the strip removes is `wedgeDebug:` (11191) and the
+`timeScale` getter/setter (11341–11342), i.e. the *names on `__vg`*, not the code behind them.
+
+So the product API carries `setWedgeGrid` and `setTimeScale` as two delegating one-liners
+beside `setFitCap`, and **`debugAPI` is not touched** — `__vg.wedgeDebug` and `__vg.timeScale`
+still exist for `smoke.mjs` and the storyboard, and are still stripped from the plugin.
+**Do not "fix" this by moving `wedgeDebug` or `TIME_SCALE` across a marker**: the markers are
+count-checked, and the move would buy nothing that is not already there.
+
+The cost of the whole feature, measured by building `main.js` at 9e84932 and again on this
+branch: **538,085 → 542,867 bytes, +4,782 (+0.9%)**. The three stripped regions stay stripped —
+`demoAct`, `checkZeroWeightInvariance` and `timeScale` each occur **0** times in the built
+bundle, while `openDevMenu`, `setWedgeGrid`, `setTimeScale` and `rightClickStage` are present.
+
+### One menu element, two openers, one shared tail
+
+`#vg-ctxmenu` is a singleton and both menus use it. What they share is `showCtxMenu(el, x, y)`
+— unhide, clamp inside the mount, arm the outside-mousedown / Escape / resize listeners — and
+nothing else. `openCtxMenu`'s thirteen positional parameters are all palette-shaped (a swatch
+grid plus three bespoke trailing toggles) and six checks drive that path; `openDevMenu` has no
+swatches at all. Generalising one function to serve both would mean an item-list abstraction
+*plus* a swatch special case, so the second opener is deliberate (D-2, github#165).
+
+### Turning the overlay on has to re-pack, or it draws the band radii alone
+
+The wedge cells are collected **by** the packer, and only on a pass that ran while `DBG.on`
+was already true — `var dbgCells = DBG.on ? [] : null` in `ringsLayout()`. `wedgeDebug()`
+only called `renderer.refresh()`, which repaints and re-runs no layout. So turning the
+overlay on at rest had nothing to draw the wedges from: it drew the band-radius circles and
+**nothing else**, until some filter or resize happened to re-pack.
+
+That has always been true and never mattered, because the only way in was
+`__vg.wedgeDebug()` from a console with a relayout a keystroke away. A menu item makes it
+the **first** thing anyone does with the feature, so `wedgeDebug()` now asks for the pass it
+needs: `applyLayout(false)` when `DBG.on && !DBG.cells`. That re-runs the packer without
+touching `bandLock` or `geomLock`; `hardRelayout()` would reset both and is the wrong tool.
+
+**The fix buys the grid by re-packing, so the no-op had to be proven rather than assumed.**
+Measured on the demo mirror: wedge cells **0 → 43** on one click, **86** seam-trace rows, and
+of **1403 notes, 0 moved, worst 0 units**. Without the fix the check reads `0 -> 0` cells and
+`0` seam-trace rows.
+
+### The grid's key sits bottom left, and nothing drawn over the graph is under it
+
+`drawWedgeLegend()` put the key at `12, 12`. The host's two view buttons (`#vg-sheet`,
+`#vg-band`) are exactly there, so the overlay covered them — found by the maintainer looking
+at the review build, not by any check. It is now **bottom left**, which is the one corner of
+the host with nothing drawn over it: the zoom/fit column (`#vg-cam`) is bottom right, and the
+sidebar is outside the host entirely.
+
+**There is no plate behind it.** The key used to sit on a 72%-black rectangle, and the
+`built <date>` line fell outside that rectangle's bottom edge. The plate is gone rather than
+resized: it was also the only reason white type was safe there. Without it the type and the
+`wedge centre` sample rule take **`THEME.text`** — the same token the renderer gives its own
+node labels — so both read on the light ground as well as the dark one. The `wedge centre`
+rule was `#fff`, which is the colour the disc actually draws, and would have vanished on
+light the moment the plate went.
+
+The key is drawn on canvas, so there is no element for a check to measure. `DBG.legendBox`
+records where it landed in host coordinates and `__vg.wedgeLegendBox()` hands it over.
+
+```bash
+node scripts/smoke.mjs --only "the grid's key"
+```
+
+It asserts the box is inside the host, left of the midpoint and below it, and overlaps
+**neither** the named control groups **nor any `button` drawn over the graph**. That second
+test is the one with teeth: reverting the placement to `12, 12` fails it naming `vg-sheet,
+vg-band` — two ids the named list does not contain, which is exactly why the check does not
+rely on a list. Measured at the placement that ships: key **131×96 at 12, 1017** in a
+2256×1125 host, **0 overlaps**.
+
+### Slow motion is a scale, and it only ever slows
+
+`TIME_SCALE` multiplies every duration, so a larger number is slower. The entries are
+**1.25 (Normal, the built-in default), 2.5, 5, 10** — that is 1×, 2×, 4× and 8× against the
+default, and every one of them is at or above it. The menu can make a cascade readable; it
+cannot make one race. `?slow=<n>` still sets any value at load, unchanged.
+
+### `--dev` arms the menu, and the suite does not pass it
+
+`build-graph.mjs --dev` sets `DATA.dev`, and `devTools` falls back to it when no host has
+chosen, so a page built with `--dev` opens with the menu already available. `DATA.dev` also
+arms `wantWedgeDebug()`, which draws the lattice at boot — so **`--dev` is deliberately not
+added to `smoke.mjs`'s `buildFor`**: it would draw the wedge overlay over all 66 checks and
+every `shoot.mjs` still. Turning that on is a change to what the whole suite renders and wants
+a decision, not a default (D-7, github#165).

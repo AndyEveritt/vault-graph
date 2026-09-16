@@ -338,7 +338,9 @@
   }
   /* github#71 -- the segmented Folder order radio borrows the pressed look */
   .vault-graph .mini button[aria-pressed="true"], .vault-graph button.btn[aria-pressed="true"],
-  .vault-graph .mini button[role="radio"][aria-checked="true"] {
+  .vault-graph .mini button[role="radio"][aria-checked="true"],
+  /* github#165 -- the developer menu's speed row, which is menuitemradio inside role="menu" */
+  .vault-graph .mini button[role="menuitemradio"][aria-checked="true"] {
     background: var(--accent); border-color: var(--accent); color: #fff;
   }
 
@@ -872,6 +874,18 @@
     justify-content: center; gap: 5px;
   }
   .vault-graph .ctxmenu .vis svg { width: 14px; height: 14px; flex: none; }
+
+  /* github#165 -- the developer menu. The colour menu's items are one full-width control
+     each; a label with four choices under it does not fit 176px on one line, so this row
+     stacks instead of sitting them side by side the way .row does everywhere else. */
+  .vault-graph .ctxmenu .vis:first-child { margin-top: 0; }
+  .vault-graph .ctxmenu .devrow {
+    display: block; margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .vault-graph .ctxmenu .devrow .lbl { margin: 0 0 5px; }
+  .vault-graph .ctxmenu .devrow .mini { justify-content: center; }
+  .vault-graph .ctxmenu .devrow .mini button { flex: 1 1 auto; text-align: center; }
 
   .vault-graph .scrsub { margin-left: 14px; }
   .vault-graph .scrsub .scrh .nm { font-size: 10px; }
