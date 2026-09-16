@@ -5101,3 +5101,76 @@ reintroducing a real defect with the file out of the include and watching 22 dia
 `strictNullChecks` over the JavaScript -- github#145 calls it a separate, later, measured step,
 and github#55's ratchet owns it. `src/build-graph.mjs` and `scripts/**` are in no type program
 today; widening the program is its own measurement.
+
+## The disc's right-click is the host's until a reader asks for it (github#165)
+
+Right-clicking the disc opens a developer menu — the wedge grid, and a slow-motion scale —
+and it does so **only** while the **Developer debug** setting is on. The setting is
+`defaultOn: false` in `VIEW_SETTINGS` and `false` in `DEFAULTS`, and the handler on
+`#vg-graph` returns *before* `preventDefault()` when it is off. That ordering is the
+invariant, not a detail: a handler that prevented the default and then decided would
+suppress Obsidian's own context menu on the disc for every reader who never wanted this.
+
+```bash
+node scripts/smoke.mjs --only "right-click does nothing"   # bites on all five fixtures
+```
+
+The check fires a cancelable `contextmenu` on `#vg-graph` with the setting off and asserts
+`defaultPrevented === false` and the menu still hidden; then with it on, asserts
+`defaultPrevented === true`, the menu open, the grid item present, the four speed entries at
+`1.25, 2.5, 5, 10`, and **zero `.swatch` elements** — the last of those is what separates this
+menu from the legend's, which shares the same `#vg-ctxmenu` element. Finally it turns the
+setting off again and asserts the open menu shut: `setDevTools(false)` calls `closeMenus()`,
+so a menu cannot outlive the switch that opened it.
+
+### The implementation was already in the plugin; only the accessors were not
+
+`scripts/build-plugin.mjs` (`stripDemoAndDebug`) removes the text between three marker pairs
+in `src/page.js`. Measured at 9e84932:
+
+| region | lines |
+|---|---|
+| the `demoCursorAt` cluster | 3247–3280 |
+| the `demoMode` / `demoAct` / `demoApi` cluster | 9877–10636 |
+| the `debugAPI` slice of `window.__vg` | 11166–11693 |
+
+`wedgeDebug()` is defined at **3985**, `TIME_SCALE` at **4099**, `wantWedgeDebug()` at
+**9825** and its caller at **6263** — every one of them outside every region, and therefore
+already shipped in the plugin. What the strip removes is `wedgeDebug:` (11191) and the
+`timeScale` getter/setter (11341–11342), i.e. the *names on `__vg`*, not the code behind them.
+
+So the product API carries `setWedgeGrid` and `setTimeScale` as two delegating one-liners
+beside `setFitCap`, and **`debugAPI` is not touched** — `__vg.wedgeDebug` and `__vg.timeScale`
+still exist for `smoke.mjs` and the storyboard, and are still stripped from the plugin.
+**Do not "fix" this by moving `wedgeDebug` or `TIME_SCALE` across a marker**: the markers are
+count-checked, and the move would buy nothing that is not already there.
+
+The cost of the whole feature, measured by building `main.js` at 9e84932 and again on this
+branch: **538,085 → 542,425 bytes, +4,340 (+0.8%)**. The three stripped regions stay stripped —
+`demoAct`, `checkZeroWeightInvariance` and `timeScale` each occur **0** times in the built
+bundle, while `openDevMenu`, `setWedgeGrid` and `setTimeScale` are present.
+
+### One menu element, two openers, one shared tail
+
+`#vg-ctxmenu` is a singleton and both menus use it. What they share is `showCtxMenu(el, x, y)`
+— unhide, clamp inside the mount, arm the outside-mousedown / Escape / resize listeners — and
+nothing else. `openCtxMenu`'s thirteen positional parameters are all palette-shaped (a swatch
+grid plus three bespoke trailing toggles) and six checks drive that path; `openDevMenu` has no
+swatches at all. Generalising one function to serve both would mean an item-list abstraction
+*plus* a swatch special case, so the second opener is deliberate (D-2, github#165).
+
+### Slow motion is a scale, and it only ever slows
+
+`TIME_SCALE` multiplies every duration, so a larger number is slower. The entries are
+**1.25 (Normal, the built-in default), 2.5, 5, 10** — that is 1×, 2×, 4× and 8× against the
+default, and every one of them is at or above it. The menu can make a cascade readable; it
+cannot make one race. `?slow=<n>` still sets any value at load, unchanged.
+
+### `--dev` arms the menu, and the suite does not pass it
+
+`build-graph.mjs --dev` sets `DATA.dev`, and `devTools` falls back to it when no host has
+chosen, so a page built with `--dev` opens with the menu already available. `DATA.dev` also
+arms `wantWedgeDebug()`, which draws the lattice at boot — so **`--dev` is deliberately not
+added to `smoke.mjs`'s `buildFor`**: it would draw the wedge overlay over all 66 checks and
+every `shoot.mjs` still. Turning that on is a change to what the whole suite renders and wants
+a decision, not a default (D-7, github#165).
