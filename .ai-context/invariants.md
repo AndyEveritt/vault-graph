@@ -2853,25 +2853,36 @@ order.
 
 **THE RANK IS THE OUTER SORT KEY, AND THERE ARE NOW TWO OF THEM (github#164).** `groupRank()`
 is the **stable** one -- archives 0, bracketed pseudo-groups 1, real folders 2, `(untagged)` 3,
-`(unlinked)` 4 -- and it is what `byGroupName()` sorts on, which makes it what the **name order**
-is, which makes it what hands out colour slots (github#71 D-5). `drawRank()` is the one the
-**draw** order partitions on, and it differs in exactly one place: with **Vault root below the
-folders** on, `(vault root)` ranks **2.5**, landing after the last real folder and before the two
-buckets.
+`(unlinked)` 4 -- and it is what `byGroupName()` sorts on, which makes it the **name order**,
+which makes it what hands out colour slots (github#71 D-5). `drawRank()` is what the **draw**
+order partitions on, and with **Vault root sorts with the folders** on it ranks `(vault root)`
+as **2**, a real folder, so it seats itself among them.
 
-**They have to be two functions, and that is measured rather than argued.** The first cut moved
-`(vault root)` inside `groupRank()` itself, which changed the name order, which changed the slot
-walk: **17 of 18 groups repainted on the demo vault** the first time the check ran. That is the
-defect github#71's D-5 exists to prevent, reintroduced from the other end -- D-5 decoupled the
-slot order from a *spec-driven* reorder, and a rank change reached it anyway because both are
-derived from `byGroupName()`.
+**Where it seats is its first note, not the end of the list.** The setting was built as "below
+all folders" and that was wrong, caught by the maintainer against his own explorer: the notes in
+`(vault root)` are interleaved with the folders alphabetically, so the group belongs where its
+**alphabetically first note** sorts. On his vault that is between `09 - Work Notes` and `Inbox`,
+because the first root note is `CLAUDE` and the `_`-prefixed folders are pulled out to rank 0.
+`drawKey()` returns that note's name for the root group and the group's own name for everything
+else; `rootKey` is recomputed by `computeOrder()`.
 
-**And the partition runs in every mode.** `drawOrder()` used to return `names` untouched when the
-mode was `name`, so the setting did nothing on any vault without a sortspec -- it worked on
-`spec-vault` and silently did nothing on the other four. Where the root group sits is not the
-sortspec's business. Under `name` with the setting off the partition is the **identity**:
-`names` arrives rank-sorted, so splitting it by rank rebuilds it exactly, which is why all five
-goldens are byte-identical.
+**Three defects, each found by the check rather than by reading:**
+
+1. Moving the rank inside `groupRank()` itself **repainted 17 of 18 groups on the demo vault** --
+   github#71's D-5 reintroduced from the other end, since D-5 had only decoupled the slot order
+   from a *spec-driven* reorder and both orders come off the same comparator. Hence two ranks.
+2. `drawOrder()` returned `names` untouched when the mode was `name`, so the setting worked on
+   `spec-vault` and did **nothing** on the other four. Where the root group sits is not the
+   sortspec's business. The partition runs in every mode now, and under `name` with the setting
+   off it is the **identity**: `names` arrives rank-sorted, so splitting it by rank rebuilds it.
+3. `rootKey` came back **empty on every fixture**. `inDim()` runs `computeOrder()` for the *tag*
+   disc as well, where no group is `(vault root)`, and the unconditional reset at the top of the
+   block wiped the key the folder disc had just derived. It is computed in the folder dimension
+   only.
+
+**The buckets stay at the very end, and that is what the check asserts** -- not that the last
+entries are non-folders, which was true only while the root group always went last. A real
+folder may now follow it: on `shape-vault` it seats between `refs` and `tiny`.
 
 **ONLY `spec-vault` CARRIES A SORTSPEC, and that is deliberate (github#71 D-13).** The other
 four fixtures are spec-free, so **every one of their goldens is byte-identical to the one

@@ -1373,38 +1373,46 @@ check("a folder keeps its colour when the wedge order changes", async (p) => {
                           : "; every automatic slot unchanged")
   };
 }, { on: "all" });   // github#71 -- MUST reach test-vault, where the slot walk cycles
-check("the vault root can sit below the folders, and keeps its colour there", async (p) => {
+check("the vault root sorts with the folders, and keeps its colour there", async (p) => {
   const r = await p.j(`(function(){
-    var was = __vg.rootLast;
+    var was = __vg.rootInOrder;
     var read = function(){
       var o = __vg.groupOrder(), s = {};
       o.forEach(function(g){ s[g] = __vg.autoSlotOf(g); });
       return { order: o, slots: s };
     };
-    __vg.setRootLast(false); var off = read();
-    __vg.setRootLast(true);  var on  = read();
-    __vg.setRootLast(was === true);
-    return { off: off, on: on };
+    __vg.setRootInOrder(false); var off = read();
+    __vg.setRootInOrder(true);  var on  = read();
+    var k = __vg.rootKey;
+    __vg.setRootInOrder(was === true);
+    return { off: off, on: on, key: k };
   })()`);
   const ROOT = "(vault root)";
   if (r.off.order.indexOf(ROOT) < 0) {
     return { ok: true, detail: `NOT ASSERTED: this vault has no ${ROOT} group` };
   }
-  // github#164 -- only the root group moves, and it lands last
-  const real = (o) => o.filter((g) => g.charAt(0) !== "_" && g.charAt(0) !== "(");
-  const iOff = r.off.order.indexOf(ROOT), iOn = r.on.order.indexOf(ROOT);
-  const lastReal = r.on.order.lastIndexOf(real(r.on.order)[real(r.on.order).length - 1]);
-  const tail = r.on.order.slice(iOn + 1);
-  const movedDown = iOn > iOff;
-  const afterFolders = iOn === lastReal + 1;
-  const tailOk = tail.every((g) => g === "(untagged)" || g === "(unlinked)");
+  if (!r.key) return { ok: false, detail: `${ROOT} exists but no sort key was derived from its notes` };
+  // github#164 -- it sorts as its first note, among the real folders
+  const iOn = r.on.order.indexOf(ROOT);
+  const before = r.on.order[iOn - 1], after = r.on.order[iOn + 1];
+  const cmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+  const isReal = (g) => g && g.charAt(0) !== "_" && g.charAt(0) !== "(";
+  const seated = (!isReal(before) || cmp(before, r.key) < 0) &&
+                 (!isReal(after) || cmp(after, r.key) > 0);
+  // github#164 -- the archives stay in front, the two buckets stay at the back
+  const archivesFirst = r.on.order.filter((g) => g.charAt(0) === "_")
+    .every((g) => r.on.order.indexOf(g) < iOn);
+  const buckets = r.on.order.filter((g) => g === "(untagged)" || g === "(unlinked)");
+  const tailOk = buckets.every((g, i) => r.on.order[r.on.order.length - buckets.length + i] === g);
   const sameSet = r.off.order.slice().sort().join("|") === r.on.order.slice().sort().join("|");
+  const moved = r.off.order.join("|") !== r.on.order.join("|");
   // github#164, github#71 -- a bearing change must not repaint
   const drift = Object.keys(r.off.slots).filter((g) => r.on.slots[g] !== r.off.slots[g]);
   return {
-    ok: movedDown && afterFolders && tailOk && sameSet && drift.length === 0,
-    detail: `${ROOT} ${iOff} -> ${iOn} of ${r.on.order.length}; after the last folder: ${afterFolders}; ` +
-            `tail [${tail.join(", ") || "none"}]; same groups: ${sameSet}; ` +
+    ok: seated && archivesFirst && tailOk && sameSet && drift.length === 0,
+    detail: `sorts as "${r.key}": [${before || "-"}] < ${ROOT} < [${after || "-"}]; seated ${seated}; ` +
+            `moved ${moved}; archives still first ${archivesFirst}; buckets last ${tailOk}; ` +
+            `same groups ${sameSet}; ` +
             (drift.length ? `${drift.length} REPAINTED: ${drift.slice(0, 4).join(", ")}`
                           : "every automatic slot unchanged")
   };
