@@ -5334,14 +5334,15 @@ and the plugin needs no `Platform.isMobile` -- Obsidian mobile reports coarse at
 
 | | |
 |---|---|
-| reading order | **calendar, disc, folder list**, all in the scroll flow |
+| reading order | **disc, folder list**, all in the scroll flow -- the calendar starts **folded** and opens above the disc (github#170 second pass) |
 | minimum hit box | **44 x 44 px** outside the calendar; the calendar is read rather than driven, so it keeps its own floors **by height**: 26 px for its control row, 20 px for the year strip (D-8) |
 | the year strip | **data-driven width, never widened** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours would overlap by ~8px (D-6) |
 | the recent lens | **one line, never two**, beside the source segment rather than below it (D-8) |
 | pan | **off at fit, on once the ratio is inside `fitRatio() * 0.995`** -- a fitted disc has nowhere to pan to (D-9) |
 | the disc box | **square**: `min(w, h)` already fit it to the width, so 390x390 draws the same disc as 390x530 -- p50 radius **1.64 px** either way |
-| over the disc box | **nothing**, at rest and mid-cascade |
-| the toggles drawn | the calendar's, so the band has a way back; **not** the folder list's, which is in the flow |
+| over the **drawn disc** | **nothing**, at rest, mid-cascade and with the calendar open. Measured against the disc the renderer draws -- `graphToViewport` over the drawn nodes plus each dot's `scaleSize` -- and **not** against `#vg-graph`'s bounding box, because the disc is a circle in a square and the square's corners are empty by construction |
+| the calendar's toggle | in the disc square's **top-left corner**, which the circle leaves empty: 44x44 at 12,12, its nearest corner **197 px** from a centre whose drawn radius is **167** -- ~30 px of clearance |
+| the toggles drawn | the calendar's, so a folded band has a way back; **not** the folder list's, which is in the flow |
 | the pan toggle | **not drawn** -- pan is automatic here, not a choice |
 | zoom | **survives** -- at 1.64px a pinch is the only route to a tappable dot |
 | the disc's mouse layer | `touch-action: pan-y`, and the captor claims a touch only when it can use it |
@@ -5365,13 +5366,36 @@ through the threshold -- and the camera's last `updated` is emitted by `setState
 animation's callback clears `fitting`, so every update during a fit is skipped including the one
 that lands on the answer. Without the call in `landed()`, returning to fit leaves pan armed.
 
+**The calendar is FOLDED on a phone by default, and a default is not an override (github#170).**
+`bandOpen` takes the `sheetOpen` form, `... : !phone()` -- `decisions/0009`'s *absent means nobody
+chose* -- and **not** `panEnabled`'s `phone() ? false : storedPan`. The difference is whether the
+reader has a way back: pan on a phone is off with no toggle drawn, so obeying a stored `true`
+would hand a phone a control it cannot see, while the band keeps its toggle, so a reader who
+opened it must keep it open. Off a phone `!phone()` is the literal `true` it replaced, so the
+desktop path is the same expression, not merely the same outcome. It is **not** re-derived when
+the media query flips: `sheetOpen` is not either, and re-folding a band the reader just opened
+would be hostile.
+
+**Two things make a "default" unmeasurable, and both once made this check unable to fail.**
+`bandOpen` is read **once, at mount**, so a harness that resizes a page into a phone measures the
+default for the size the page *booted* at -- both checks reboot under the emulation instead. And
+the exported page **persists `bandOpen` to `localStorage`** (`shell.html`), so the tap that proves
+the fold has a way back stores `false`, and the next boot would start folded because of the tap
+rather than because of the default. `reboot()` forgets that one key first; storing `open` on
+purpose and booting a phone with it is the other half, asserted.
+
 **Check:** `smoke.mjs`'s "a phone gets the disc whole at the top of a page that scrolls", on the
-demo fixture at 390x844 and 412x915 with touch emulated -- nothing over the disc at rest or
-mid-cascade, every hit box at 44 (height only for `#vg-years button`), the root scrolling, the
-band and the panel below the disc, pan off with no toggle, every `.hrow` child inside its row,
-`#vg-compact` on the range's line, and a raw touch trace showing the disc releasing a one-finger
-move to the browser. Its twin, "a narrow window with a pointer keeps the desktop's answer", holds
-the other half of the predicate at 390x844 with a fine pointer. Both put touch emulation and the
+demo fixture at 390x844 and 412x915 with touch emulated and the page **booted at that size** --
+the calendar folded with the disc's top at y=0, its toggle inside the disc square's top-left
+quadrant, nothing over the drawn disc at rest or mid-cascade, the root scrolling, the panel below
+the disc, pan off with no toggle, and a raw touch trace showing the disc releasing a one-finger
+move to the browser. A tap then opens the band, and everything *inside* the band is measured
+there because a folded band has no boxes to measure: every hit box at 44 (height only for
+`#vg-years button`), the band above the disc, nothing over the drawn disc, the lens on one line,
+every `.hrow` child inside its row, `#vg-compact` on the range's line. A second tap folds it
+again. Its twin, "a narrow window with a pointer keeps the desktop's answer", holds the other
+half of the predicate at 390x844 with a fine pointer **and asserts the calendar is still open
+there** -- the fold keys off `phone()`, never off `narrow()`. Both put touch emulation and the
 metrics override back on every exit. `scripts/mobile-check.mjs` reports the same readings at any
 device and takes the `screen-left` lock.
 
