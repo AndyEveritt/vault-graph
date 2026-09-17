@@ -155,7 +155,8 @@ const PROBE = `(function () {
   }) : [];
 
   var chips = recent ? [].slice.call(recent.querySelectorAll('button')).map(function (b) {
-    return { label: b.textContent.trim(), box: box(b), css: cs(b, CTRL) };
+    return { label: b.textContent.trim(), kind: b.getAttribute('data-kind'),
+             shown: getComputedStyle(b).display !== 'none', box: box(b), css: cs(b, CTRL) };
   }) : [];
 
   var yearChips = years ? [].slice.call(years.querySelectorAll('button')).map(function (b) {
@@ -408,13 +409,18 @@ try {
   const segTop = p.seg.box ? Math.round(p.seg.box.y) : -1;
   const lensTop = p.lens.box ? Math.round(p.lens.box.y) : -2;
   const sameLine = Math.abs(segTop - lensTop) <= 2;
-  const chipH = p.lens.chips.map((c) => (c.box ? Math.round(c.box.h) : 0));
+  // github#178 -- a chip the phone hides is not a chip with a wrong height
+  const shownChips = p.lens.chips.filter((c) => c.shown);
+  const chipH = shownChips.map((c) => (c.box ? Math.round(c.box.h) : 0));
   const rowTops = p.row.filter((k) => k.box && k.box.h).map((k) => Math.round(k.box.y));
   const lines = [...new Set(rowTops)].length;
+  const sinceShown = p.lens.chips.filter((c) => c.kind === "open" && c.shown).length;
   const chipsOk = chipH.length > 0 && chipH.every((h) => h === 26);
-  report(sameLine && chipsOk,
-    "2 the recent lens keeps line 1 and the chips keep the row's rhythm",
-    p.lens.chips.length + " chips, lens top " + lensTop + " vs segment top " + segTop +
+  report(sameLine && chipsOk && sinceShown === 0,
+    "2 the recent lens keeps line 1, and a phone drops the since-last-open chip",
+    p.lens.chips.length + " chips built, " + shownChips.length + " shown" +
+    (sinceShown ? ", SINCE-LAST-OPEN IS SHOWN" : ", since-last-open hidden") +
+    ", lens top " + lensTop + " vs segment top " + segTop +
     ", chip heights " + chipH.join("/") + ", the row wraps onto " + lines + " line(s)" +
     ", lens scrolls " + p.lens.sw + " in " + p.lens.cw);
 

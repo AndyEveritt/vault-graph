@@ -912,6 +912,23 @@ plugin to build one from — so every harness run until this one measured a two-
 seeds it. This is `.ai-context/mobile-harness.md`'s rule about vault shape, one level down: the
 shape that could not exhibit it was not the vault's notes but the plugin's own stored state.
 
+**And then the third chip was dropped on a phone, which is Lukas's call and not the layout's.**
+Looking at the fix (2026-09-17): *"you need to drop the since last open button it goes out of the
+page, just don't show it on mobile as ui decisions rest looks good."* Scrolling it inside the lens
+was the layout's answer, and it worked — but it leaves the chip reading `Sinc…`, clipped at the
+lens's edge, and a word cut mid-syllable reads as broken to anyone who does not know the lens
+scrolls. `.vault-graph #vg-recent [data-kind="open"] { display: none }` inside the phone block, and
+the two remaining chips fit the line exactly (**181 in 181**, no scroll).
+
+The lens keeps `flex: 1 1 0` anyway. It is what stops *any* future content wrapping the row — a
+longer locale, a fourth control, a bigger count slot — and it costs nothing, since the box is
+unchanged either way. Hiding the chip removes today's cause; the basis removes the class of cause.
+
+**This is the phone dropping a control, not the page losing one.** `#vg-recent` still builds all
+three (the chip is `display: none`, not absent), so nothing about the desktop, the exported page or
+`recentCount` changes, and a rotate to a desk width brings it straight back — the same live-layout
+discipline github#173 established for the band.
+
 ### The year strip was ours, and the phone only made it visible
 
 Not a host problem at all. `buildYears` puts `left: <the year's x>` on a chip and the CSS centres it
@@ -957,7 +974,7 @@ so the lens has the three chips a real vault has:
 | | before | after |
 |---|---|---|
 | 1 the segment's halves | **44 / 44 px** in a 32 px box, labels **7 px low** | **30 / 30 px**, labels centred |
-| 2 the recent lens | its **own line** (top 502 vs the segment's 462), the row on **5 lines**, 181 in 181 | **beside the segment** (462), **4 lines**, **268 in 181 — scrolling** |
+| 2 the recent lens | its **own line** (top 502 vs the segment's 462), the row on **5 lines**, three chips | **beside the segment** (462), **4 lines**, **two chips, 181 in 181** — the third is dropped on a phone |
 | 3 the fold button and the date fields | **32 px, all four** | unchanged — **this one did not reproduce** |
 | 4 the year strip | `'16` **outside the band** | inside, nothing dropped |
 | 5 the band's boxes | `#vg-heatsrc` **116×44 in 116×30** | **nothing overflows**; ribbon and strip both 350@14 |

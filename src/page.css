@@ -973,6 +973,8 @@
     }
     .vault-graph #vg-recent::-webkit-scrollbar { display: none; }
     .vault-graph #vg-recent .chip { height: 26px; flex: 0 0 auto; }
+    /* github#178 -- the widest chip, and a phone has no room for it */
+    .vault-graph #vg-recent [data-kind="open"] { display: none; }
     /* github#170, design/0013 */
     .vault-graph #vg-compact { order: 4; margin-left: 0; }
     .vault-graph #vg-rangebox { flex-wrap: wrap; row-gap: 6px; margin-left: 0; }
