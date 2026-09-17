@@ -3688,10 +3688,7 @@ check("fit frames the disc that is actually there", async (p) => {
   };
 }, { on: WALK, clock: "real" });
 
-// github#182 -- where the disc is actually DRAWN, in page px, against the stage it sits in.
-// Deliberately not renderer.getDimensions(): those are the renderer's own cached width and
-// height, and a stale cache is the whole defect, so asking it would agree with itself. The
-// canvas's real rect and the container's real rect are the only two that cannot lie.
+// github#182 -- the drawn disc centre, from the two real rects
 const DRAWN_OFF = `(function () {
   var r = __vg.renderer, st = r.getCamera().getState();
   var cont = document.getElementById("vg-graph");
@@ -3703,7 +3700,7 @@ const DRAWN_OFF = `(function () {
            ratio: +st.ratio.toFixed(4) };
 })()`;
 
-// github#182 -- a fitted disc that stops being centred when the stage changes size
+// github#182 -- a fitted disc that loses the centre on a resize
 check("a resize re-centres a fitted disc on the new stage", async (p) => {
   const bad = [];
   const seen = [];
@@ -3715,8 +3712,7 @@ check("a resize re-centres a fitted disc on the new stage", async (p) => {
     const at0 = await p.j(DRAWN_OFF);
     seen.push(`fit ${at0.stage} (${at0.dx}, ${at0.dy})`);
 
-    // the VIEWPORT half -- portrait and landscape, as the ticket asks. This half already
-    // held on develop: a window resize fires the renderer's own window listener.
+    // github#182 -- the viewport half; this one held on develop
     for (const [w, h] of [[900, 1200], [1400, 700], [1600, 1000]]) {
       await p.send("Emulation.setDeviceMetricsOverride",
                    { width: w, height: h, deviceScaleFactor: 1, mobile: false });
@@ -3731,9 +3727,7 @@ check("a resize re-centres a fitted disc on the new stage", async (p) => {
       }
     }
 
-    // the CONTAINER half -- an Obsidian pane dragged, a split closed, a panel opened. No
-    // window resize fires, and this is the half that failed: measured 225px down and 320px
-    // left on develop at 62e235d, with the camera still exactly at (0.5, 0.5).
+    // github#182 -- the container half; the one that actually failed
     for (const [w, h] of [[640, 760], [1180, 420], [900, 640]]) {
       await p.eval(`(function () { var el = ${host};
         el.style.width = "${w}px"; el.style.height = "${h}px"; })(); void 0`);
