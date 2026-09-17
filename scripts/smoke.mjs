@@ -2961,6 +2961,304 @@ check("a narrow window with a pointer keeps the desktop's answer", async (p) => 
   };
 });
 
+// github#173, design/0013 -- the three items that reproduced, one check each
+const PHONE_TRACE_ON = `(function () { window.__sev = [];
+  var l = document.querySelector("#vg-graph .vg-layer-mouse"); if (!l) return false;
+  window.__soff = function () {};
+  ["touchstart", "touchmove"].forEach(function (t) {
+    var h = function (e) { window.__sev.push(t + "/" + e.touches.length + ":" +
+      (e.cancelable ? "live" : "TAKEN") + ":" +
+      (e.defaultPrevented ? "prevented" : "free")); };
+    l.addEventListener(t, h, false);
+    var prev = window.__soff;
+    window.__soff = function () { l.removeEventListener(t, h, false); prev(); };
+  }); return true; })()`;
+
+const traceOff = async (p) => {
+  const t = await p.j(`(window.__sev || []).join(" | ")`);
+  await p.eval(`if (window.__soff) window.__soff(); void 0`);
+  return t;
+};
+// github#173 -- a real finger; see .ai-context/mobile-harness.md
+const finger = async (p, type, pts) => {
+  await p.send("Input.dispatchTouchEvent", { type, touchPoints: pts }).catch(() => {});
+  await sleep(60);
+};
+const camRatio = (p) => p.j(`+__vg.renderer.getCamera().getState().ratio.toFixed(5)`);
+// github#173 -- the disc's centre now, not before a scroll
+const discAt = (p) => p.j(`(function () { var g = document.getElementById("vg-graph");
+  var r = g.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+// github#173, github#170 -- not settlePan: that clicks Fit, the thing measured
+const panSettled = async (p) => {
+  let prev = null, stable = 0;
+  for (let i = 0; i < 25 && stable < 3; i++) {
+    const now = await p.j(`__vg.panEnabled + "/" + __vg.camAtRest + "/" +
+                           __vg.renderer.getCamera().getState().ratio`);
+    stable = now === prev ? stable + 1 : 0;
+    prev = now;
+    await sleep(160);
+  }
+};
+const phoneOn = async (p, d, dpr) => {
+  // github#170 -- the device before its viewport; see mobile-harness.md
+  await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  await p.send("Emulation.setDeviceMetricsOverride",
+               { width: d.w, height: d.h, deviceScaleFactor: dpr, mobile: true });
+  await sleep(700);
+  await reboot(p);
+  await settlePan(p);
+};
+const phoneOff = async (p) => {
+  await p.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {});
+  await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+  await sleep(500);
+  await reboot(p);
+  await settlePan(p);
+};
+
+// github#173 -- item 1: every settings change pushes this
+check("a settings push keeps a phone's zoom", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  try {
+    for (const d of PHONE_DEVICES) {
+      await phoneOn(p, d, dpr);
+      const rest = await camRatio(p), panRest = await p.j(`!!__vg.panEnabled`);
+      if (panRest) bad.push(`${d.name}: pan was already armed at fit (ratio ${rest})`);
+      // github#170, design/0013 -- the zoom is what arms pan on a phone
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      await panSettled(p);
+      const zoomed = await camRatio(p), panZoom = await p.j(`!!__vg.panEnabled`);
+      if (!(zoomed < rest - 1e-4 && panZoom)) {
+        bad.push(`${d.name}: the zoom did not arm pan (ratio ${rest} -> ${zoomed}, ` +
+                 `pan ${panZoom}) -- nothing to discard, so this check cannot fail`);
+      }
+      // github#173 -- exactly what plugin/main.js applyHiddenDefaults() does
+      await p.eval(`__vg.setPanEnabled(true); void 0`);
+      await sleep(900);
+      await panSettled(p);
+      const after = await camRatio(p), panAfter = await p.j(`!!__vg.panEnabled`);
+      if (Math.abs(after - zoomed) > 1e-4 || !panAfter) {
+        bad.push(`${d.name}: a settings push discarded the zoom (ratio ${zoomed} -> ` +
+                 `${after}, pan ${panZoom} -> ${panAfter})`);
+      }
+      // github#173 -- and at fit it still answers false, so pan is not simply on
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      await settlePan(p);
+      await p.eval(`__vg.setPanEnabled(true); void 0`);
+      await sleep(600);
+      await settlePan(p);
+      const panFit = await p.j(`!!__vg.panEnabled`);
+      if (panFit) bad.push(`${d.name}: a settings push armed pan on a fitted disc`);
+      said.push(`${d.name}: fit ${rest} pan off, zoomed ${zoomed} pan on, after the push ` +
+                `${after} pan ${panAfter ? "on" : "OFF"}, refit pan ${panFit ? "ON" : "off"}`);
+    }
+    // github#173 -- off a phone the settings row still wins, as it always did
+    await phoneOff(p);
+    await p.eval(`__vg.setPanEnabled(false); void 0`);
+    await sleep(700);
+    const deskOff = await p.j(`!!__vg.panEnabled`);
+    await p.eval(`__vg.setPanEnabled(true); void 0`);
+    await sleep(700);
+    const deskOn = await p.j(`!!__vg.panEnabled`);
+    if (deskOff || !deskOn) {
+      bad.push(`a desk no longer follows the settings row (off -> ${deskOff}, on -> ${deskOn})`);
+    }
+    said.push(`a desk still follows the row: off ${deskOff}, on ${deskOn}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#173 -- item 2: bandOpen was a mount read, the layout a query
+check("the calendar follows a phone that rotates", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const store = (v) => p.j(`(function () { try {
+      var k = window.SETTINGS_KEY; if (!k) return "no key";
+      var s = JSON.parse(window.localStorage.getItem(k) || "{}");
+      ${v === undefined ? "" : `s.bandOpen = ${v}; window.localStorage.setItem(k, JSON.stringify(s));`}
+      return String(JSON.parse(window.localStorage.getItem(k) || "{}").bandOpen);
+    } catch (e) { return "unreadable"; } })()`);
+  const at = async (w, h) => {
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: w, height: h, deviceScaleFactor: dpr, mobile: true });
+    await sleep(1400);
+    return p.j(`(function () { var root = document.querySelector(".vault-graph");
+      return JSON.stringify({ phone: !!__vg.phone, bandOpen: !!__vg.bandOpen,
+        dataBand: root.getAttribute("data-band"),
+        laidOut: !!(document.getElementById("vg-heat") || {}).offsetParent }); })()`)
+      .then(JSON.parse);
+  };
+  try {
+    await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    // github#173 -- a coarse device narrow enough to be a phone
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: 700, height: 900, deviceScaleFactor: dpr, mobile: true });
+    await sleep(700);
+    const wrote = await store(true);
+    if (wrote !== "true") bad.push(`could not store a desk's open (${wrote})`);
+    await p.eval(`location.reload(); void 0`).catch(() => {});
+    await sleep(1200);
+    for (let i = 0; i < 160; i++) {
+      if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+      await sleep(250);
+    }
+    await sleep(600);
+    const booted = await at(700, 900);
+    if (!(booted.phone && !booted.bandOpen && booted.dataBand === "off")) {
+      bad.push(`700x900 coarse did not fold (phone ${booted.phone}, bandOpen ` +
+               `${booted.bandOpen}, data-band ${booted.dataBand})`);
+    }
+    // github#173 -- rotate: the same device, wide enough to stop being a phone
+    const wide = await at(900, 700);
+    if (!(!wide.phone && wide.bandOpen && wide.dataBand === "on" && wide.laidOut)) {
+      bad.push(`rotating to 900x700 kept the phone's fold (phone ${wide.phone}, ` +
+               `bandOpen ${wide.bandOpen}, data-band ${wide.dataBand}, laid out ${wide.laidOut}) ` +
+               `-- the desk's stored open did not come back`);
+    }
+    // github#173 -- and a tap at desk width is the desk's, written through
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const folded = await store();
+    const foldedHere = await p.j(`!!__vg.bandOpen`);
+    if (folded !== "false" || foldedHere) {
+      bad.push(`a tap at desk width was not written through (stored ${folded}, ` +
+               `bandOpen ${foldedHere})`);
+    }
+    // github#173 -- back folds; out again honours the new choice
+    const back = await at(700, 900);
+    if (!(back.phone && !back.bandOpen && back.dataBand === "off")) {
+      bad.push(`rotating back to 700x900 did not fold (phone ${back.phone}, ` +
+               `bandOpen ${back.bandOpen}, data-band ${back.dataBand})`);
+    }
+    const again = await at(900, 700);
+    if (!(!again.phone && !again.bandOpen)) {
+      bad.push(`the desk's new "folded" was not honoured on the way out (phone ` +
+               `${again.phone}, bandOpen ${again.bandOpen}) -- storedBand went stale`);
+    }
+    // github#173, github#170 -- a phone's tap still writes nothing
+    const onPhone = await at(700, 900);
+    const was = await store();
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const kept = await store();
+    const openedHere = await p.j(`!!__vg.bandOpen`);
+    if (kept !== was || !openedHere) {
+      bad.push(`a phone's tap did not open the band for the session only (stored ` +
+               `${was} -> ${kept}, opened here ${openedHere}, phone ${onPhone.phone})`);
+    }
+    said.push(`booted 700x900 coarse folded, rotated to 900x700 open, a desk tap stored ` +
+              `${folded}, rotated back folded, out again ${again.bandOpen ? "open" : "folded"}, ` +
+              `a phone's tap opened it and left the store ${kept}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#173 -- item 3: what the flight claims, what a late finger does
+check("a swipe after Fit still scrolls, and a late finger still pinches", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const swipe = async (p2, c) => {
+    await p2.eval(PHONE_TRACE_ON);
+    await finger(p2, "touchStart", [{ x: c.x, y: c.y, id: 1 }]);
+    await finger(p2, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 }]);
+    await finger(p2, "touchMove", [{ x: c.x, y: c.y - 100, id: 1 }]);
+    await finger(p2, "touchEnd", []);
+    return traceOff(p2);
+  };
+  const free = (t) => t.indexOf("live:prevented") < 0 && t.indexOf("TAKEN") >= 0;
+  try {
+    for (const d of PHONE_DEVICES) {
+      await phoneOn(p, d, dpr);
+      await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+      await sleep(200);
+      const c = await discAt(p);
+
+      // github#173 -- the control: a thumb on a resting disc is the browser's
+      const rest = await swipe(p, c);
+      if (!free(rest)) {
+        bad.push(`${d.name}: a thumb cannot scroll from a resting disc [${rest}] ` +
+                 `-- the control failed, so the row below means nothing`);
+      }
+      // github#173 -- and the same swipe inside fit()'s 380ms flight
+      await settlePan(p);
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      const flying = await p.j(`!!__vg.renderer.getCamera().enabledPanning`);
+      const after = await swipe(p, c);
+      if (!flying) {
+        bad.push(`${d.name}: the fit flight was over before the swipe (enabledPanning ` +
+                 `${flying}) -- this check could not have failed`);
+      }
+      if (!free(after)) {
+        bad.push(`${d.name}: the fit flight claimed the swipe [${after}]`);
+      }
+      await sleep(700);
+      await settlePan(p);
+
+      // github#173 -- the other half does NOT reproduce; the measurement
+      const pinch = async (late) => {
+        await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                       if (b) b.click(); })(); void 0`);
+        await sleep(900);
+        await settlePan(p);
+        // github#173 -- the swipes above really scroll; aim from the top again
+        await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+        await sleep(200);
+        const c = await discAt(p);
+        const from = await camRatio(p);
+        if (late) {
+          await finger(p, "touchStart", [{ x: c.x, y: c.y, id: 1 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 100, id: 1 }]);
+          await finger(p, "touchStart", [{ x: c.x, y: c.y - 100, id: 1 },
+                                         { x: c.x + 60, y: c.y, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 140, id: 1 },
+                                        { x: c.x + 140, y: c.y + 40, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 180, id: 1 },
+                                        { x: c.x + 220, y: c.y + 80, id: 2 }]);
+        } else {
+          await finger(p, "touchStart", [{ x: c.x, y: c.y, id: 1 },
+                                         { x: c.x + 60, y: c.y, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 },
+                                        { x: c.x + 140, y: c.y + 40, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 80, id: 1 },
+                                        { x: c.x + 220, y: c.y + 80, id: 2 }]);
+        }
+        const to = await camRatio(p);
+        await finger(p, "touchEnd", [{ x: c.x + 220, y: c.y + 80, id: 2 }]);
+        await finger(p, "touchEnd", []);
+        await sleep(300);
+        return { from, to, by: +(from / to).toFixed(3) };
+      };
+      const clean = await pinch(false), late = await pinch(true);
+      if (clean.by < 2) {
+        bad.push(`${d.name}: the control pinch barely zoomed (x${clean.by}, ` +
+                 `${clean.from} -> ${clean.to})`);
+      }
+      if (late.by < 1.3) {
+        bad.push(`${d.name}: a late second finger lost the pinch (x${late.by}, ` +
+                 `${late.from} -> ${late.to})`);
+      }
+      said.push(`${d.name}: at rest [${rest}], after Fit [${after}]; pinch x${clean.by} ` +
+                `both down, x${late.by} second finger late`);
+    }
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
 // github#13
 
 // github#13
