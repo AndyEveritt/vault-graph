@@ -5,6 +5,8 @@ import { join, relative, sep, basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 // github#71
 import { readSortingSpec } from "../src/sortspec-file.mjs";
+// github#176
+import { translateSortSpec } from "./mirror-sortspec.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "..");
@@ -224,44 +226,9 @@ if (specNotes.length) {
   };
 
   for (const n of specNotes) {
-    const out = [];
-    let target = n.dir;              // github#71 -- the real path the current section aims at
-    // github#172 -- "." and "./sub" resolve against the note's dir
-    const resolveTarget = (bare) =>
-      (bare.charAt(0) === "." ? n.dir + "/" + bare.replace(/^\.\/?/, "") : bare)
-        .split(/[\\/]/).filter(Boolean).join("/");
-    for (const raw of n.specRaw.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line) { out.push(""); continue; }
-      if (line.startsWith("//")) { specDropped++; continue; }
-      const tf = /^target-folder\s*:\s*(.*)$/.exec(line);
-      if (tf) {
-        const v = tf[1].trim();
-        if (v === "/" || v === "/*") { target = ""; out.push(line); continue; }
-        const wild = /\/\*$/.test(v);
-        const real = resolveTarget(wild ? v.slice(0, -2) : v);
-        const mapped = mapPath(real);
-        if (mapped === null) { target = null; specDropped++; continue; }
-        target = real;
-        out.push("target-folder: " + (mapped || "/") + (wild ? "/*" : ""));
-        continue;
-      }
-      if (target === null) { specDropped++; continue; }   // github#71 -- in a section we could not map
-      if (/^order-(asc|desc)\s*:/.test(line)) { out.push(line); continue; }
-      // github#71, decisions/0015 -- a .md pin is a NOTE, never a folder
-      const asNote = nameMap.get(key(line));
-      if (/\.md$/i.test(line)) {
-        if (asNote) { out.push(asNote + ".md"); continue; }
-        specDropped++;
-        continue;
-      }
-      const asFolder = mapPath((target ? target + "/" : "") + line);
-      if (asFolder) { out.push(asFolder.split("/").pop()); continue; }
-      if (asNote) { out.push(asNote); continue; }
-      specDropped++;
-    }
-    while (out.length && !out[out.length - 1].trim()) out.pop();
-    n.specText = out.join("\n");
+    const { text, dropped } = translateSortSpec(n.specRaw, n.dir, mapPath, nameMap);
+    n.specText = text;
+    specDropped += dropped;
   }
 }
 
