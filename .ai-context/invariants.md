@@ -5323,3 +5323,59 @@ arms `wantWedgeDebug()`, which draws the lattice at boot — so **`--dev` is del
 added to `smoke.mjs`'s `buildFor`**: it would draw the wedge overlay over all 66 checks and
 every `shoot.mjs` still. Turning that on is a change to what the whole suite renders and wants
 a decision, not a default (D-7, github#165).
+
+## A phone is a narrow screen AND a coarse pointer, and it gets a page that scrolls (github#170)
+
+`design/0013`. **The predicate is `(max-width: 720px) and (pointer: coarse)`, both halves**, in
+`page.css`'s phone block and in `page.js`'s `phone()` beside `narrow()`. `NARROW_PX` carries the
+number for both queries and keeps the must-match comment it already had. A narrow desktop window,
+a 320px Obsidian side leaf on a PC and a touchscreen laptop at 1440px all keep the desktop layout,
+and the plugin needs no `Platform.isMobile` -- Obsidian mobile reports coarse at 390px.
+
+| | |
+|---|---|
+| reading order | **calendar, disc, folder list**, all in the scroll flow |
+| minimum hit box | **44 x 44 px** outside the calendar; the calendar is read rather than driven, so it keeps its own floors **by height**: 26 px for its control row, 20 px for the year strip (D-8) |
+| the year strip | **data-driven width, never widened** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours would overlap by ~8px (D-6) |
+| the recent lens | **one line, never two**, beside the source segment rather than below it (D-8) |
+| pan | **off at fit, on once the ratio is inside `fitRatio() * 0.995`** -- a fitted disc has nowhere to pan to (D-9) |
+| the disc box | **square**: `min(w, h)` already fit it to the width, so 390x390 draws the same disc as 390x530 -- p50 radius **1.64 px** either way |
+| over the disc box | **nothing**, at rest and mid-cascade |
+| the toggles drawn | the calendar's, so the band has a way back; **not** the folder list's, which is in the flow |
+| the pan toggle | **not drawn** -- pan is automatic here, not a choice |
+| zoom | **survives** -- at 1.64px a pinch is the only route to a tappable dot |
+| the disc's mouse layer | `touch-action: pan-y`, and the captor claims a touch only when it can use it |
+
+**Two grid traps guard that square, and both are silent.** `#vg-graph` takes `align-self: start`
+with `justify-self: stretch`, because a grid item stretches on both axes by default and the
+*height* would otherwise be the definite one -- measured **319x319 in a 375 px column**, all 1403
+dots under 2 px. And every flow child of `#vg-canvas` names `grid-column: 1`: two items naming
+only `grid-row: 2` auto-place side by side and create an implicit second column, whose 56 px come
+out of the disc's `1fr` (**334 px of square in a 390 px canvas**). Neither failed anything; both
+produced a smaller disc that still looked like a disc.
+
+**Pan is re-applied, not read once.** `syncPhonePan()` runs on the media query's change, on the
+root's resize beat, and on the camera's own `updated`, guarded on the value actually differing
+because `setPan(false)` flies the camera home. `storedPan` holds what the host chose, so a phone
+never writes over a desk's choice and a breakpoint crossing restores it.
+
+**`fit()` asks again when it lands, and that line is load-bearing.** `syncPhonePan` returns early
+while `fitting`, or a fit in flight would re-arm pan on every frame as the ratio climbs back
+through the threshold -- and the camera's last `updated` is emitted by `setState` *before* the
+animation's callback clears `fitting`, so every update during a fit is skipped including the one
+that lands on the answer. Without the call in `landed()`, returning to fit leaves pan armed.
+
+**Check:** `smoke.mjs`'s "a phone gets the disc whole at the top of a page that scrolls", on the
+demo fixture at 390x844 and 412x915 with touch emulated -- nothing over the disc at rest or
+mid-cascade, every hit box at 44 (height only for `#vg-years button`), the root scrolling, the
+band and the panel below the disc, pan off with no toggle, every `.hrow` child inside its row,
+`#vg-compact` on the range's line, and a raw touch trace showing the disc releasing a one-finger
+move to the browser. Its twin, "a narrow window with a pointer keeps the desktop's answer", holds
+the other half of the predicate at 390x844 with a fine pointer. Both put touch emulation and the
+metrics override back on every exit. `scripts/mobile-check.mjs` reports the same readings at any
+device and takes the `screen-left` lock.
+
+**The scrollbar costs the disc 15px in a desktop-Chrome harness and nothing on a phone** --
+`overflow-y: auto` reserves a classic scrollbar there, so the square measures 375 and the radius
+reads 1.59px. Coarse-pointer devices use overlay scrollbars. It is why the two readings of the
+same disc differ between `mobile-check.mjs` and the record.

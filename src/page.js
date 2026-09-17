@@ -640,8 +640,23 @@ function mountVaultGraph(root, data, deps) {
   /** @param {string} [dim] @returns {SlotMap} */
   function subColorsFor(dim) { return dimSubColors[dim || state.dim] || dimSubColors.folder; }
 
+  // github#73, design/0013
+  // github#82 -- NARROW_PX must match the breakpoint in page.css
+  var NARROW_PX = 720;
+  function narrow() {
+    return !!(WIN.matchMedia && WIN.matchMedia("(max-width: " + NARROW_PX + "px)").matches);
+  }
+
+  // github#170, design/0013 -- must match page.css's phone block
+  function phone() {
+    return !!(WIN.matchMedia &&
+              WIN.matchMedia("(max-width: " + NARROW_PX + "px) and (pointer: coarse)").matches);
+  }
+
   // github#4
-  var panEnabled = deps.panEnabled === false ? false : true;
+  // github#170 -- what the host stored; on a phone the zoom decides instead
+  var storedPan = deps.panEnabled === false ? false : true;
+  var panEnabled = phone() ? false : storedPan;
   var onPanEnabled = typeof deps.onPanEnabled === "function" ? deps.onPanEnabled : null;
 
   // github#23
@@ -668,13 +683,6 @@ function mountVaultGraph(root, data, deps) {
   // github#71, github#86 -- D-12: a sortspec names FOLDERS only
   function specOrders() {
     return state.dim === "folder" && usingSpec();
-  }
-
-  // github#73, design/0013
-  // github#82 -- NARROW_PX must match the breakpoint in page.css
-  var NARROW_PX = 720;
-  function narrow() {
-    return !!(WIN.matchMedia && WIN.matchMedia("(max-width: " + NARROW_PX + "px)").matches);
   }
 
   // github#82, decisions/0009 -- absent means nobody chose; width decides
@@ -6225,13 +6233,16 @@ function mountVaultGraph(root, data, deps) {
       });
     })();
 
+    // github#170, design/0013 -- the zoom is what arms pan here, so watch the camera
+    renderer.getCamera().on("updated", function () { if (!dead) syncPhonePan(); });
+
     /** @type {number | null} */
     var rzTimer = null;
     var onResize = function () {
       if (dead) return;
       if (rzTimer) WIN.clearTimeout(rzTimer);
       rzTimer = WIN.setTimeout(function () { rzTimer = null; refreshSizeScale(); placeLogo();
-                                             syncCanvasTop(); }, 120);
+                                             syncCanvasTop(); syncPhonePan(); }, 120);
     };
     if (window.ResizeObserver) {
       var rootRO = new ResizeObserver(onResize);
@@ -6267,8 +6278,9 @@ function mountVaultGraph(root, data, deps) {
     });
     // github#73, design/0013
     // github#82 -- only a sheet closes itself; a column does not
+    // github#170 -- and on a phone the panel is in the scroll flow
     renderer.on("clickStage", function () {
-      if (sheetOpen && narrow()) setSheet(false);
+      if (sheetOpen && narrow() && !phone()) setSheet(false);
       select(null);
     });
     renderer.on("rightClickNode", function (e) {
@@ -6452,6 +6464,33 @@ function mountVaultGraph(root, data, deps) {
       readMq.addListener(onReadMq);
       onDestroy.push(function () { readMq.removeListener(onReadMq); });
     }
+    // github#170, design/0013 -- the layout is live; a mount-time read of pan was not
+    var phoneMq = WIN.matchMedia("(max-width: " + NARROW_PX + "px) and (pointer: coarse)");
+    if (phoneMq.addEventListener) {
+      phoneMq.addEventListener("change", syncPhonePan);
+      onDestroy.push(function () { phoneMq.removeEventListener("change", syncPhonePan); });
+    } else if (phoneMq.addListener) {
+      phoneMq.addListener(syncPhonePan);
+      onDestroy.push(function () { phoneMq.removeListener(syncPhonePan); });
+    }
+  }
+
+  // github#170, design/0013 -- a fitted disc has nowhere to pan to; a zoomed one does
+  function phonePanWanted() {
+    if (!phone()) return storedPan;
+    if (!renderer) return false;
+    return renderer.getCamera().getState().ratio < fitRatio() * 0.995;
+  }
+
+  // github#170, design/0013 -- setPan(false) flies home; only on a real change
+  function syncPhonePan() {
+    if (fitting) return;
+    var want = phonePanWanted();
+    if (want !== panEnabled) { setPan(want, false); return; }
+    // github#170 -- an interrupted flight can leave the setting off its flag
+    if (renderer && !!renderer.getSetting("enableCameraPanning") !== panEnabled) {
+      renderer.setSetting("enableCameraPanning", panEnabled);
+    }
   }
 
   /** @param {string | null} id */
@@ -6460,7 +6499,8 @@ function mountVaultGraph(root, data, deps) {
     if (id) id = noteOf(id);
     // github#73, design/0013
     // github#82 -- same: only the phone's sheet gets out of the way
-    if (id && sheetOpen && narrow()) setSheet(false);
+    // github#170 -- a panel in the scroll flow is not in the way
+    if (id && sheetOpen && narrow() && !phone()) setSheet(false);
     // github#40, design/0012
     if (!trailHop && (!id || id !== state.selected)) trail.length = 0;
     trailHop = false;
@@ -7498,7 +7538,8 @@ function mountVaultGraph(root, data, deps) {
     if ($("reset")) $("reset").onclick = fit;
     if ($("zin")) $("zin").onclick = function () { zoomBy(1); };
     if ($("zout")) $("zout").onclick = function () { zoomBy(-1); };
-    if ($("pan")) $("pan").onclick = function () { setPan(!panEnabled, true); };
+    // github#170 -- storedPan follows every deliberate choice
+    if ($("pan")) $("pan").onclick = function () { storedPan = !panEnabled; setPan(storedPan, true); };
     // github#79
     if ($("ov")) $("ov").onclick = fit;
     setPan(panEnabled, false);
@@ -8029,16 +8070,14 @@ function mountVaultGraph(root, data, deps) {
   function fit() {
     var to = { x: 0.5, y: 0.5, ratio: fitRatio(), angle: 0 };
     fitting = true;
-    var landed = function () { fitting = false; camAtRest = true; };
-    // github#4
-    if (!panEnabled) {
-      renderer.setSetting("enableCameraPanning", true);
-      renderer.getCamera().animate(to, { duration: 380 }, function () {
-        renderer.setSetting("enableCameraPanning", false);
-        landed();
-      });
-      return;
-    }
+    // github#170, design/0013 -- restore what pan is NOW, and re-ask once landed
+    var landed = function () {
+      fitting = false; camAtRest = true;
+      renderer.setSetting("enableCameraPanning", panEnabled);
+      syncPhonePan();
+    };
+    // github#4 -- the flight needs panning on whatever the toggle says
+    if (!panEnabled) renderer.setSetting("enableCameraPanning", true);
     renderer.getCamera().animate(to, { duration: 380 }, landed);
   }
 
@@ -11027,7 +11066,12 @@ function mountVaultGraph(root, data, deps) {
                     get subtagColors() { return Object.assign(dict(), dimSubColors.tag); },
                     get tagShown() { return Object.assign(dict(), dimShown.tag); },
                     setFolderShown: applyFolderShown,
-                    setPanEnabled: function (v) { return setPan(v !== false, false); },
+                    // github#170
+                    // github#170 -- the phone's layout outranks the settings row, as at mount
+                    setPanEnabled: function (v) {
+                      storedPan = v !== false;
+                      return setPan(phone() ? false : storedPan, false);
+                    },
                     // github#23
                     setCompactAxis: function (v) { return setCompactAxis(v !== false, false); },
                     // github#3
@@ -11688,6 +11732,8 @@ function mountVaultGraph(root, data, deps) {
                     get sheetOpen() { return sheetOpen; },
                     get bandOpen() { return bandOpen; },
                     get narrow() { return narrow(); },
+                    // github#170
+                    get phone() { return phone(); },
                     hl: hl,
                     get hlBusy() { return !!hlRaf; },
                     get dateSpan() { return dateSpan; },

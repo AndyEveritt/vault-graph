@@ -54,6 +54,32 @@ const freePort = () => new Promise((res, rej) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// github#170 -- see .ai-context/locking.md
+const LOCK = "screen-left";
+const LOCK_OWNER = "mobile-check [" + process.pid + "]";
+let holdsLock = false;
+function takeLock() {
+  if (flag("no-lock")) return;
+  const r = spawnSync(process.execPath,
+    [join(HERE, "lock.mjs"), "acquire", LOCK, "--owner", LOCK_OWNER],
+    { stdio: "inherit" });
+  if (r.status !== 0) {
+    console.error("could not take the " + LOCK + " lock -- something else is driving that display.");
+    console.error("  who: node scripts/lock.mjs status");
+    process.exit(1);
+  }
+  holdsLock = true;
+}
+function dropLock() {
+  if (!holdsLock || flag("keep")) return;
+  holdsLock = false;
+  spawnSync(process.execPath,
+    [join(HERE, "lock.mjs"), "release", LOCK, "--owner", LOCK_OWNER],
+    { stdio: "ignore" });
+}
+// github#170 -- a throw before Chrome spawns must still free the lock
+process.on("exit", dropLock);
+
 function fixtureStore() {
   const g = spawnSync("git", ["-C", ROOT, "rev-parse", "--git-common-dir"], { encoding: "utf8" });
   if (g.status === 0 && g.stdout.trim()) {
@@ -92,6 +118,9 @@ async function main() {
   const W = +arg("w", 0) || dev.w, H = +arg("h", 0) || dev.h;
   const touch = dev.touch !== false;
   const source = touch ? "touch" : "mouse";
+
+  // github#170 -- before Chrome is placed; freed by the exit handler
+  takeLock();
 
   let url = arg("url", "");
   if (!url) {
@@ -205,6 +234,55 @@ async function main() {
     "           groups: (function () { var g = document.getElementById('vg-gcount');" +
     "             return g ? (g.textContent || '').trim() : ''; })()," +
     "           dims: __vg.renderer.getDimensions() };" +
+    "})()");
+
+  // github#170, design/0013 -- see .ai-context/mobile-harness.md
+  const HIT_MIN = 44;
+  const phoneProbe = await p.eval(
+    "(function () {" +
+    "  var box = function (el) { var r = el.getBoundingClientRect();" +
+    "    return { w: Math.round(r.width), h: Math.round(r.height)," +
+    "             x: Math.round(r.left), y: Math.round(r.top)," +
+    "             r2: Math.round(r.right), b2: Math.round(r.bottom) }; };" +
+    "  var root = document.querySelector('.vault-graph');" +
+    "  var g = document.getElementById('vg-graph');" +
+    "  var gb = g ? g.getBoundingClientRect() : null;" +
+    // github#170 -- every control a finger is meant to reach
+    "  var SEL = '#vg-cam button, #vg-mob button, #vg-ov, #vg-heatsrc button, #vg-recent button,'" +
+    "          + ' #vg-compact, #vg-rangebox .dt, #vg-rangeall, #vg-years button,'" +
+    "          + ' #vg-dim button, .dimall button, .tools button, .lg .eye, .lg .only';" +
+    "  var ctl = [], over = [];" +
+    "  Array.prototype.forEach.call(document.querySelectorAll(SEL), function (el) {" +
+    "    var r = el.getBoundingClientRect();" +
+    "    if (!r.width && !r.height) return;" +
+    "    var owner = el.id || (el.closest('[id]') ? el.closest('[id]').id : el.tagName);" +
+    "    var name = el.id || owner + ' ' + (el.className || el.tagName);" +
+    "    ctl.push({ name: name, w: Math.round(r.width), h: Math.round(r.height)," +
+    "               x: Math.round(r.left), y: Math.round(r.top) });" +
+    // github#170 -- the box the renderer draws in
+    "    if (gb && !(r.right <= gb.left || r.left >= gb.right ||" +
+    "                r.bottom <= gb.top || r.top >= gb.bottom)) over.push(name);" +
+    "  });" +
+    "  var sb = document.getElementById('vg-sidebar');" +
+    "  var heat = document.getElementById('vg-heat');" +
+    // github#70, github#170 -- the row wraps; every child lands inside it
+    "  var hrow = document.querySelector('#vg-heat .hrow'), rows = [];" +
+    "  if (hrow) { var hb = hrow.getBoundingClientRect();" +
+    "    Array.prototype.forEach.call(hrow.children, function (c) {" +
+    "      var r = c.getBoundingClientRect();" +
+    "      rows.push({ name: c.id || String(c.className) || c.tagName," +
+    "                  w: Math.round(r.width), h: Math.round(r.height)," +
+    "                  x: Math.round(r.left), y: Math.round(r.top)," +
+    "                  out: r.left < hb.left - 0.5 || r.right > hb.right + 0.5 }); }); }" +
+    "  return { scrollH: root.scrollHeight, clientH: root.clientHeight," +
+    "           overflowY: getComputedStyle(root).overflowY," +
+    "           coarse: !!(window.matchMedia && matchMedia('(pointer: coarse)').matches)," +
+    "           phone: !!(window.__vg && __vg.phone), narrow: !!(window.__vg && __vg.narrow)," +
+    "           graph: gb ? box(g) : null," +
+    "           sidebar: sb ? box(sb) : null, heat: heat ? box(heat) : null," +
+    "           panVisible: !!(document.getElementById('vg-pan') || {}).offsetParent," +
+    "           panning: !!__vg.renderer.getSetting('enableCameraPanning')," +
+    "           controls: ctl, over: over, hrow: rows };" +
     "})()");
 
   const dots = await p.eval(
@@ -416,7 +494,8 @@ async function main() {
     const sheetNow = () =>
       p.eval("document.querySelector('.vault-graph').getAttribute('data-sheet')");
     const btn = await btnAt();
-    if (btn) {
+    // github#170 -- a display:none cluster measures 0x0 at 0,0
+    if (btn && btn.w > 0 && btn.h > 0) {
       const press = async (x, y) => {
         await p.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, buttons: 0 });
         await sleep(80);
@@ -475,6 +554,70 @@ async function main() {
            (swr ? Math.round(swr.width) + "x" + Math.round(swr.height) : "none") +
            "; " + (inside ? "inside the mount" : "OUTSIDE THE MOUNT");
   })()`);
+
+  // github#170 -- see .ai-context/mobile-harness.md
+  // github#170, design/0013 -- see .ai-context/mobile-harness.md
+  let scrollFromDisc = "n/a";
+  if (touch && phoneProbe.graph && phoneProbe.graph.w > 0) {
+    const gx = phoneProbe.graph.x + Math.round(phoneProbe.graph.w / 2);
+    const gy = phoneProbe.graph.y + Math.round(phoneProbe.graph.h / 2);
+    await p.eval(
+      "(function () { window.__sev = [];" +
+      "  var l = document.querySelector('#vg-graph .vg-layer-mouse'); if (!l) return false;" +
+      "  window.__soff = function () {};" +
+      "  ['touchstart', 'touchmove'].forEach(function (t) {" +
+      "    var h = function (e) { window.__sev.push(t + ':' + (e.cancelable ? 'cancelable' :" +
+      "      'TAKEN') + ':' + (e.defaultPrevented ? 'prevented' : 'free')); };" +
+      "    l.addEventListener(t, h, false);" +
+      "    var prev = window.__soff;" +
+      "    window.__soff = function () { l.removeEventListener(t, h, false); prev(); };" +
+      "  }); return true; })()");
+    for (const [type, pts] of [["touchStart", [{ x: gx, y: gy, id: 1 }]],
+                               ["touchMove", [{ x: gx, y: gy - 40, id: 1 }]],
+                               ["touchMove", [{ x: gx, y: gy - 100, id: 1 }]],
+                               ["touchEnd", []]]) {
+      await p.send("Input.dispatchTouchEvent", { type, touchPoints: pts }).catch(() => {});
+      await sleep(60);
+    }
+    await sleep(300);
+    const trace = await p.eval("(window.__sev || []).join(' | ')");
+    await p.eval("if (window.__soff) window.__soff(); void 0");
+    const freed = trace.indexOf("touchmove:cancelable:prevented") < 0;
+    const taken = trace.indexOf("TAKEN") >= 0;
+    scrollFromDisc = (freed ? "the disc lets a one-finger move go" : "THE DISC CANCELS IT") +
+                     (taken ? ", and the browser claimed the gesture" : ", browser did NOT claim it") +
+                     "   [" + trace + "]";
+  }
+
+  let scrolled = "n/a -- the page does not scroll at this width";
+  if (phoneProbe.scrollH > phoneProbe.clientH) {
+    // github#170 -- lit dots are the cascade's own clock
+    const read = () => p.eval(
+      "(function () { var R = __vg.renderer, n = 0;" +
+      "  __vg.graph.forEachNode(function (id) {" +
+      "    var d = R.getNodeDisplayData(id); if (d && !d.hidden && d.size > 0) n++; });" +
+      "  return JSON.stringify({ top: Math.round(document.querySelector('.vault-graph').scrollTop)," +
+      "    lit: n, busy: !!__vg.demo.busy() }); })()");
+    await p.eval("(function () { document.querySelector('.vault-graph').scrollTop = 0;" +
+                 " var b = document.getElementById('vg-refresh'); if (b) b.click();" +
+                 " return true; })()");
+    await sleep(600);
+    await p.eval("document.querySelector('.vault-graph').scrollTop = 99999; void 0");
+    const a = JSON.parse(await read());
+    await sleep(1100);
+    const b = JSON.parse(await read());
+    const ran = a.busy || b.busy;
+    scrolled = "scrollTop " + b.top + ", lit " + a.lit + " -> " + b.lit +
+               (ran
+                 ? (b.lit === a.lit ? "   <-- THE CASCADE STOPPED WHILE SCROLLED AWAY" : ", still walking")
+                 : " (settled before the read -- inconclusive)");
+    await p.eval("document.querySelector('.vault-graph').scrollTop = 0; void 0");
+    for (let i = 0; i < 200; i++) {
+      if (!(await p.eval("!!__vg.demo.busy()").catch(() => false))) break;
+      await sleep(150);
+    }
+    await sleep(400);
+  }
 
   const shot = arg("shot", "");
   if (shot) {
@@ -537,6 +680,48 @@ async function main() {
   console.log(`  a two-finger tap         ${twoFinger}`);
   console.log(`  sheet toggle round trip  ${sheetProbe}`);
   console.log(`  colour picker box        ${pickerProbe}`);
+
+  // github#170
+  const q = phoneProbe;
+  const scrollBy = q.scrollH - q.clientH;
+  console.log("");
+  console.log(`  pointer / phone layout   coarse ${q.coarse}, narrow ${q.narrow}, ` +
+              `__vg.phone ${q.phone}`);
+  // github#170 -- content below the fold is not a scroller; overflow-y decides
+  const canScroll = (q.overflowY === "auto" || q.overflowY === "scroll") && scrollBy > 0;
+  console.log(`  the page scrolls         ${canScroll
+    ? `yes, by ${scrollBy}px (${q.scrollH} in a ${q.clientH} window)`
+    : `NO -- overflow-y ${q.overflowY}, ${q.scrollH} of content in a ${q.clientH} window`}`);
+  console.log(`  disc box                 ${q.graph ? `${q.graph.w}x${q.graph.h} at ` +
+              `${q.graph.x},${q.graph.y}` : "absent"}`);
+  console.log(`  over the disc            ${q.over.length ? q.over.join(", ") : "nothing"}` +
+              (q.phone && q.over.length ? "   <-- NOTHING MAY COVER THE DISC ON A PHONE" : ""));
+  console.log(`  panel below the disc     ${q.sidebar && q.graph
+    ? (q.sidebar.y >= q.graph.b2 - 1
+        ? `yes, its top is at ${q.sidebar.y} and the disc ends at ${q.graph.b2}`
+        : `NO -- panel top ${q.sidebar.y}, disc ends ${q.graph.b2}`)
+    : "no panel"}`);
+  console.log(`  band below the disc      ${q.heat && q.graph
+    ? (q.heat.y >= q.graph.b2 - 1 ? `yes, at ${q.heat.y}` : `no, at ${q.heat.y}`) : "absent"}`);
+  console.log(`  pan                      ${q.panning ? "ON" : "off"}, ` +
+              `toggle ${q.panVisible ? "drawn" : "not drawn"}`);
+  console.log(`  scroll from the disc     ${scrollFromDisc}`);
+  console.log(`  cascade while scrolled   ${scrolled}`);
+  const small = q.controls.filter((c) => c.w < HIT_MIN || c.h < HIT_MIN);
+  console.log(`  hit boxes under ${HIT_MIN}px      ${small.length} of ${q.controls.length}`);
+  for (const c of small) {
+    console.log(`      ${pad(c.name, 26)}${pad(c.w + "x" + c.h, 10)} at ${c.x},${c.y}`);
+  }
+  if (q.hrow.length) {
+    const outside = q.hrow.filter((r) => r.out);
+    console.log(`  the band's control row   ${q.hrow.length} children, ` +
+                `${outside.length ? outside.map((r) => r.name).join(", ") + " OUTSIDE THE ROW"
+                                  : "all inside the row"}`);
+    for (const r of q.hrow) {
+      console.log(`      ${pad(r.name, 26)}${pad(r.w + "x" + r.h, 10)} at ${r.x},${r.y}` +
+                  (r.out ? "   OUTSIDE" : ""));
+    }
+  }
   console.log(`  page errors              ${p.firstError() || "none"}`);
   if (shot) console.log(`  screenshot               ${shot}`);
   console.log("");
