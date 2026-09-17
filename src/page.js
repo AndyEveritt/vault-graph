@@ -688,7 +688,9 @@ function mountVaultGraph(root, data, deps) {
   // github#82, decisions/0009 -- absent means nobody chose; width decides
   var sheetOpen = typeof deps.sheetOpen === "boolean" ? deps.sheetOpen : !narrow();
   var onSheetOpen = typeof deps.onSheetOpen === "function" ? deps.onSheetOpen : null;
-  var bandOpen = typeof deps.bandOpen === "boolean" ? deps.bandOpen : true;
+  // github#170, design/0013 -- what the host stored; on a phone the layout decides
+  var storedBand = typeof deps.bandOpen === "boolean" ? deps.bandOpen : true;
+  var bandOpen = phone() ? false : storedBand;
   var onBandOpen = typeof deps.onBandOpen === "function" ? deps.onBandOpen : null;
 
   // github#70, decisions/0009 -- the host owns the clock. The page never writes this back:
@@ -8397,7 +8399,8 @@ function mountVaultGraph(root, data, deps) {
     syncCanvasTop();
     if (quiet) return;
     afterPanel();
-    if (onBandOpen) onBandOpen(bandOpen);
+    // github#170, design/0013 -- a phone never writes over a desk's stored choice
+    if (onBandOpen && !phone()) onBandOpen(bandOpen);
   }
 
   function setPan(on, persist) {

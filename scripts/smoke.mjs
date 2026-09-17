@@ -2438,6 +2438,23 @@ const PHONE_PROBE = `(function () {
   var root = document.querySelector(".vault-graph");
   var g = document.getElementById("vg-graph");
   var gb = g ? g.getBoundingClientRect() : null;
+  // github#170 -- "over the disc" is over the CIRCLE, not its square
+  // github#170 -- the corner a round disc leaves empty is where the toggle went
+  var disc = null;
+  if (gb && window.__vg && __vg.renderer && __vg.graph) {
+    var R = __vg.renderer, G = __vg.graph;
+    var dcx = gb.left + gb.width / 2, dcy = gb.top + gb.height / 2, far = 0;
+    G.forEachNode(function (id) {
+      var dd = R.getNodeDisplayData(id);
+      if (!dd || dd.hidden) return;
+      var v = R.graphToViewport(G.getNodeAttributes(id));
+      var ax = v.x + gb.left - dcx, ay = v.y + gb.top - dcy;
+      var reach = Math.sqrt(ax * ax + ay * ay) + R.scaleSize(dd.size);
+      if (reach > far) far = reach;
+    });
+    // github#170 -- no dots drawn is no measurement; the box is the fallback
+    if (far > 0) disc = { cx: dcx, cy: dcy, r: far };
+  }
   var SEL = "#vg-cam button, #vg-mob button, #vg-ov, #vg-heatsrc button, #vg-recent button," +
             " #vg-compact, #vg-rangebox .dt, #vg-rangeall, #vg-years button," +
             " #vg-dim button, .dimall button, .tools button, .lgr .eye, .lgr .tw, .lg .only";
@@ -2456,8 +2473,20 @@ const PHONE_PROBE = `(function () {
             : band ? r.height < ${PHONE_BAND_H}
             : (r.width < ${PHONE_HIT} || r.height < ${PHONE_HIT});
     if (bad) small.push(name + " " + Math.round(r.width) + "x" + Math.round(r.height));
-    if (gb && !(r.right <= gb.left || r.left >= gb.right ||
-                r.bottom <= gb.top || r.top >= gb.bottom)) over.push(name);
+    // github#170 -- nearest point of the box to the centre, against the radius
+    if (disc) {
+      var qx = Math.max(r.left, Math.min(disc.cx, r.right));
+      var qy = Math.max(r.top, Math.min(disc.cy, r.bottom));
+      var gap = Math.sqrt((qx - disc.cx) * (qx - disc.cx) + (qy - disc.cy) * (qy - disc.cy));
+      if (gap < disc.r) {
+        over.push(name + " " + Math.round(gap) + "px from the centre, disc r " +
+                  Math.round(disc.r));
+      }
+    } else if (gb && !(r.right <= gb.left || r.left >= gb.right ||
+                       r.bottom <= gb.top || r.top >= gb.bottom)) {
+      // github#170 -- unmeasurable must not read as clean; the square is stricter
+      over.push(name + " over the disc's box (the drawn disc could not be measured)");
+    }
   });
   var hrow = document.querySelector("#vg-heat .hrow"), outside = [], lines = {};
   if (hrow) {
@@ -2486,6 +2515,12 @@ const PHONE_PROBE = `(function () {
   var sheet = document.getElementById("vg-sheet");
   return { phone: !!__vg.phone, narrow: !!__vg.narrow,
            lensLines: lensLines,
+           // github#170 -- the calendar starts folded on a phone; there is a way back
+           bandOpen: !!__vg.bandOpen, dataBand: root.getAttribute("data-band"),
+           bandLaidOut: !!(document.getElementById("vg-heat") || {}).offsetParent,
+           mob: box(document.getElementById("vg-mob")),
+           disc: disc ? { cx: Math.round(disc.cx), cy: Math.round(disc.cy),
+                          r: Math.round(disc.r) } : null,
            bandBtn: !!(band && band.offsetParent),
            sheetBtn: !!(sheet && sheet.offsetParent),
            coarse: !!(window.matchMedia && matchMedia("(pointer: coarse)").matches),
@@ -2499,6 +2534,31 @@ const PHONE_PROBE = `(function () {
            controls: n, small: small, over: over,
            hrowOutside: outside, compactY: lines["vg-compact"], rangeY: lines["vg-rangebox"] };
 })()`;
+
+// github#170, design/0013 -- bandOpen is read at mount, so boot at size
+// github#170 -- and a default is what a reader who never chose gets
+const reboot = async (p) => {
+  await p.eval(`(function () {
+    try {
+      var k = window.SETTINGS_KEY;
+      if (!k) return;
+      var v = JSON.parse(window.localStorage.getItem(k) || "{}");
+      delete v.bandOpen;
+      window.localStorage.setItem(k, JSON.stringify(v));
+    } catch (e) { /* github#170 -- a page with no store has nothing to forget */ }
+  })(); void 0`).catch(() => {});
+  await p.eval(`location.reload(); void 0`).catch(() => {});
+  await sleep(1200);
+  for (let i = 0; i < 160; i++) {
+    if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+    await sleep(250);
+  }
+  for (let i = 0; i < 200; i++) {
+    if (!(await p.j(`!!__vg.demo.busy()`).catch(() => false))) break;
+    await sleep(150);
+  }
+  await sleep(400);
+};
 
 // github#170 -- see .ai-context/mobile-harness.md
 const settlePan = async (p) => {
@@ -2522,6 +2582,8 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
     await p.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {});
     await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
     await sleep(500);
+    // github#170 -- a phone-booted page is not a desktop one; boot it again
+    await reboot(p);
     await settlePan(p);
   };
   const said = [], bad = [];
@@ -2532,6 +2594,8 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
       await p.send("Emulation.setDeviceMetricsOverride",
                    { width: d.w, height: d.h, deviceScaleFactor: dpr, mobile: true });
       await sleep(700);
+      // github#170 -- boot it at this size; the default is a mount read
+      await reboot(p);
       // github#170 -- see .ai-context/mobile-harness.md
       await settlePan(p);
       // github#170 -- the trace below scrolls the page; measure from the top
@@ -2548,24 +2612,60 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
       say(!!r.graph && !!r.sidebar && r.sidebar.y >= r.graph.b2 - 1,
           `the panel is not below the disc (panel top ${r.sidebar && r.sidebar.y}, ` +
           `disc ends ${r.graph && r.graph.b2})`);
-      say(!!r.heat && !!r.graph && r.heat.b2 <= r.graph.y + 1,
-          `the band is not above the disc (band ends ${r.heat && r.heat.b2}, ` +
-          `disc starts ${r.graph && r.graph.y})`);
+      // github#170 -- the disc is the first thing on screen, not a reference band
+      say(!r.bandOpen && r.dataBand === "off" && !r.bandLaidOut,
+          `the calendar did not start folded (__vg.bandOpen ${r.bandOpen}, ` +
+          `data-band ${r.dataBand}, laid out ${r.bandLaidOut})`);
+      say(!!r.graph && r.graph.y <= 1,
+          `the disc does not start the page (disc top ${r.graph && r.graph.y})`);
+      // github#170 -- the toggle is in the disc square's own top-left corner
+      // github#170 -- a 0x0 box sits inside every corner; require a real one
+      say(!!r.mob && r.mob.w > 0 && r.mob.h > 0 &&
+          !!r.graph && r.mob.x >= r.graph.x - 1 && r.mob.y >= r.graph.y - 1 &&
+          r.mob.r2 <= r.graph.x + r.graph.w / 2 && r.mob.b2 <= r.graph.y + r.graph.h / 2,
+          `the calendar's toggle is not in the disc's top-left corner ` +
+          `(toggle ${r.mob && r.mob.x},${r.mob && r.mob.y}..${r.mob && r.mob.r2},` +
+          `${r.mob && r.mob.b2}; disc square ${r.graph && r.graph.x},${r.graph && r.graph.y} ` +
+          `${r.graph && r.graph.w}x${r.graph && r.graph.h})`);
       say(r.bandBtn && !r.sheetBtn,
           `the calendar's toggle is ${r.bandBtn ? "drawn" : "NOT DRAWN"} and the sheet's is ` +
           `${r.sheetBtn ? "STILL DRAWN" : "not"}`);
-      say(r.lensLines === 1, `the recent lens wrapped onto ${r.lensLines} lines`);
       say(!r.panning && !r.panLaidOut,
           `pan is ${r.panning ? "ON" : "off"} and its toggle is ` +
           `${r.panLaidOut ? "drawn" : "not drawn"}`);
-      say(r.small.length === 0, `${r.small.length} control(s) under their floor ` +
-                                `(${PHONE_HIT}px, or ${PHONE_BAND_H}/${PHONE_YEAR_H}px tall ` +
-                                `inside the calendar): ` + r.small.join(", "));
 
-
-      say(r.hrowOutside.length === 0, `band controls outside their row: ${r.hrowOutside.join(", ")}`);
-      say(r.compactY !== undefined && r.compactY === r.rangeY,
-          `the compact toggle is on its own line (y ${r.compactY} against the range's ${r.rangeY})`);
+      // github#170 -- folded is a fold, not a removal: the toggle brings it back
+      // github#170 -- and everything INSIDE the band can only be measured open
+      const tapBand = async () => {
+        await p.eval(`document.getElementById("vg-band").click(); void 0`);
+        await sleep(900);
+        await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+        await sleep(200);
+        return p.j(PHONE_PROBE);
+      };
+      const ro = await tapBand();
+      say(ro.bandOpen && ro.dataBand === "on" && ro.bandLaidOut,
+          `the toggle did not open the calendar (__vg.bandOpen ${ro.bandOpen}, ` +
+          `data-band ${ro.dataBand}, laid out ${ro.bandLaidOut})`);
+      say(!!ro.heat && !!ro.graph && ro.heat.b2 <= ro.graph.y + 1,
+          `the opened band is not above the disc (band ends ${ro.heat && ro.heat.b2}, ` +
+          `disc starts ${ro.graph && ro.graph.y})`);
+      say(ro.over.length === 0, `${ro.over.join(", ")} over the disc with the band open`);
+      say(ro.lensLines === 1, `the recent lens wrapped onto ${ro.lensLines} lines`);
+      say(ro.small.length === 0, `${ro.small.length} control(s) under their floor ` +
+                                 `(${PHONE_HIT}px, or ${PHONE_BAND_H}/${PHONE_YEAR_H}px tall ` +
+                                 `inside the calendar): ` + ro.small.join(", "));
+      say(ro.hrowOutside.length === 0,
+          `band controls outside their row: ${ro.hrowOutside.join(", ")}`);
+      say(ro.compactY !== undefined && ro.compactY === ro.rangeY,
+          `the compact toggle is on its own line (y ${ro.compactY} against the range's ` +
+          `${ro.rangeY})`);
+      // github#170 -- and folds again, back to the geometry r was measured at
+      const rf = await tapBand();
+      say(!rf.bandOpen && rf.dataBand === "off" && !rf.bandLaidOut &&
+          !!rf.graph && rf.graph.y <= 1,
+          `the toggle did not fold the calendar again (__vg.bandOpen ${rf.bandOpen}, ` +
+          `data-band ${rf.dataBand}, disc top ${rf.graph && rf.graph.y})`);
 
       // github#170 -- a thumb lands on the disc; it must scroll from there
       const gx = r.graph ? r.graph.x + Math.round(r.graph.w / 2) : Math.round(d.w / 2);
@@ -2634,12 +2734,54 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
       say(!atRest && zoomed && !refit,
           `pan across a zoom: at rest ${atRest}, zoomed in ${zoomed}, back at fit ${refit}`);
 
-      said.push(`${d.name}: band ${r.heat.h}px at ${r.heat.y}, disc ${r.graph.w}x${r.graph.h} ` +
-                `at ${r.graph.y}, panel at ${r.sidebar.y}, scrolls by ` +
-                `${r.scrollH - r.clientH}px, lens on ${r.lensLines} line, ${r.controls} ` +
-                `controls with ${r.small.length} under ${PHONE_HIT}, pan ` +
+      said.push(`${d.name}: band folded at load, disc ${r.graph.w}x${r.graph.h} at ` +
+                `${r.graph.y} (drawn r ${r.disc && r.disc.r}), toggle ${r.mob.w}x${r.mob.h} at ` +
+                `${r.mob.x},${r.mob.y}, panel at ${r.sidebar.y}, scrolls by ` +
+                `${r.scrollH - r.clientH}px; opened: band ${ro.heat.h}px at ${ro.heat.y}, ` +
+                `disc at ${ro.graph.y}, lens on ${ro.lensLines} line, ${ro.controls} ` +
+                `controls with ${ro.small.length} under ${PHONE_HIT}, pan ` +
                 `${r.panning ? "on" : "off"}`);
     }
+
+    // github#170, design/0013 -- a desk's stored open must not reach a phone
+    // github#170 -- nor its own tap write over one; found on the real vault
+    const stored = await p.j(`(function () {
+      try {
+        var k = window.SETTINGS_KEY;
+        if (!k) return false;
+        var v = JSON.parse(window.localStorage.getItem(k) || "{}");
+        v.bandOpen = true;
+        window.localStorage.setItem(k, JSON.stringify(v));
+        return JSON.parse(window.localStorage.getItem(k)).bandOpen === true;
+      } catch (e) { return false; }
+    })()`);
+    if (!stored) bad.push(`could not store a band choice to check a phone ignores it`);
+    await p.eval(`location.reload(); void 0`).catch(() => {});
+    await sleep(1200);
+    for (let i = 0; i < 160; i++) {
+      if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+      await sleep(250);
+    }
+    await sleep(600);
+    const rs = await p.j(PHONE_PROBE);
+    if (!(rs.phone && !rs.bandOpen && rs.dataBand === "off")) {
+      bad.push(`a desk's stored "open" reached a phone (__vg.phone ${rs.phone}, ` +
+               `__vg.bandOpen ${rs.bandOpen}, data-band ${rs.dataBand})`);
+    }
+    // github#170 -- opening it here leaves the desk's choice as it was
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const kept = await p.j(`(function () {
+      try {
+        return JSON.parse(window.localStorage.getItem(window.SETTINGS_KEY) || "{}").bandOpen;
+      } catch (e) { return "unreadable"; }
+    })()`);
+    const openedHere = await p.j(`!!__vg.bandOpen`);
+    if (kept !== true || !openedHere) {
+      bad.push(`a phone's tap wrote over the desk's choice (stored now ${kept}, ` +
+               `opened here ${openedHere})`);
+    }
+    said.push(`a desk's stored "open" does not reach a phone, and a tap here left it ${kept}`);
   } finally {
     await restore();
   }
@@ -2654,21 +2796,26 @@ check("a narrow window with a pointer keeps the desktop's answer", async (p) => 
     await p.send("Emulation.setDeviceMetricsOverride",
                  { width: 390, height: 844, deviceScaleFactor: dpr, mobile: false });
     await sleep(700);
+    // github#170 -- booted here, so the calendar's default is the real one
+    await reboot(p);
     await settlePan(p);
     r = await p.j(PHONE_PROBE);
   } finally {
     await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
     await sleep(500);
+    await reboot(p);
     await settlePan(p);
   }
+  // github#170 -- the calendar folds for a phone, never a narrow mouse
   const ok = r && !r.coarse && !r.phone && r.narrow && r.panning && r.panLaidOut &&
-             r.overflowY === "hidden";
+             r.overflowY === "hidden" && r.bandOpen && r.dataBand === "on";
   return {
     ok: !!ok,
     detail: `390x844 with a fine pointer: coarse ${r && r.coarse}, __vg.narrow ${r && r.narrow}, ` +
             `__vg.phone ${r && r.phone}, overflow-y ${r && r.overflowY}, ` +
             `pan ${r && r.panning ? "on" : "OFF"}, toggle ` +
-            `${r && r.panLaidOut ? "drawn" : "NOT DRAWN"}` +
+            `${r && r.panLaidOut ? "drawn" : "NOT DRAWN"}, calendar ` +
+            `${r && r.bandOpen ? "open" : "FOLDED"} (data-band ${r && r.dataBand})` +
             (ok ? "" : "  <- A NARROW DESKTOP WINDOW TOOK THE PHONE LAYOUT"),
   };
 });

@@ -400,10 +400,9 @@ failure mode this repo's own brief names: reasoning about the code instead of me
 - **The pan toggle is not drawn.** Pan is off and is not a choice here, so a toggle for it
   would be a lie. It takes `#vg-cam button#vg-pan` to say so: `#vg-cam button` carries an id, a
   class and a type, so a bare `#vg-pan` loses to it on specificity and the button stayed drawn.
-- **`#vg-mob` joins that row and loses one of its two buttons.** The calendar's toggle rides the
-  control row rather than floating at the disc's corner, so the disc stays clear and every
-  control on this page is in one place. The sheet's toggle goes: the folder list is in the flow
-  and there is nothing left to summon.
+- **`#vg-mob` loses one of its two buttons.** The sheet's toggle goes: the folder list is in the
+  flow and there is nothing left to summon. *(The first pass also moved the calendar's toggle
+  into that control row; the second pass put it back in the disc's corner — see below.)*
 - **`#vg-ov` is not drawn.** `design/0017` built the tile as a hover-revealed pointer
   affordance, and with pan off only a zoom can crop the disc. Its whole job -- where the frame
   sits, click to fit -- is the Fit button now sitting at 44 px directly underneath.
@@ -546,6 +545,139 @@ and nothing in the page watches scroll.
 - **A desktop choice still reaches a phone**, for the panels' *stored* state -- the layout now
   ignores it rather than obeying it, which is the fix for the symptom, not for the sharing.
 - **Two fingers still only zoom**, unchanged from above.
+
+## github#170, second pass — the calendar starts folded, and its toggle takes the disc's corner
+
+The first pass shipped and was tried on a phone. Two asks came back, in his words: *"toggle
+heatmap off by default and move heatmap toggle button to left upper corner of the graph view"*.
+Both are about the phone layout only; the desktop default and the desktop toggle position are
+untouched, and every measured desktop box is identical before and after.
+
+### Folded is the layout's call, not the store's — corrected on the real vault
+
+Two patterns were already in the file, one line apart, and they mean opposite things:
+
+```js
+var sheetOpen = typeof deps.sheetOpen === "boolean" ? deps.sheetOpen : !narrow();
+var panEnabled = phone() ? false : storedPan;
+```
+
+`sheetOpen` is *"absent means nobody chose; the width decides"* (`decisions/0009`) — a stored
+choice wins. `panEnabled` **overrides** a stored choice, because pan on a phone is not a choice at
+all.
+
+**This first shipped with the `sheetOpen` form, and installing it on the maintainer's own vault
+proved that wrong the same afternoon.** His `data.json` already carried `"bandOpen": true` —
+written by a click *on the desktop*, where the band is open anyway — so the phone obeyed a
+preference he had never expressed for a phone, and "off by default" was unreachable there. Worse,
+the only way to reach it was to fold the band on the phone, which would have written `false` back
+and started his **desktop** folded too. One shared value cannot express two form factors.
+
+So the band takes `panEnabled`'s form after all:
+
+```js
+var storedBand = typeof deps.bandOpen === "boolean" ? deps.bandOpen : true;
+var bandOpen = phone() ? false : storedBand;
+```
+
+and `setBand` does not persist on a phone, exactly as `syncPhonePan` passes `setPan(want, false)` —
+so a phone starts folded every time, a tap opens it for that session, and a desk's stored choice is
+neither read nor written from there. Off a phone `storedBand` is the expression the literal `true`
+always was, so the desktop path is unchanged — measured identical at 1600x1000, every box.
+
+What was given up is real and was weighed: a phone reader who *wants* the calendar open taps once
+per launch, because there is nowhere to remember that which is not the desk's setting. A separate
+`bandOpenPhone` key would buy that back and is the obvious next step if anyone asks; it was not
+worth a new setting and a migration for a band that is one tap away.
+
+Not re-derived when the media query flips, either. `sheetOpen` is not, and re-folding a band the
+reader opened two seconds ago on a rotate would be hostile.
+
+### The corner needed no rule — it needed one deleted
+
+The base rule has said this since `github#82`:
+
+```css
+.vault-graph #vg-mob {
+  position: absolute; left: var(--panels-inset); top: var(--panels-inset); ...
+}
+```
+
+`#vg-canvas` is `position: relative`, the phone block does not change that, and on a phone
+`#vg-graph` is grid row 1, `justify-self: stretch; align-self: start` — so the canvas's own
+corner **is** the graph view's corner. The first pass had overridden the rule to `position:
+static; grid-row: 2`. Removing that override is the entire move, and it leaves one source of
+truth for where the cluster sits rather than two that must agree.
+
+`#vg-cam` keeps `grid-column: 1`. It reads like tidiness now that it is the row's only cluster,
+and it is not: a grid item naming a row but no column auto-places, which creates an implicit
+second column and takes its width out of the disc's `1fr` — measured at 334 px in a 390 px
+canvas, every dot under 2 px.
+
+### "Nothing over the disc" had to start meaning the disc
+
+The first pass's own check measured every control against `#vg-graph`'s **bounding box**, and a
+disc is a circle in a square. A control in the corner would have failed a check about a circle
+it never touches, and the temptation is to except the corner — which would leave the check
+unable to catch a control that really did cover dots.
+
+So the check was made to say what it always meant. It takes the drawn disc from the renderer —
+`graphToViewport` over the drawn nodes, plus each dot's `scaleSize` — and tests the nearest point
+of each control's box against that radius. Every existing control sits wholly outside the square,
+so no verdict changes. The corner passes on merit:
+
+| at 390 px | |
+|---|---|
+| the disc square | 390x390 at 0,0 |
+| the inscribed circle | radius 195 at 195,195 |
+| the **drawn** disc | **radius 167** |
+| the toggle | 44x44 at 12,12 |
+| its nearest corner to the centre | **197 px** |
+| clearance against the drawn disc | **~30 px** |
+
+It clears the inscribed circle too, by 1.6 px — but the drawn disc is the honest measurement and
+the one that survives a fit-cap change.
+
+### Two traps in measuring a default, both of which made the check unable to fail
+
+**`bandOpen` is read once, at mount.** The harness resized a page into a phone, so what it
+measured was the default for the size the page *booted* at, not the phone. Both checks reboot
+under the emulation now, which is what "a phone opening the page" actually is.
+
+**And the exported page persists `bandOpen` to `localStorage`** (`shell.html`, `decisions/0009`).
+The check taps the band open and shut to prove the fold has a way back — which stored `false`.
+The next boot would then have started folded *because of the tap*, not because of the default:
+the second device's assertion could never have failed, and neither could a future regression.
+`reboot()` forgets that one key first. The other half is asserted on purpose, since it is the
+design above: with `open` stored, a phone keeps it open.
+
+### Measured after, at load, booted at size
+
+| | first pass (`a0a7612`) | here |
+|---|---|---|
+| the calendar at load | open, 306 px | **folded** |
+| the disc's top | y=306 | **y=0 — first on screen** |
+| the toggle | 12,704 (iPhone) / 12,726 (Pixel) | **12,12, the disc's corner** |
+| page height, iPhone 14 | 2210 | **1904** |
+| page height, Pixel 7 | 2232 | **1926** |
+| drawn disc radius | 167 / 178 | **167 / 178**, unchanged |
+| over the drawn disc | nothing | **nothing** |
+| a tap on the toggle | n/a | band open above the disc, tap again folds it |
+| 390x844 on a mouse | calendar open | **calendar open** |
+| a desk's stored `open`, on a phone | obeyed — band open | **ignored — band folded** |
+| a phone's own tap | wrote the shared setting | **leaves the desk's value untouched** |
+| desktop, 1600x1000 | every box | **identical, every box** |
+
+### Known limits, stated rather than discovered later
+
+- **A phone reader who wants the calendar open taps once per launch.** There is nowhere to
+  remember that which is not the desk's setting, and the desk's setting is exactly what a phone
+  must stop reading. A `bandOpenPhone` key would buy it back; it was judged not worth a new
+  setting and a migration for a control one tap away.
+- **The sheet still has the flaw the band just lost.** `sheetOpen` is one shared value across
+  form factors too, and nothing here changed that — it simply was not what was reported.
+- **The reboot is a real page load in the middle of a shared page's run.** It leaves the page
+  cleaner than the state manipulation it replaced, but it is the one new cost in this check.
 
 ## What this deliberately does not do
 

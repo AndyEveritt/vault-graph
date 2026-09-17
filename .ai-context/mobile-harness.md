@@ -158,3 +158,38 @@ So `smoke.mjs` can exercise the phone predicate, scoped per check exactly like t
   synchronously. The first cut of the check polled for stability *before* the resize beat's
   120 ms debounce had even fired, found the value trivially stable at its old reading, and
   failed on a page that was already correct.
+
+## What the second pass added: a default cannot be measured on a page that is already up
+
+`github#170`'s second pass folds the calendar on a phone, and a *default* turned out to be the
+one thing this harness could not read. Three orderings, each of which made the check pass for
+the wrong reason.
+
+- **`bandOpen` is read once, at mount.** Every reading here was taken by resizing a page into a
+  phone, which measures the default belonging to the size the page *booted* at. Both smoke
+  checks and `mobile-check.mjs` reload under the emulation now -- and in `mobile-check.mjs` the
+  reload goes **after** `fitViewport`, because the window opens near the device's size and only
+  reaches it after that loop.
+- **The exported page persists `bandOpen` to `localStorage`** (`shell.html`, `decisions/0009`,
+  keyed on `window.SETTINGS_KEY`). The check taps the band open and shut to prove the fold has a
+  way back, which stores `false` -- so the *next* boot starts folded because of the tap, not
+  because of the default. On the second device the assertion could no longer fail, and neither
+  could a regression. `reboot()` deletes that one key first; it deletes only that key, because
+  other checks in the same job have their own stored state.
+- **Storing the opposite is the other half, and it is asserted rather than assumed.** Write
+  `bandOpen: true`, boot a phone, and the band must come up open. That is the whole difference
+  between `sheetOpen`'s "absent means nobody chose" and `panEnabled`'s override, and without the
+  assertion nothing distinguishes them.
+
+**"Over the disc" is measured against the drawn disc, not the graph's box.** The disc is a
+circle in a square, so the corners are empty by construction and a bounding-box test calls a
+control in one of them a collision. The probe reads the drawn radius off the renderer --
+`graphToViewport` over the drawn nodes, plus each dot's `scaleSize` -- and tests the nearest
+point of each control's box against it. No existing control's verdict changes, since they all
+sit wholly outside the square; `mobile-check.mjs` prints that radius beside the square's
+inscribed circle so the clearance is on screen rather than inferred.
+
+**Anything inside the band has to be measured with the band open.** A folded band is
+`display: none`, so the lens's line count reads 0, the row has no children to fall outside it,
+and `#vg-compact`'s line is `undefined` -- all of which read as "passing" against a test written
+for the open state. Those assertions moved to a second probe taken after the toggle is tapped.
