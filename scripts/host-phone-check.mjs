@@ -401,8 +401,10 @@ try {
 
   // github#178 -- item 4
   const ybox = p.years.box;
-  const outside = p.years.chips.filter((c) => c.box && ybox &&
-    (c.box.x < ybox.x - 0.5 || c.box.right > ybox.right + 0.5));
+  // github#178 -- a chip may bleed into the padding, not out
+  const heatBox = p.band.heat;
+  const outside = p.years.chips.filter((c) => c.box && heatBox &&
+    (c.box.x < heatBox.x - 0.5 || c.box.right > heatBox.right + 0.5));
   const sorted = p.years.chips.filter((c) => c.box).slice().sort((a, b) => a.box.x - b.box.x);
   const overlaps = [];
   for (let i = 1; i < sorted.length; i++) {

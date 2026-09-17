@@ -485,6 +485,13 @@
     .vault-graph #vg-cam button { transition: none; }
   }
 
+  /* ------------------------------------------- the band, under a host ----- */
+  /* github#178, design/0013 */
+  .vault-graph #vg-heat :where(button),
+  .vault-graph #vg-heat :where(input) {
+    height: auto; box-shadow: none;
+  }
+
   .vault-graph #vg-compact {
     display: flex; align-items: center; justify-content: center;
     width: var(--vg-hrow-h, 22px); height: var(--vg-hrow-h, 22px);
