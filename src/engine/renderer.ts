@@ -111,6 +111,14 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
   private readonly onWindowResize = (): void => {
     this.scheduleRefresh();
   };
+  // github#182 -- a window resize is not the only way the stage changes size. An Obsidian
+  // pane being dragged, a side panel opening, a split closing: the container resizes and the
+  // window never fires. resize() only runs inside render(), so on a quiet page the canvases
+  // kept the size they had and the disc stayed drawn around the OLD centre -- measured 320px
+  // off after a container went 672 -> 1312 wide, with the camera still exactly at fit.
+  // scheduleRender, not scheduleRefresh: process() is graph-space only, so a size change
+  // needs a re-measure and a repaint, never a re-index.
+  private containerRO: ResizeObserver | null = null;
 
   constructor(
     private readonly graph: GraphStore,
@@ -155,6 +163,14 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.captor = new MouseCaptor(mouse.canvas, host, win);
     this.bindCaptor();
     win.addEventListener("resize", this.onWindowResize);
+    // github#182 -- the container is the stage; watch it, not just the window.
+    // Off the host's own window, not the global: an Obsidian popout is a different one.
+    const RO = (win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+    if (RO) {
+      const ro = new RO(() => this.scheduleRender());
+      ro.observe(this.container);
+      this.containerRO = ro;
+    }
 
     this.refresh();
   }
@@ -219,6 +235,9 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.removeAllListeners();
     this.camera.kill();
     this.win.removeEventListener("resize", this.onWindowResize);
+    // github#182
+    this.containerRO?.disconnect();
+    this.containerRO = null;
     this.captor.kill();
     if (this.renderFrame !== null) this.win.cancelAnimationFrame(this.renderFrame);
     if (this.hoverFrame !== null) this.win.cancelAnimationFrame(this.hoverFrame);

@@ -3688,6 +3688,75 @@ check("fit frames the disc that is actually there", async (p) => {
   };
 }, { on: WALK, clock: "real" });
 
+// github#182 -- where the disc is actually DRAWN, in page px, against the stage it sits in.
+// Deliberately not renderer.getDimensions(): those are the renderer's own cached width and
+// height, and a stale cache is the whole defect, so asking it would agree with itself. The
+// canvas's real rect and the container's real rect are the only two that cannot lie.
+const DRAWN_OFF = `(function () {
+  var r = __vg.renderer, st = r.getCamera().getState();
+  var cont = document.getElementById("vg-graph");
+  var cr = cont.getBoundingClientRect(), vr = cont.querySelector("canvas").getBoundingClientRect();
+  var v = r.graphToViewport({ x: 0, y: 0 });
+  return { dx: +((vr.left + v.x) - (cr.left + cr.width / 2)).toFixed(2),
+           dy: +((vr.top + v.y) - (cr.top + cr.height / 2)).toFixed(2),
+           stage: Math.round(cr.width) + "x" + Math.round(cr.height),
+           ratio: +st.ratio.toFixed(4) };
+})()`;
+
+// github#182 -- a fitted disc that stops being centred when the stage changes size
+check("a resize re-centres a fitted disc on the new stage", async (p) => {
+  const bad = [];
+  const seen = [];
+  const host = `document.querySelector(".vault-graph")`;
+  try {
+    await p.eval(`document.querySelector("#vg-reset").click(); void 0`);
+    const fitted = await camSettle(p);
+    await sleep(400);
+    const at0 = await p.j(DRAWN_OFF);
+    seen.push(`fit ${at0.stage} (${at0.dx}, ${at0.dy})`);
+
+    // the VIEWPORT half -- portrait and landscape, as the ticket asks. This half already
+    // held on develop: a window resize fires the renderer's own window listener.
+    for (const [w, h] of [[900, 1200], [1400, 700], [1600, 1000]]) {
+      await p.send("Emulation.setDeviceMetricsOverride",
+                   { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+      await sleep(900);
+      const m = await p.j(DRAWN_OFF);
+      seen.push(`${w}x${h} -> stage ${m.stage} (${m.dx}, ${m.dy})`);
+      if (Math.abs(m.dx) > 1 || Math.abs(m.dy) > 1) {
+        bad.push(`viewport ${w}x${h} left the disc (${m.dx}, ${m.dy}) off the stage centre`);
+      }
+      if (Math.abs(m.ratio - fitted.ratio) > fitted.ratio * 0.005) {
+        bad.push(`viewport ${w}x${h} moved the ratio off fit (${m.ratio} vs ${fitted.ratio})`);
+      }
+    }
+
+    // the CONTAINER half -- an Obsidian pane dragged, a split closed, a panel opened. No
+    // window resize fires, and this is the half that failed: measured 225px down and 320px
+    // left on develop at 62e235d, with the camera still exactly at (0.5, 0.5).
+    for (const [w, h] of [[640, 760], [1180, 420], [900, 640]]) {
+      await p.eval(`(function () { var el = ${host};
+        el.style.width = "${w}px"; el.style.height = "${h}px"; })(); void 0`);
+      await sleep(900);
+      const m = await p.j(DRAWN_OFF);
+      seen.push(`host ${w}x${h} -> stage ${m.stage} (${m.dx}, ${m.dy})`);
+      if (Math.abs(m.dx) > 1 || Math.abs(m.dy) > 1) {
+        bad.push(`a ${w}x${h} container left the disc (${m.dx}, ${m.dy}) off the stage centre`);
+      }
+      if (Math.abs(m.ratio - fitted.ratio) > fitted.ratio * 0.005) {
+        bad.push(`a ${w}x${h} container moved the ratio off fit (${m.ratio} vs ${fitted.ratio})`);
+      }
+    }
+    return { ok: !bad.length, detail: bad.length ? bad.join("; ") : seen.join(" | ") };
+  } finally {
+    await p.eval(`(function () { var el = ${host};
+      el.style.width = ""; el.style.height = ""; })(); void 0`).catch(() => {});
+    await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    await sleep(600);
+    await camReset(p).catch(() => {});
+  }
+}, { on: ["demo-vault"], clock: "real" });
+
 // github#14
 async function toRest(p) {
   await p.eval(`document.querySelector("#vg-reset").click(); void 0`);

@@ -661,6 +661,47 @@ consistency. The edge-stroke-width check's `at(1.04)` "rest" reference point is 
 **not** touched — it is an arbitrary zoom-level sample next to `0.216`/`0.108`, unrelated to what
 `fitRatio()` promises.
 
+## A resize re-centres a fitted disc on the new stage (github#182)
+
+The stage is whatever the host gives the page: a browser window, an Obsidian pane, a pane with a
+side panel opening beside it. **Whichever of those changes, the disc stays centred in it.**
+
+```bash
+node scripts/smoke.mjs --only "re-centres a fitted disc"
+```
+
+The check fits the disc, then changes the stage seven times — three viewport sizes through
+`Emulation.setDeviceMetricsOverride` (portrait and landscape) and three container-only sizes on
+the host element — and asserts after each that the drawn disc centre is **within 1px** of the
+stage centre, and that the ratio is still `fit()`'s within its 0.5% band.
+
+**Measure the two real rectangles, never `renderer.getDimensions()`.** Those are the renderer's
+own cached `width`/`height`, and a stale cache *is* the defect — asking it only makes it agree
+with itself. The check reads the canvas's `getBoundingClientRect()` and the container's, and
+places the disc centre with `graphToViewport({x: 0, y: 0})` inside the canvas's rect.
+
+**A container resize is the case that fails; a window resize is not.** `resize()` runs only
+inside `render()`, and the renderer's own listener was on `win`'s `resize` event. A window resize
+therefore repainted and re-measured; an Obsidian pane being dragged, a split closing or a panel
+opening fired neither, so the canvases kept the size they had and the disc stayed drawn around
+the **old** centre. Measured on develop at `62e235d`, demo fixture, camera at `(0.5, 0.5)` and
+ratio `0.954` throughout — the camera was never the problem:
+
+| stage change | drawn centre, off by |
+|---|---|
+| `672x772` → `672x322` (container) | **0, 225px** |
+| `672x772` → `1312x772` (container) | **320px, 0** |
+| `640x760` container | **480px, 120px** |
+| `900x1200` viewport | 0, 5px |
+
+The fix is a `ResizeObserver` on the renderer's own container, taken off the **host's** window
+(`win.ResizeObserver`, not the global — an Obsidian popout is a different window), calling
+`scheduleRender()`. Not `scheduleRefresh()`: `process()` is graph-space only, so a size change
+owes a re-measure and a repaint, never a re-index of every node.
+
+**Camera and canvas only, not layout**: no note position is read or written, so the golden
+snapshots are untouched.
+
 ## Every note is filed exactly once, in either dimension
 
 github#86, design/0015. The lattice gives every note one cell in one wedge. A folder
