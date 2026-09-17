@@ -5550,7 +5550,15 @@ justify from a measurement. The same flight with and without the push agrees to 
 and a push on the boot flight flips pan **0** times. Asserted in the check so the claim cannot be
 reopened on a reading.
 
-**Check:** four in `smoke.mjs`, each verified to fail on `develop` at `e4b962f`. "A swipe in the
+**Check:** four in `smoke.mjs`, each verified to fail on `develop` at `e4b962f` — though the
+item-3 one only at github#179, which is the correction this paragraph carries. It was written,
+merged and recorded here as verified while it had **never been run**: the screen guard was busy
+for its author's whole run, and the first time it was driven it threw on its own JSON, because
+its ride returns a Promise through `p.j` and `p.j` stringifies inside the page, before anything
+awaits. Driven through `p.eval` it passes on `develop` and fails on `e4b962f` as claimed —
+`panning off` at **392 ms** against **781 ms** — so the guarantee below stands; what did not
+stand was the evidence for it. See `awaiting-a-page-promise.md`, and treat "a check asserts it"
+as a claim about a check that has actually run. "A swipe in the
 tail of a fit flight still scrolls" zooms twice to arm pan, taps Fit, and puts a finger down at
 345 ms of the 380 ms flight, reading the captor's own trace plus `enabledPanning` sampled after
 `stopAnimation()` has run -- the flag `claimsTouch` reads. **Two preconditions are asserted before
@@ -5559,7 +5567,10 @@ instant must be past the pan threshold and still short of fit, and the zoom must
 armed pan. "A settings push during a fit flight changes nothing" runs the same flight twice, with
 and without the push, and requires the two rides to agree on the flip count and on when panning
 goes off within two sample periods; it also asserts the disc flies home exactly once, which is the
-half that fails on `develop`. "A rotation to landscape writes the host nothing" counts `onBandOpen`
+half that fails on `develop`. Its wait is bounded at both ends (github#179) — a sampler tick that
+throws stops the ride and reports its message, and `rideCap()` fails it at **5 s** if the page
+stops ticking at all — so a future hang here fails with a reason instead of holding `screen-left`
+until the transport gives up with only the expression to show for it. "A rotation to landscape writes the host nothing" counts `onBandOpen`
 by wrapping the shell's `saveSettings` across the flip, and keeps github#173's own assertions on
 that rotation, so the zero cannot be bought by dropping the restore. "`narrow()` costs no
 MediaQueryList" measures `phone()` too, so a regression in github#173's hoist surfaces here as well.

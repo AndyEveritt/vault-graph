@@ -17,6 +17,7 @@ changing the layout or the animation.
 | `design/` | **DDRs** — the as-built design of each part of the disc |
 | `mobile-harness.md` | `scripts/mobile-check.mjs`: the page at a phone's viewport with real touch, why the run needs a desktop control column, and the four ways the harness measured the wrong thing first (github#73) |
 | `live-growth-harness.md` | `scripts/live-growth-check.mjs`: the live rebuild driven against a vault that is actually growing under it (github#72) |
+| `awaiting-a-page-promise.md` | Why a check that samples over time must use `p.eval` and not `p.j`, what the transport's 10s ceiling does and does not bound, and the two bounds a ride carries instead (github#179) |
 | `finding-notes-touch-mid-cascade.md` | The long-form investigation behind the mid-cascade dot-size finding — kept because the method is the point, not just the answer |
 | `vault-findings.md` | What the graph revealed about the vault it was built for — observations, not decisions |
 | `code-map.md` | **Generated** (`node scripts/code-map.mjs`): sections and functions of `src/page.js` and `scripts/smoke.mjs` with line numbers. Open the range, not the file |

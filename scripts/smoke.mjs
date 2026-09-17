@@ -3327,34 +3327,58 @@ check("a swipe in the tail of a fit flight still scrolls", async (p) => {
            detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
 });
 
+// github#179 -- see .ai-context/awaiting-a-page-promise.md
+const RIDE_CAP_MS = 5000;
+const rideCap = (promise, what) => {
+  // github#179 -- the race's loser still settles, and may reject
+  promise.catch(() => {});
+  return Promise.race([promise, new Promise((_, rej) => {
+    const t = setTimeout(() => rej(new Error(`${what} did not settle in ${RIDE_CAP_MS}ms`)),
+                         RIDE_CAP_MS);
+    if (t.unref) t.unref();
+  })]);
+};
+
 // github#175 -- item 3 did NOT reproduce; asserted, not fixed
+// github#179 -- p.eval awaits; p.j stringifies the Promise first
 check("a settings push during a fit flight changes nothing", async (p) => {
   const dpr = await p.j(`window.devicePixelRatio || 1`);
   const said = [], bad = [];
   // github#175 -- the same flight twice, with and without the push that
   // github#175 -- applyHiddenDefaults() makes; the two rides have to agree
-  const ride = (push) => p.j(`(function () {
+  // github#179 -- a throwing tick stops the sampler, with its message
+  // github#179 -- rideCap() ends a page that stopped ticking at all
+  const ride = (push) => rideCap(p.eval(`(function () {
     var s = [], t0 = Date.now(), pushed = -1;
-    var b = document.getElementById("vg-reset"); if (b) b.click();
+    var b = document.getElementById("vg-reset");
+    if (!b) return Promise.resolve(JSON.stringify({ why: "the page has no #vg-reset" }));
+    b.click();
     return new Promise(function (res) {
+      var stop = function (why) {
+        clearInterval(iv);
+        res(JSON.stringify({ s: s, pushed: pushed, why: why }));
+      };
       var iv = setInterval(function () {
-        var t = Date.now() - t0, st = __vg.renderer.getCamera().getState();
-        if (${push ? "true" : "false"} && pushed < 0 && t >= 110) {
-          pushed = t; __vg.setPanEnabled(true);
-        }
-        s.push([t, +st.ratio.toFixed(5), __vg.panEnabled ? 1 : 0,
-                __vg.renderer.getSetting("enableCameraPanning") ? 1 : 0]);
-        if (t > 1500) { clearInterval(iv); res(JSON.stringify({ s: s, pushed: pushed })); }
+        try {
+          var t = Date.now() - t0, st = __vg.renderer.getCamera().getState();
+          if (${push ? "true" : "false"} && pushed < 0 && t >= 110) {
+            pushed = t; __vg.setPanEnabled(true);
+          }
+          s.push([t, +st.ratio.toFixed(5), __vg.panEnabled ? 1 : 0,
+                  __vg.renderer.getSetting("enableCameraPanning") ? 1 : 0]);
+          if (t > 1500) stop("");
+        } catch (e) { stop("the sampler threw: " + ((e && e.message) || e)); }
       }, 30);
     });
-  })()`).then(JSON.parse);
+  })()`), `the ${push ? "pushed" : "plain"} ride`).then(JSON.parse);
   const read = (r) => {
-    const a = r.s;
+    const a = r.s || [];
     const edge = (k) => {
       for (let i = 1; i < a.length; i++) if (!a[i][k] && a[i - 1][k]) return a[i][0];
       return -1;
     };
-    return { panOff: edge(2), panningOff: edge(3), pushed: r.pushed,
+    return { panOff: edge(2), panningOff: edge(3), pushed: r.pushed, why: r.why || "",
+             samples: a.length,
              flips: a.reduce((n, x, i) => n + (i && x[2] !== a[i - 1][2] ? 1 : 0), 0) };
   };
   try {
@@ -3373,6 +3397,14 @@ check("a settings push during a fit flight changes nothing", async (p) => {
       await sleep(600);
     }
     const plain = out[0], pushed = out[1];
+    // github#179 -- a ride that stopped early measured nothing
+    for (const [name, r] of [["plain", plain], ["pushed", pushed]]) {
+      if (r.why) bad.push(`the ${name} ride stopped early: ${r.why}`);
+      else if (r.samples < 40) {
+        bad.push(`the ${name} ride sampled ${r.samples} time(s) over 1500ms -- ` +
+                 `too coarse to place an edge`);
+      }
+    }
     if (pushed.pushed < 0) bad.push(`the push never fired -- this could not have failed`);
     if (pushed.flips !== plain.flips) {
       bad.push(`the push changed how often pan flipped (${plain.flips} -> ${pushed.flips})`);
