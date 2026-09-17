@@ -9586,20 +9586,62 @@ function mountVaultGraph(root, data, deps) {
         ca.getUTCMonth() === 0 && ca.getUTCDate() === 1 &&
         (cb.getUTCMonth() === 11 && cb.getUTCDate() === 31 ||
          ct >= dateSpan.hi)) cur = ca.getUTCFullYear();
+    /** @type {HTMLButtonElement[]} */
     var made = [];
+    /** @type {number[]} */
+    var at = [];
     dateSpan.years.forEach(function (yy, yi) {
       if ((yy.y % every) !== 0) return;
-      var at = positions[yi];
       var b = DOC.createElement("button");
       b.type = "button";
       b.setAttribute("data-yr", String(yy.y));
       b.setAttribute("aria-pressed", cur === yy.y ? "true" : "false");
       b.title = yy.y + " -- " + yy.n + " note" + (yy.n === 1 ? "" : "s");
-      b.style.setProperty("left", Math.round(at) + "px");
+      b.style.setProperty("left", Math.round(positions[yi]) + "px");
       b.textContent = "'" + String(yy.y).slice(2);
       made.push(b);
+      at.push(positions[yi]);
     });
     host.replaceChildren.apply(host, made);
+    fitYears(host, made, at, w);
+  }
+
+  // github#178, design/0013
+  var yearFit = { w: -1, cw: 0, padL: 0, padR: 0 };
+
+  // github#178, design/0013
+  /** @param {HTMLElement} host @param {HTMLButtonElement[]} made
+   *  @param {number[]} at @param {number} w */
+  function fitYears(host, made, at, w) {
+    if (!made.length) return;
+    if (yearFit.w !== w || !yearFit.cw) {
+      var band = host.parentElement;
+      var bs = band ? WIN.getComputedStyle(band) : null;
+      yearFit = {
+        w: w,
+        cw: made[0].getBoundingClientRect().width,
+        padL: bs ? parseFloat(bs.paddingLeft) || 0 : 0,
+        padR: bs ? parseFloat(bs.paddingRight) || 0 : 0
+      };
+    }
+    var cw = yearFit.cw, padL = yearFit.padL, padR = yearFit.padR;
+    if (!cw) return;
+    var half = cw / 2;
+    var lo = half - padL, hi = w - half + padR;
+
+    /** @type {number[]} */
+    var left = [];
+    for (var k = 0; k < made.length; k++) {
+      var x = Math.max(lo, Math.min(hi, Math.round(at[k])));
+      left.push(x);
+      made[k].style.setProperty("left", x + "px");
+    }
+    // github#178 -- the newest year is worth keeping, so sweep back
+    var last = Infinity;
+    for (var j = made.length - 1; j >= 0; j--) {
+      if (left[j] + half > last) made[j].remove();
+      else last = left[j] - half;
+    }
   }
 
   /** @param {HTMLCanvasElement} cv @param {number} w @param {number} h @returns {CanvasRenderingContext2D} */

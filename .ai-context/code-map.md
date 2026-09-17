@@ -4,7 +4,7 @@
 declarations of the files too large to read top to bottom, with line numbers. Open the
 range, not the file. Stale when `node scripts/code-map.mjs --check` fails.
 
-## `src/page.js` — 12016 lines, 38 sections, 502 functions
+## `src/page.js` — 12058 lines, 38 sections, 503 functions
 
 ### Sections
 
@@ -41,13 +41,13 @@ range, not the file. Stale when `node scripts/code-map.mjs --check` fails.
 | 8155–8921 | overview |
 | 8922–9505 | heatmap |
 | 9506–9509 | demo |
-| 9510–10116 | date range |
-| 10117–10875 | demo automation + debug API — stripped from the plugin build |
-| 10876–10877 | date range (continued) |
-| 10878–11094 | live rebuild |
-| 11095–11415 | go |
-| 11416–11946 | demo automation + debug API — stripped from the plugin build |
-| 11947–12016 | go (continued) |
+| 9510–10158 | date range |
+| 10159–10917 | demo automation + debug API — stripped from the plugin build |
+| 10918–10919 | date range (continued) |
+| 10920–11136 | live rebuild |
+| 11137–11457 | go |
+| 11458–11988 | demo automation + debug API — stripped from the plugin build |
+| 11989–12058 | go (continued) |
 
 ### Functions
 
@@ -474,87 +474,88 @@ range, not the file. Stale when `node scripts/code-map.mjs --check` fails.
 | 9485 | · `reflow` |
 | 9561 | `drawDateUI` |
 | 9567 | `buildYears` |
-| 9606 | `fitCanvas` |
-| 9617 | `dateRamp` |
-| 9622 | `scrubColor` |
-| 9625 | `rgbaHex` |
-| 9632 | `measureRibbon` |
-| 9642 | `ribbonW` |
-| 9647 | `ribbonXLinear` |
-| 9653 | `ribbonMsLinear` |
-| 9658 | `monthIndexOfMs` |
-| 9665 | `monthEndMs` |
-| 9670 | `segSpanMs` |
-| 9676 | `ribbonXCompact` |
-| 9684 | `ribbonMsCompact` |
-| 9696 | `ribbonX` |
-| 9700 | `ribbonMs` |
-| 9705 | `brushEnds` |
-| 9712 | `winEndNow` |
-| 9718 | `paintMonthBar` |
-| 9725 | `drawRibbon` |
-| 9803 | `rebuildBand` |
-| 9813 | `winTrack` |
-| 9820 | `inWinTrack` |
-| 9823 | `winSpan` |
-| 9826 | `clampWinEnd` |
-| 9834 | `winEndCentredAtPx` |
-| 9847 | `brushHit` |
-| 9859 | `showRTip` |
-| 9870 | `hideRTip` |
-| 9873 | `isoDay` |
-| 9875 | `winLabel` |
-| 9880 | `buildDateUI` |
-| 9894 | · `fieldMs` |
-| 9910 | · `xOf` |
-| 9912 | · `yOf` |
-| 9995 | · `endDrag` |
-| 10019 | · `hoverYear` |
-| 10027 | · · `yrOf` |
-| 10046 | · `onSlot` |
-| 10065 | `wantWedgeDebug` |
-| 10073 | `restOn` |
-| 10077 | `rowArcOn` |
-| 10113 | `demoOn` |
-| 10119 | `demoBusy` |
-| 10124 | `demoGroup` |
-| 10160 | `demoFind` |
-| 10310 | `demoNoteRect` |
-| 10348 | `demoBigInnerNote` |
-| 10391 | `demoCellRect` |
-| 10403 | `demoPoint` |
-| 10413 | `demoRibbonPoint` |
-| 10430 | `demoWhere` |
-| 10449 | `demoMode` |
-| 10751 | `demoFullStoryboard` |
-| 10766 | `demoLive` |
-| 10822 | `demoArrivalRect` |
-| 10835 | `demoAct` |
-| 10898 | `dragOwnsFrames` |
-| 10903 | `liveBusy` |
-| 10905 | `liveWhy` |
-| 10911 | `placeKeyOf` |
-| 10922 | `linkWeights` |
-| 10943 | `diffData` |
-| 10962 | · `missing` |
-| 10978 | `applyData` |
-| 11074 | `setWords` |
-| 11081 | `drainLive` |
-| 11089 | `stopDrain` |
-| 11212 | · · · · · · · · · · `rows` |
-| 11249 | · · · · · · · · · · `at` |
-| 11257 | · · · · · · · · · · `dist` |
-| 11328 | · · · · · · · · · · `r3` |
-| 11329 | · · · · · · · · · · `r3n` |
-| 11331 | · · · · · · · · · · `bandStat` |
-| 11356 | · · · · · · · · · · · `q` |
-| 11530 | · · · · · · · · · · `take` |
-| 11539 | · · · · · · · · · · `r2` |
-| 11605 | · · · · · · · · · · `W` |
-| 11613 | · · · · · · · · · · `rows` |
-| 11663 | · · · · · · · · · · `r3` |
-| 11798 | · · · · · · · · · · `byPath` |
-| 11985 | `destroy` |
+| 9615 | `fitYears` |
+| 9648 | `fitCanvas` |
+| 9659 | `dateRamp` |
+| 9664 | `scrubColor` |
+| 9667 | `rgbaHex` |
+| 9674 | `measureRibbon` |
+| 9684 | `ribbonW` |
+| 9689 | `ribbonXLinear` |
+| 9695 | `ribbonMsLinear` |
+| 9700 | `monthIndexOfMs` |
+| 9707 | `monthEndMs` |
+| 9712 | `segSpanMs` |
+| 9718 | `ribbonXCompact` |
+| 9726 | `ribbonMsCompact` |
+| 9738 | `ribbonX` |
+| 9742 | `ribbonMs` |
+| 9747 | `brushEnds` |
+| 9754 | `winEndNow` |
+| 9760 | `paintMonthBar` |
+| 9767 | `drawRibbon` |
+| 9845 | `rebuildBand` |
+| 9855 | `winTrack` |
+| 9862 | `inWinTrack` |
+| 9865 | `winSpan` |
+| 9868 | `clampWinEnd` |
+| 9876 | `winEndCentredAtPx` |
+| 9889 | `brushHit` |
+| 9901 | `showRTip` |
+| 9912 | `hideRTip` |
+| 9915 | `isoDay` |
+| 9917 | `winLabel` |
+| 9922 | `buildDateUI` |
+| 9936 | · `fieldMs` |
+| 9952 | · `xOf` |
+| 9954 | · `yOf` |
+| 10037 | · `endDrag` |
+| 10061 | · `hoverYear` |
+| 10069 | · · `yrOf` |
+| 10088 | · `onSlot` |
+| 10107 | `wantWedgeDebug` |
+| 10115 | `restOn` |
+| 10119 | `rowArcOn` |
+| 10155 | `demoOn` |
+| 10161 | `demoBusy` |
+| 10166 | `demoGroup` |
+| 10202 | `demoFind` |
+| 10352 | `demoNoteRect` |
+| 10390 | `demoBigInnerNote` |
+| 10433 | `demoCellRect` |
+| 10445 | `demoPoint` |
+| 10455 | `demoRibbonPoint` |
+| 10472 | `demoWhere` |
+| 10491 | `demoMode` |
+| 10793 | `demoFullStoryboard` |
+| 10808 | `demoLive` |
+| 10864 | `demoArrivalRect` |
+| 10877 | `demoAct` |
+| 10940 | `dragOwnsFrames` |
+| 10945 | `liveBusy` |
+| 10947 | `liveWhy` |
+| 10953 | `placeKeyOf` |
+| 10964 | `linkWeights` |
+| 10985 | `diffData` |
+| 11004 | · `missing` |
+| 11020 | `applyData` |
+| 11116 | `setWords` |
+| 11123 | `drainLive` |
+| 11131 | `stopDrain` |
+| 11254 | · · · · · · · · · · `rows` |
+| 11291 | · · · · · · · · · · `at` |
+| 11299 | · · · · · · · · · · `dist` |
+| 11370 | · · · · · · · · · · `r3` |
+| 11371 | · · · · · · · · · · `r3n` |
+| 11373 | · · · · · · · · · · `bandStat` |
+| 11398 | · · · · · · · · · · · `q` |
+| 11572 | · · · · · · · · · · `take` |
+| 11581 | · · · · · · · · · · `r2` |
+| 11647 | · · · · · · · · · · `W` |
+| 11655 | · · · · · · · · · · `rows` |
+| 11705 | · · · · · · · · · · `r3` |
+| 11840 | · · · · · · · · · · `byPath` |
+| 12027 | `destroy` |
 
 ## `scripts/smoke.mjs` — 8530 lines, 13 sections, 88 functions, 156 checks
 

@@ -485,6 +485,13 @@
     .vault-graph #vg-cam button { transition: none; }
   }
 
+  /* ------------------------------------------- the band, under a host ----- */
+  /* github#178, design/0013 */
+  .vault-graph #vg-heat :where(button),
+  .vault-graph #vg-heat :where(input) {
+    height: auto; box-shadow: none;
+  }
+
   .vault-graph #vg-compact {
     display: flex; align-items: center; justify-content: center;
     width: var(--vg-hrow-h, 22px); height: var(--vg-hrow-h, 22px);
@@ -958,13 +965,16 @@
     .vault-graph #vg-heat .hrow { --vg-hrow-h: 32px; row-gap: 6px; gap: 8px; }
     .vault-graph #vg-heatsrc button { padding: 0 10px; }
     /* github#70, design/0010, design/0013 */
+    /* github#178 -- a content-sized basis wraps a line meant to scroll */
     .vault-graph #vg-recent {
-      order: 0; flex-basis: auto; flex: 1 1 auto;
+      order: 0; flex: 1 1 0;
       flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0;
       align-items: center; height: var(--vg-hrow-h); row-gap: 0;
     }
     .vault-graph #vg-recent::-webkit-scrollbar { display: none; }
     .vault-graph #vg-recent .chip { height: 26px; flex: 0 0 auto; }
+    /* github#178 -- the widest chip, and a phone has no room for it */
+    .vault-graph #vg-recent [data-kind="open"] { display: none; }
     /* github#170, design/0013 */
     .vault-graph #vg-compact { order: 4; margin-left: 0; }
     .vault-graph #vg-rangebox { flex-wrap: wrap; row-gap: 6px; margin-left: 0; }
