@@ -71,7 +71,18 @@ process open for its full span after the suite is done.
 
 **Neither bound replaces the other, and neither is a retry.** A capped ride is a failed check,
 reported with what it had sampled when it stopped. The point is that it fails *while the
-screen still matters*, instead of holding the lock and saying nothing.
+screen still matters*, instead of holding the lock and saying nothing. Forced by dropping
+`RIDE_CAP_MS` to 200 ms, the check reports `threw: the plain ride did not settle in 200ms` and
+the run finishes in 16 s — including against a sampler edited never to reach its exit at all.
+
+**`rideCap` suppresses its loser's rejection, as a precaution rather than a repair.** The
+promise that loses a `Promise.race` still settles, and if it settles by *rejecting* — which is
+what the transport does at 10 s, in exactly the never-settling case this cap exists for —
+nothing is listening, and an unhandled rejection can take the process down instead of letting
+the check report. A bare `promise.catch(() => {})` before the race attaches that listener. Note
+that neither forced run above actually produced the crash: the reload in the check's `finally`
+tears the page down first, and the browser closes before the transport's timer would fire. The
+guard costs one line and is kept on the mechanism, not on an observed failure.
 
 ## What the check was left unable to say
 

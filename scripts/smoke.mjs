@@ -3329,11 +3329,15 @@ check("a swipe in the tail of a fit flight still scrolls", async (p) => {
 
 // github#179 -- see .ai-context/awaiting-a-page-promise.md
 const RIDE_CAP_MS = 5000;
-const rideCap = (promise, what) => Promise.race([promise, new Promise((_, rej) => {
-  const t = setTimeout(() => rej(new Error(`${what} did not settle in ${RIDE_CAP_MS}ms`)),
-                       RIDE_CAP_MS);
-  if (t.unref) t.unref();
-})]);
+const rideCap = (promise, what) => {
+  // github#179 -- the race's loser still settles, and may reject
+  promise.catch(() => {});
+  return Promise.race([promise, new Promise((_, rej) => {
+    const t = setTimeout(() => rej(new Error(`${what} did not settle in ${RIDE_CAP_MS}ms`)),
+                         RIDE_CAP_MS);
+    if (t.unref) t.unref();
+  })]);
+};
 
 // github#175 -- item 3 did NOT reproduce; asserted, not fixed
 // github#179 -- p.eval awaits; p.j stringifies the Promise first
