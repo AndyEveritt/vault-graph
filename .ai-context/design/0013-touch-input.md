@@ -593,6 +593,11 @@ worth a new setting and a migration for a band that is one tap away.
 Not re-derived when the media query flips, either. `sheetOpen` is not, and re-folding a band the
 reader opened two seconds ago on a rotate would be hostile.
 
+> **Reversed by `github#173`.** It *is* re-derived now, in both directions — see
+> "github#173 — what a mount-time read costs when the layout is live" at the end of this record.
+> The paragraph above is kept because its reasoning is still the trade being made, not because
+> the behaviour it describes survived.
+
 ### The corner needed no rule — it needed one deleted
 
 The base rule has said this since `github#82`:
@@ -678,6 +683,114 @@ design above: with `open` stored, a phone keeps it open.
   form factors too, and nothing here changed that — it simply was not what was reported.
 - **The reboot is a real page load in the middle of a shared page's run.** It leaves the page
   cleaner than the state manipulation it replaced, but it is the one new cost in this check.
+
+## github#173 — what a mount-time read costs when the layout is live
+
+**Status** as-built · 2026-09-17 github#173
+
+A code review of `2.8.0..develop` raised four claims about the work above, all unverified. Each was
+reproduced first, on the demo fixture at iPhone 14 and Pixel 7, coarse, booted at size. **Three
+were real. One was not, and the difference is the whole point of measuring first.**
+
+The three share one shape: **something the phone layout decides was read once and then trusted**,
+while the layout itself is a media query and therefore live. github#170 already learned this about
+pan — `syncPhonePan()` exists precisely because "a mount-time read of pan was not enough" — and
+then left three more reads in the same condition.
+
+### A settings push is not a reader's choice, and on a phone it never was
+
+`api.setPanEnabled` did `setPan(phone() ? false : storedPan, false)`. On a phone that is an
+unconditional `setPan(false)`, which flies the camera home — and `applyHiddenDefaults()` pushes
+`setPanEnabled` after **every** settings-tab change, so hiding a single folder discarded the
+reader's zoom. Measured: zoomed **0.795** with pan armed, back to **0.954** with pan off.
+
+It asks `phonePanWanted()` now, which is the same live read the mount path and `syncPhonePan`
+already use. Off a phone `phonePanWanted()` **is** `storedPan`, so the settings row still decides
+there — asserted separately, because a fix that merely left pan on would satisfy everything else.
+
+### The band's re-derivation, and the guard that stops it eating itself
+
+`bandOpen` came from `phone()` at mount; `setBand` gated persistence on a *live* `phone()`. Booted
+coarse at 700x900 the band folded correctly. Rotated to 900x700 it **stayed folded** although the
+host had stored `true` — and two taps at that width then wrote that stored `true` to **`false`**.
+A phone rewriting the desk's setting by way of a resize is the exact failure the second pass
+existed to prevent; the resize was the hole left in it.
+
+`syncPhoneBand()` mirrors `syncPhonePan()`, and `storedBand` follows every deliberate desk choice
+the way `storedPan` already did — without that second half, a tap made at desk width would be
+undone by the next rotation, since `storedBand` was only ever read at mount.
+
+**It fires only when the predicate itself flips, and that is not a refinement.** `setBand` changes
+`data-band`, which reflows the root, which fires the root's own `ResizeObserver`. A
+`syncPhoneBand` guarded merely on `want !== bandOpen` therefore folds the band back the instant a
+phone reader opens it — the toggle stops working altogether. `bandPhone` holds the last answer and
+the function returns early when it is unchanged. The new check's own last assertion caught this on
+its first run; nothing existing would have, because the github#170 checks tap the band at one width.
+
+What was given up is the paragraph reversed above: a reader who opens the calendar on a phone and
+rotates to a desk width loses it **iff** the desk's own stored value is `false`. Weighed against a
+phone silently rewriting that value, which is what was actually happening.
+
+### A flight is not the reader panning
+
+`fit()` turns `enableCameraPanning` on for its 380 ms flight, and it has to — `camera.validateState`
+drops `x` and `y` while that flag is false, so a fly-home without it would not move. `claimsTouch`
+reads `camera.enabledPanning`. So tapping Fit and swiping at once had the swipe claimed and the
+page could not scroll, against an at-rest control that releases it:
+
+```
+at rest      touchstart/1:live:free      | touchmove/1:live:free | touchmove/1:TAKEN:free
+after Fit    touchstart/1:live:prevented | touchmove/1:live:free | touchmove/1:live:free
+```
+
+`handleTouchStart` already called `stopAnimation()`, which runs `fit()`'s own `landed` callback
+**synchronously** and restores the flag. It simply did it *after* `claimsTouch` had answered. That
+call moves above the claim, so the claim is decided on the settled flag — two lines, and the engine
+still knows nothing about `fit()`. The desktop gets the same correction for free, exactly as
+`claimsTouch` itself did.
+
+### `phone()` was not free, and it sat on the camera's per-frame path
+
+It built a fresh `MediaQueryList` on every call, and `syncPhonePan` ran on every camera `updated`:
+**1.00 `matchMedia` call per camera update**, on a desktop too, to conclude nothing had changed.
+`phone()` reads the `phoneMq` held from mount — the bind block's own object, hoisted rather than a
+second one — and the per-frame caller returns early off a phone. **0.00 per update** at both widths.
+The media-query and resize-beat callers keep the full body, so the interrupted-flight repair above
+stays reachable on a desktop.
+
+### The claim that did not reproduce
+
+"A late second finger loses the pinch." The premise is exactly right and is in the trace: the thumb
+crosses the slop, the browser commits to the `pan-y` scroll, and every later `touchmove` arrives
+non-cancelable.
+
+```
+touchstart/1:live:free | touchmove/1:live:free | touchmove/1:TAKEN:free
+| touchstart/2:live:prevented | touchmove/2:TAKEN:free | touchmove/2:TAKEN:free
+```
+
+The conclusion is wrong. `handleTouchMove` runs the pinch arithmetic **after** the `claimsTouch`
+guard, not inside it, so a non-cancelable move still zooms:
+
+| | ratio | factor |
+|---|---|---|
+| both fingers down first | 0.954 → 0.21042 | **x4.534** |
+| second finger late | 0.954 → 0.43-0.49 | **x2.2 – x2.9** |
+
+Both track `pinchRatio * (pinchSpread / now)` to five decimals; the late run's smaller factor is its
+smaller spread change, not a lost pinch. And `claimsTouch` short-circuits on `e.cancelable`, so
+`preventDefault` is never called on an event that has none — no warning per move either. Closed with
+the measurement, and asserted in the check so it cannot be reopened on a reading.
+
+### Known limits, stated rather than discovered later
+
+- **A phone reader who rotates to a desk width gets the desk's calendar.** That is the trade named
+  above, and a `bandOpenPhone` key is still the way to buy it back.
+- **`sheetOpen` still reads once at mount**, and nothing here changed that — it was not what was
+  reported, and re-deriving it would need the same `bandPhone`-style flip guard.
+- **The fix flight still lands early when a finger touches down.** `stopAnimation()` running
+  `landed` is what makes the reorder work, and it also means a touch arrests a fit part-way. That
+  was already true and is still what the design wants: a gesture stops an animation.
 
 ## What this deliberately does not do
 

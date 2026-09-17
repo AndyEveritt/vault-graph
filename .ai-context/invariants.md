@@ -5375,8 +5375,9 @@ vault disproved that the same afternoon**: a `"bandOpen": true` written by a des
 and folded the desktop too. One shared value cannot express two form factors. Off a phone
 `storedBand` is the expression the literal `true` always was, so the desktop path is unchanged --
 measured identical at 1600x1000, every box. The cost, taken knowingly: a phone reader who wants the
-calendar open taps once per launch. It is **not** re-derived when the media query flips --
-re-folding a band the reader just opened would be hostile.
+calendar open taps once per launch. **It IS re-derived when the media query flips, since github#173
+-- that sentence used to say the opposite**, and the section below has the measurement that changed
+it.
 
 **Every control in the band declares its own `border-radius`, and the segment declares `0`
 (github#170).** `page.css` is scoped so the page cannot style its host; **nothing stops the host
@@ -5423,3 +5424,78 @@ device and takes the `screen-left` lock.
 `overflow-y: auto` reserves a classic scrollbar there, so the square measures 375 and the radius
 reads 1.59px. Coarse-pointer devices use overlay scrollbars. It is why the two readings of the
 same disc differ between `mobile-check.mjs` and the record.
+
+## Three things the phone layout read once, and one that read too often (github#173)
+
+`design/0013`. A code review of `2.8.0..develop` raised four claims about the github#170 work, all
+unverified. **Three reproduced and one did not**, on the demo fixture at 390x844 and 412x915 with
+touch emulated and the page booted at size. The measurements are in `changelog-detail.md`; what
+each one now guarantees is here.
+
+**A host settings push may not discard a phone's zoom.** `api.setPanEnabled` asks
+`phonePanWanted()`, the same live read the mount path and `syncPhonePan` already use, rather than
+`phone() ? false : storedPan`. The old form was an unconditional `setPan(false)` on a phone, which
+flies the camera home -- and `applyHiddenDefaults()` pushes `setPanEnabled` on **every** settings-tab
+change, so hiding one folder threw away the reader's zoom. Measured: zoomed **0.795** with pan
+armed came back **0.954** with pan off. Off a phone `phonePanWanted()` **is** `storedPan`, so the
+settings row still decides there; that half is asserted too, because a fix that simply left pan on
+would pass everything else.
+
+**The calendar's fold follows the layout, and only the desk's own tap reaches the store.**
+`bandOpen` was derived once at mount while `setBand` gated persistence on a *live* `phone()`, so a
+coarse device booted at 700px stayed folded after rotating to 900px although the host had stored
+`true` -- and two taps at that width then wrote that stored `true` to **`false`**. A phone
+rewriting the desk's setting by way of a resize is exactly what the github#170 second pass existed
+to prevent; the resize was the hole left in it. `syncPhoneBand()` re-derives on the media query's
+change and on the root's resize beat, and `storedBand` follows every deliberate desk choice, as
+`storedPan` already did for pan.
+
+**It fires only when the predicate itself flips, and that guard is load-bearing.** `setBand`
+changes `data-band`, which reflows the root, which fires the root's own `ResizeObserver` -- so a
+`syncPhoneBand` guarded merely on `want !== bandOpen` folds the band back the instant a phone
+reader opens it, and the toggle stops working. `bandPhone` holds the last answer and the function
+returns early when it is unchanged. Caught by the new check's own last assertion on the first run;
+nothing else would have seen it, because the github#170 checks tap the band at one width.
+
+**`fit()`'s flight may not claim a swipe.** `fit()` turns `enableCameraPanning` on for its 380 ms
+flight -- it has to, since `camera.validateState` drops `x` and `y` while it is false -- and
+`claimsTouch` reads `camera.enabledPanning`. So tapping Fit and swiping at once had the swipe
+claimed and the page could not scroll. `handleTouchStart` already called `stopAnimation()`, which
+runs `fit()`'s own `landed` callback synchronously and restores the flag; it simply did it **after**
+`claimsTouch` had answered. That call moves above the claim, and the engine still knows nothing
+about `fit()`. The desktop gets the same correction for free, exactly as the original
+`claimsTouch` did.
+
+**`phone()` is not free, and it was on the camera's per-frame path.** It built a fresh
+`MediaQueryList` per call, and `syncPhonePan` ran on every camera `updated` -- **1.00 `matchMedia`
+call per update, on a desktop too**, to conclude nothing had changed. `phone()` reads the `phoneMq`
+held from mount (the bind block's own object, hoisted rather than duplicated), and the per-frame
+caller returns early off a phone. **0.00 per update** at both widths. The media-query and
+resize-beat callers keep the full body, so the interrupted-flight repair above stays reachable on
+a desktop.
+
+**The fourth claim does not reproduce, and is recorded rather than fixed.** "A late second finger
+loses the pinch" has a correct premise -- the thumb crosses the slop, the browser commits to the
+`pan-y` scroll, and later `touchmove`s arrive non-cancelable -- and a wrong conclusion.
+`handleTouchMove` runs the pinch arithmetic **after** the `claimsTouch` guard, not inside it, so a
+non-cancelable move still zooms: **x4.534** with both fingers down first, **x2.2-2.9** with the
+second finger late, both tracking `pinchRatio * (pinchSpread / now)`. And `claimsTouch`
+short-circuits on `e.cancelable`, so `preventDefault` is never called on an event that has none.
+The measurement is asserted in the check below, so the claim cannot be reopened on a reading.
+
+**Check:** three in `smoke.mjs`, on the demo fixture at both phone viewports, each verified to fail
+on `develop` at `fd08e12`. "A settings push keeps a phone's zoom" asserts the zoom armed pan
+*before* pushing -- a push that discards nothing must not read as a pass -- and uses a stability
+poll rather than `settlePan`, which clicks Fit and would undo the very zoom being measured. "The
+calendar follows a phone that rotates" walks 700x900 → 900x700 → back → out again with a stored
+`open`, asserting the fold, the restore, that a desk tap reaches the store, that `storedBand` did
+not go stale, and that a phone's own tap opens it for the session only. "A swipe after Fit still
+scrolls, and a late finger still pinches" reads the raw touch trace against an at-rest control --
+the control must show `TAKEN` or the row below it means nothing -- and asserts
+`enableCameraPanning` is still true when the swipe starts, so a flight that has already landed
+cannot make it pass vacuously; aiming is recomputed after the swipes, because those really do
+scroll the page.
+
+**Desktop unchanged, measured both ways:** all five goldens match, positions and band; and every
+box and reading at 1600x1000 is identical to `fd08e12` -- 64 of them, including the camera and both
+pan flags.
