@@ -648,9 +648,12 @@ function mountVaultGraph(root, data, deps) {
   }
 
   // github#170, design/0013 -- must match page.css's phone block
+  // github#173 -- held from mount: phone() is on the camera's per-frame path
+  var phoneMq = WIN.matchMedia
+    ? WIN.matchMedia("(max-width: " + NARROW_PX + "px) and (pointer: coarse)")
+    : null;
   function phone() {
-    return !!(WIN.matchMedia &&
-              WIN.matchMedia("(max-width: " + NARROW_PX + "px) and (pointer: coarse)").matches);
+    return !!(phoneMq && phoneMq.matches);
   }
 
   // github#4
@@ -6236,7 +6239,8 @@ function mountVaultGraph(root, data, deps) {
     })();
 
     // github#170, design/0013 -- the zoom is what arms pan here, so watch the camera
-    renderer.getCamera().on("updated", function () { if (!dead) syncPhonePan(); });
+    // github#173 -- the one per-frame caller: off a phone there is nothing to ask
+    renderer.getCamera().on("updated", function () { if (!dead && phone()) syncPhonePan(); });
 
     /** @type {number | null} */
     var rzTimer = null;
@@ -6244,7 +6248,7 @@ function mountVaultGraph(root, data, deps) {
       if (dead) return;
       if (rzTimer) WIN.clearTimeout(rzTimer);
       rzTimer = WIN.setTimeout(function () { rzTimer = null; refreshSizeScale(); placeLogo();
-                                             syncCanvasTop(); syncPhonePan(); }, 120);
+                                             syncCanvasTop(); syncPhoneLayout(); }, 120);
     };
     if (window.ResizeObserver) {
       var rootRO = new ResizeObserver(onResize);
@@ -6467,13 +6471,15 @@ function mountVaultGraph(root, data, deps) {
       onDestroy.push(function () { readMq.removeListener(onReadMq); });
     }
     // github#170, design/0013 -- the layout is live; a mount-time read of pan was not
-    var phoneMq = WIN.matchMedia("(max-width: " + NARROW_PX + "px) and (pointer: coarse)");
-    if (phoneMq.addEventListener) {
-      phoneMq.addEventListener("change", syncPhonePan);
-      onDestroy.push(function () { phoneMq.removeEventListener("change", syncPhonePan); });
-    } else if (phoneMq.addListener) {
-      phoneMq.addListener(syncPhonePan);
-      onDestroy.push(function () { phoneMq.removeListener(syncPhonePan); });
+    // github#173, design/0013 -- nor of the band; and phoneMq is the one held at mount
+    if (phoneMq) {
+      if (phoneMq.addEventListener) {
+        phoneMq.addEventListener("change", syncPhoneLayout);
+        onDestroy.push(function () { phoneMq.removeEventListener("change", syncPhoneLayout); });
+      } else if (phoneMq.addListener) {
+        phoneMq.addListener(syncPhoneLayout);
+        onDestroy.push(function () { phoneMq.removeListener(syncPhoneLayout); });
+      }
     }
   }
 
@@ -6493,6 +6499,18 @@ function mountVaultGraph(root, data, deps) {
     if (renderer && !!renderer.getSetting("enableCameraPanning") !== panEnabled) {
       renderer.setSetting("enableCameraPanning", panEnabled);
     }
+  }
+
+  // github#173, design/0013 -- bandOpen is the layout's call, and the layout is live
+  function syncPhoneBand() {
+    var want = phone() ? false : storedBand;
+    if (want !== bandOpen) setBand(want);
+  }
+
+  // github#173 -- the two the phone media query decides, on every path that re-asks
+  function syncPhoneLayout() {
+    syncPhonePan();
+    syncPhoneBand();
   }
 
   /** @param {string | null} id */
@@ -8400,7 +8418,11 @@ function mountVaultGraph(root, data, deps) {
     if (quiet) return;
     afterPanel();
     // github#170, design/0013 -- a phone never writes over a desk's stored choice
-    if (onBandOpen && !phone()) onBandOpen(bandOpen);
+    // github#173 -- storedBand follows every deliberate one, as storedPan does
+    if (!phone()) {
+      storedBand = bandOpen;
+      if (onBandOpen) onBandOpen(bandOpen);
+    }
   }
 
   function setPan(on, persist) {
@@ -11071,9 +11093,10 @@ function mountVaultGraph(root, data, deps) {
                     setFolderShown: applyFolderShown,
                     // github#170
                     // github#170 -- the phone's layout outranks the settings row, as at mount
+                    // github#173, design/0013 -- and on a phone the live zoom is that layout
                     setPanEnabled: function (v) {
                       storedPan = v !== false;
-                      return setPan(phone() ? false : storedPan, false);
+                      return setPan(phonePanWanted(), false);
                     },
                     // github#23
                     setCompactAxis: function (v) { return setCompactAxis(v !== false, false); },
