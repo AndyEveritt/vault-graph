@@ -5471,6 +5471,78 @@ device and takes the `screen-left` lock.
 reads 1.59px. Coarse-pointer devices use overlay scrollbars. It is why the two readings of the
 same disc differ between `mobile-check.mjs` and the record.
 
+## A disc already home needs no flight (github#175)
+
+`design/0013`. A second code review, of `fd08e12..develop`, raised five more claims about the
+github#170 and github#173 work, all unverified. **Four reproduced and one did not**, on the demo
+fixture at 390x844 and 412x915 with touch emulated and the page booted at size. The measurements
+are in `changelog-detail.md`; what each one now guarantees is here.
+
+**`setPan(false)` may not fly a disc that is already at fit.** It called `fit()` unconditionally,
+and `fit()` forces `enableCameraPanning` on for its 380 ms -- so github#173's repair was complete
+only until the flight's own tail. `stopAnimation()` runs `fit()`'s `landed` callback
+**synchronously**, `landed` calls `syncPhonePan()`, and by the tail the ratio has climbed back over
+`phonePanWanted()`'s threshold, so that call reaches `setPan(false)` -> `fit()` again and arms
+panning before `claimsTouch` reads the flag. `setPan(false)` now asks `atFit()` first and sets
+`enableCameraPanning` false directly when the camera is already in the state `fit()` would fly to.
+The 380 ms window is gone at its source; nothing was added at the input layer, and `captor.ts` is
+untouched.
+
+**`atFit()`'s band is `phonePanWanted()`'s band, and that is the point.** The ratio must be within
+**0.5 % of `fitRatio()`** -- the same 0.995 the pan predicate reads -- so the two are exactly
+complementary: whenever pan is not wanted, no flight is owed. x, y and angle must be at the
+target within **1e-3**. That positional epsilon is not decoration: the reported path leaves them
+at **exactly 0.5**, because the zoom buttons and a bare `setState({ratio})` never touch them, so
+the epsilon costs the fix nothing while keeping a genuinely **panned** disc flying home. Guarding
+on `camAtRest` instead was rejected for that reason -- `landed` sets it true even for an
+**arrested** flight, so it would skip the flight for a disc still far from home and strand it
+off-centre.
+
+**A disc flies home once.** `enableCameraPanning` going off at roughly twice the flight's duration
+was the second, redundant `fit()`, and it is what the item-3 check pins.
+
+**A rotation tells the host nothing it already stored.** `syncPhoneBand`'s phone->desk flip calls
+`setBand(storedBand)`, which off a phone re-assigned `storedBand` to itself and still fired
+`onBandOpen`, so every rotation to landscape wrote the plugin's settings for nothing. The callback
+is gated on the stored value actually moving. The **quiet** form was rejected: it also skips
+`afterPanel()`, which that flip needs to lay the band out, and github#173's own check asserts
+`laidOut` on exactly that rotation. A deliberate desk tap still writes through -- the gate is
+"the stored value moved", not "say nothing".
+
+**`narrow()` costs no `MediaQueryList`.** It built a fresh one per call, the allocation github#173
+took out of `phone()`, and it is read from `select()`, the sheet and the note-card toggles.
+`narrowMq` is held from mount, and the read-panel listener binds to **that** object rather than a
+second one for the identical `(max-width: 720px)` query -- one object, as `phoneMq` already is.
+
+**The fifth claim does not reproduce, and is recorded rather than fixed.** "A host settings push
+mid-flight arms pan on a transient ratio" is structurally impossible on a phone, not merely
+unobserved: `syncPhonePan()` arms pan on the camera's own `updated`, so a flight *toward* fit only
+ever starts from an **already-armed** zoom, and at or above fit `phonePanWanted()` already answers
+`false`. There is no window in which `api.setPanEnabled` sees a sub-fit ratio with pan off, so no
+`fitting` guard was added -- a guard for a defect that cannot occur is a constant nobody can
+justify from a measurement. The same flight with and without the push agrees to within **1 ms**,
+and a push on the boot flight flips pan **0** times. Asserted in the check so the claim cannot be
+reopened on a reading.
+
+**Check:** four in `smoke.mjs`, each verified to fail on `develop` at `e4b962f`. "A swipe in the
+tail of a fit flight still scrolls" zooms twice to arm pan, taps Fit, and puts a finger down at
+345 ms of the 380 ms flight, reading the captor's own trace plus `enabledPanning` sampled after
+`stopAnimation()` has run -- the flag `claimsTouch` reads. **Two preconditions are asserted before
+the verdict**, because without them a pass means only that the timing drifted: the ratio at that
+instant must be past the pan threshold and still short of fit, and the zoom must actually have
+armed pan. "A settings push during a fit flight changes nothing" runs the same flight twice, with
+and without the push, and requires the two rides to agree on the flip count and on when panning
+goes off within two sample periods; it also asserts the disc flies home exactly once, which is the
+half that fails on `develop`. "A rotation to landscape writes the host nothing" counts `onBandOpen`
+by wrapping the shell's `saveSettings` across the flip, and keeps github#173's own assertions on
+that rotation, so the zero cannot be bought by dropping the restore. "`narrow()` costs no
+MediaQueryList" measures `phone()` too, so a regression in github#173's hoist surfaces here as well.
+
+**Desktop unchanged, measured both ways:** all five goldens match, band and positions; and at
+1600x1000 the three `setPan` paths are identical to `e4b962f` -- pan off at fit moves the camera
+**0.000000** either way, a zoomed disc still returns to fit, and a panned one still flies back to
+centre.
+
 ## Three things the phone layout read once, and one that read too often (github#173)
 
 `design/0013`. A code review of `2.8.0..develop` raised four claims about the github#170 work, all

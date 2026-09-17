@@ -800,6 +800,127 @@ the measurement, and asserted in the check so it cannot be reopened on a reading
   `landed` is what makes the reorder work, and it also means a touch arrests a fit part-way. That
   was already true and is still what the design wants: a gesture stops an animation.
 
+## github#175 -- the tail of the flight, and three smaller things
+
+**Status** as-built · 2026-09-17 github#175
+
+A second code review, of `fd08e12..develop`, raised five claims about the work above. Each was
+reproduced first, on the demo fixture at iPhone 14 and Pixel 7, coarse, booted at size, headless
+over CDP. **Four were real. One was not**, and again the difference is the whole point of
+measuring first.
+
+### github#173's repair was complete only until the flight's own tail
+
+github#173 moved `stopAnimation()` above `claimsTouch` so the claim is decided on the settled flag.
+That is right, and it is not enough, because of what `stopAnimation()` synchronously *does*:
+
+```
+handleTouchStart
+  stopAnimation()            -> runs fit()'s landed, synchronously
+    landed()                 -> fitting = false; enableCameraPanning = panEnabled (still true)
+      syncPhonePan()         -> the tail has taken the ratio back over fitRatio() * 0.995,
+                                so phonePanWanted() is now false
+        setPan(false)        -> panEnabled = false, and then...
+          fit()              -> forces enableCameraPanning TRUE for a fresh 380ms flight
+  claimsTouch()              -> reads camera.enabledPanning === true, and TAKES the swipe
+```
+
+So the flag `claimsTouch` reads is not the settled one after all -- it is one a second `fit()` set
+two frames earlier. Measured, zoomed 0.795 and a finger down at +345ms of the 380ms flight:
+
+```
+at rest      touchstart/1:live:free      | touchmove/1:live:free | touchmove/1:TAKEN:free
+in the tail  touchstart/1:live:prevented | touchmove/1:live:prevented | touchmove/1:live:prevented
+```
+
+with `panning true` while `panEnabled false` at the moment of the touch -- the fingerprint of a
+flight `setPan(false)` had just started, and the thing that names the cause rather than the
+symptom.
+
+**The fix is at the source: `setPan(false)` stops flying a disc that is already home.** It asks
+`atFit()` and sets `enableCameraPanning` false directly instead. Nothing is added at the input
+layer -- the engine still knows nothing about `fit()`, exactly as github#173 left it.
+
+### The guard's band is the pan predicate's band, and its epsilon is not decoration
+
+`atFit()` compares the camera against `fit()`'s own target (`fitTarget()`, so the two cannot
+drift): the ratio within **0.5 % of `fitRatio()`**, which is the same 0.995 `phonePanWanted()`
+reads, so the two are **exactly complementary** -- whenever pan is not wanted, no flight is owed.
+Then x, y and angle within `1e-3`.
+
+Measured at the instant the finger lands, both viewports and both zoom paths: `dRatio` **-0.0013 to
+-0.0025**, and `dx`/`dy` **exactly 0.000000**. The zoom buttons animate `ratio` alone and a bare
+`setState({ratio})` touches nothing else, so on the reported path the positional epsilon costs the
+fix nothing -- and it is what keeps a genuinely **panned** disc flying home rather than being
+stranded a few pixels off centre.
+
+**`camAtRest` was the obvious guard and is the wrong one.** `landed` sets it true even when the
+flight was **arrested**, which is precisely the case here -- so guarding on it would skip the
+flight for a disc still far from home. The measurement that made the choice is the one above: the
+tail is close in *ratio*, and `camAtRest` cannot tell a tail from a mid-flight.
+
+A quieter win came with it: the disc now flies home **once**. `enableCameraPanning` went off at
+**782 ms** against a 380 ms flight before, and **393 ms** after.
+
+### A settings push mid-flight cannot arm pan, and that is structural
+
+The claim: `api.setPanEnabled` asks `phonePanWanted()` with no `fitting` guard, so a push during a
+fit flight reads the transient ratio, arms pan, and the landing flips it back -- the button
+flickers and the disc flies home twice.
+
+The premise is accurate about the code. The conclusion does not survive the same flight run twice:
+
+| | ratio reaches fit | `panEnabled` off | `enableCameraPanning` off | flips |
+|---|---|---|---|---|
+| no push | 392 ms | 392 ms | 788 ms | 1 |
+| push at +121 ms | 390 ms | 390 ms | 787 ms | 1 |
+
+**1 ms apart** -- sampling noise. A push landing on the **boot** flight, which is what
+`applyHiddenDefaults()` actually does, flips pan **0** times.
+
+And the reason is structural rather than lucky. On a phone `syncPhonePan()` runs on the camera's
+own `updated` and arms pan the instant the ratio drops below the threshold, so a flight *toward*
+fit only ever starts from a state where pan is **already armed**: the push's
+`setPan(phonePanWanted())` is a no-op on the way up, and at or above fit `phonePanWanted()` already
+answers `false`, which is what the state already is. **There is no window in which the push sees a
+sub-fit ratio with pan off.** The doubled flight the claim points at is the redundant `fit()`
+above, present with or without any push.
+
+So **no `fitting` guard was added**, defence in depth included -- a guard for a defect that cannot
+occur is a constant nobody can justify from a measurement, and this file's own constants were each
+earned. Closed with the numbers, and asserted in the check so it cannot be reopened on a reading.
+
+### Two smaller ones from the same review
+
+**Every rotation to landscape wrote the plugin's settings for nothing.** `syncPhoneBand`'s
+phone->desk flip calls the non-quiet `setBand(storedBand)`; off a phone that re-assigns
+`storedBand` to itself and still fired `onBandOpen`, so the host saved a value it had already
+stored. Counted by wrapping the shell's `saveSettings`: **1** call across a rotation that changed
+nothing, **0** after. The callback is gated on the stored value actually moving.
+
+The **quiet** form would also have worked for the write and was rejected: `quiet` skips
+`afterPanel()`, and the flip needs that to lay the band out -- github#173's own check asserts
+`laidOut` on exactly that rotation. Gating the callback removes the write and keeps the relayout.
+A deliberate desk tap still writes through; the gate is "the stored value moved", not "say nothing".
+
+**`narrow()` was not free either.** It built a fresh `MediaQueryList` per call -- the allocation
+github#173 took out of `phone()` -- at **1.00** `matchMedia` call per read against `phone()`'s
+**0.00**, and it is read from `select()`, the sheet and the note-card toggles. `narrowMq` is held
+from mount, and the read-panel listener binds to **that** object rather than building a second one
+for the identical `(max-width: 720px)` query. **0.00** per read.
+
+### Known limits, stated rather than discovered later
+
+- **A disc arrested inside `atFit()`'s band stops there rather than finishing the last 0.5 %.**
+  Measured at 0.26 % of the ratio and sub-pixel, and snapping it exactly was rejected because a
+  `setState` would fire the camera's `updated` re-entrantly into `syncPhonePan` for nothing visible.
+- **Outside the band, the flight and its 380 ms of armed panning are unchanged**, so a finger that
+  lands early in a fit from a genuinely zoomed disc is still claimed -- which is correct, since pan
+  is what that reader wants, and it is the same "a gesture stops an animation" the previous section
+  names.
+- **`sheetOpen` still reads once at mount.** Unchanged by this pass, and still not what was
+  reported.
+
 ## What this deliberately does not do
 
 Coarse-pointer 44 px hit areas on the range handles, the year chips and the legend's eyes; node
