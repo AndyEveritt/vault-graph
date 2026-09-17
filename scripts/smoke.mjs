@@ -2452,7 +2452,8 @@ const PHONE_PROBE = `(function () {
       var reach = Math.sqrt(ax * ax + ay * ay) + R.scaleSize(dd.size);
       if (reach > far) far = reach;
     });
-    disc = { cx: dcx, cy: dcy, r: far };
+    // github#170 -- no dots drawn is no measurement; the box is the fallback
+    if (far > 0) disc = { cx: dcx, cy: dcy, r: far };
   }
   var SEL = "#vg-cam button, #vg-mob button, #vg-ov, #vg-heatsrc button, #vg-recent button," +
             " #vg-compact, #vg-rangebox .dt, #vg-rangeall, #vg-years button," +
@@ -2481,6 +2482,10 @@ const PHONE_PROBE = `(function () {
         over.push(name + " " + Math.round(gap) + "px from the centre, disc r " +
                   Math.round(disc.r));
       }
+    } else if (gb && !(r.right <= gb.left || r.left >= gb.right ||
+                       r.bottom <= gb.top || r.top >= gb.bottom)) {
+      // github#170 -- unmeasurable must not read as clean; the square is stricter
+      over.push(name + " over the disc's box (the drawn disc could not be measured)");
     }
   });
   var hrow = document.querySelector("#vg-heat .hrow"), outside = [], lines = {};
@@ -2614,7 +2619,9 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
       say(!!r.graph && r.graph.y <= 1,
           `the disc does not start the page (disc top ${r.graph && r.graph.y})`);
       // github#170 -- the toggle is in the disc square's own top-left corner
-      say(!!r.mob && !!r.graph && r.mob.x >= r.graph.x - 1 && r.mob.y >= r.graph.y - 1 &&
+      // github#170 -- a 0x0 box sits inside every corner; require a real one
+      say(!!r.mob && r.mob.w > 0 && r.mob.h > 0 &&
+          !!r.graph && r.mob.x >= r.graph.x - 1 && r.mob.y >= r.graph.y - 1 &&
           r.mob.r2 <= r.graph.x + r.graph.w / 2 && r.mob.b2 <= r.graph.y + r.graph.h / 2,
           `the calendar's toggle is not in the disc's top-left corner ` +
           `(toggle ${r.mob && r.mob.x},${r.mob && r.mob.y}..${r.mob && r.mob.r2},` +
@@ -2738,12 +2745,17 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
 
     // github#170, decisions/0009 -- a reader who opened it keeps it open
     // github#170 -- stored on purpose here, so no reboot() forgets it
-    await p.eval(`(function () {
-      var k = window.SETTINGS_KEY;
-      var v = JSON.parse(window.localStorage.getItem(k) || "{}");
-      v.bandOpen = true;
-      window.localStorage.setItem(k, JSON.stringify(v));
-    })(); void 0`);
+    const stored = await p.j(`(function () {
+      try {
+        var k = window.SETTINGS_KEY;
+        if (!k) return false;
+        var v = JSON.parse(window.localStorage.getItem(k) || "{}");
+        v.bandOpen = true;
+        window.localStorage.setItem(k, JSON.stringify(v));
+        return JSON.parse(window.localStorage.getItem(k)).bandOpen === true;
+      } catch (e) { return false; }
+    })()`);
+    if (!stored) bad.push(`could not store a band choice to check that one survives`);
     await p.eval(`location.reload(); void 0`).catch(() => {});
     await sleep(1200);
     for (let i = 0; i < 160; i++) {

@@ -272,7 +272,8 @@ async function main() {
     "      var reach = Math.sqrt(ax * ax + ay * ay) + R.scaleSize(dd.size);" +
     "      if (reach > far) far = reach;" +
     "    });" +
-    "    disc = { cx: dcx, cy: dcy, r: far };" +
+    // github#170 -- no dots drawn is no measurement; the box is the fallback
+    "    if (far > 0) disc = { cx: dcx, cy: dcy, r: far };" +
     "  }" +
     // github#170 -- every control a finger is meant to reach
     "  var SEL = '#vg-cam button, #vg-mob button, #vg-ov, #vg-heatsrc button, #vg-recent button,'" +
@@ -292,6 +293,9 @@ async function main() {
     "      var qy = Math.max(r.top, Math.min(disc.cy, r.bottom));" +
     "      var gap = Math.sqrt((qx - disc.cx) * (qx - disc.cx) + (qy - disc.cy) * (qy - disc.cy));" +
     "      if (gap < disc.r) over.push(name + ' ' + Math.round(gap) + 'px from the centre');" +
+    "    } else if (gb && !(r.right <= gb.left || r.left >= gb.right ||" +
+    "                       r.bottom <= gb.top || r.top >= gb.bottom)) {" +
+    "      over.push(name + ' over the box (the drawn disc could not be measured)');" +
     "    }" +
     "  });" +
     "  var sb = document.getElementById('vg-sidebar');" +
@@ -743,8 +747,8 @@ async function main() {
   console.log(`  the calendar at load     ${q.bandOpen ? "open" : "folded"} ` +
               `(data-band ${q.dataBand}, laid out ${q.bandLaidOut})` +
               (q.phone && q.bandOpen ? "   <-- A PHONE OPENS ON THE DISC, NOT THE BAND" : ""));
-  console.log(`  its toggle               ${q.mob ? `${q.mob.w}x${q.mob.h} at ` +
-              `${q.mob.x},${q.mob.y}` : "absent"}${q.mob && q.graph
+  console.log(`  its toggle               ${q.mob && q.mob.w ? `${q.mob.w}x${q.mob.h} at ` +
+              `${q.mob.x},${q.mob.y}` : "not drawn"}${q.mob && q.mob.w && q.graph
     ? (q.mob.x >= q.graph.x - 1 && q.mob.y >= q.graph.y - 1 &&
        q.mob.r2 <= q.graph.x + q.graph.w / 2 && q.mob.b2 <= q.graph.y + q.graph.h / 2
         ? "   in the disc's top-left corner"
