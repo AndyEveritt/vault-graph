@@ -430,6 +430,26 @@ that on every resize would be its own defect.
 catchment is what makes a tap work at all; pinching to a readable dot is the only way in.
 `enableCameraPanning: false` removes translation and nothing else.
 
+**And the zoom is what arms pan** (Lukas, 2026-09-17: *"enable pan after zoom is hit"*). A fitted
+disc has nowhere to pan to -- the whole of it is on screen, so a drag could only push it off --
+but a zoomed one does, and a zoom you cannot move around is a zoom you cannot use. So on a phone
+pan is not a stored choice at all: `phonePanWanted()` reads the camera, and pan is on while the
+ratio is inside `fitRatio() * 0.995`. Fit turns it off again, which is the same `setPan(false)`
+path flying the disc home. The toggle stays undrawn, because this is now automatic rather than a
+choice.
+
+`syncPhonePan()` is called from three places, and each covers a gap the others leave: the
+media-query change (a pointer change fires no resize), the root's resize beat (in an emulated
+browser a width change does not always fire the compound query), and the camera's own `updated`.
+
+**That third one needs `fit()` to ask again when it lands, which is not obvious.** `syncPhonePan`
+returns early while `fitting`, or a fit in flight would re-arm pan on every frame as the ratio
+climbs back through the threshold -- and the camera's *last* `updated` is emitted by `setState`
+**before** the animation's callback clears `fitting`. So every update during a fit is skipped,
+including the one that lands on the answer, and returning to fit left pan armed. `landed()` calls
+`syncPhonePan()` after clearing the flag. Measured as "at rest false, zoomed in true, back at fit
+**true**" before the fix, which is a check reading a real defect rather than a flaky probe.
+
 ### The disc was the one place a thumb could not scroll from
 
 This is the half that a layout change alone would have got wrong, and it is github#73's own
@@ -457,31 +477,44 @@ and wrapped away from it -- measured at 390 px, x=191 on line 1, three lines and
 the date range it compacts. It takes `order: 4` and joins that range's line. That is what
 "the heatmap buttons render strangely" was.
 
-The rest of the row is `--vg-hrow-h: 44px`. github#70 declared that variable so one height
-could reach every control in the row by `height` rather than by each control's own padding;
-this is that lever being pulled, not a new mechanism. The source segment's buttons carry the 44
-themselves, because the segment is a 1 px-bordered shell and its children came out 2 px short.
+**The rest of the row is `--vg-hrow-h: 32px`, and the 44 px sweep was wrong here** (Lukas,
+2026-09-17, looking at it twice: *"the added and touched buttons are too big"*, *"the center and
+dates stuff is also too big"*, *"way too much spacing around the year buttons"*). The calendar is
+a **reference you read, not a keypad you drive**, and a row of 44 px controls made it the loudest
+thing on the page: the band went from 314 px on `develop` to **409 px**. At 32 -- a bump on the
+desktop's 26 rather than a doubling -- it comes back to **306 px**, under what it was before.
+github#70's one-height rule is untouched; only the number changed, which is the whole point of
+having declared it once.
 
-**The recent lens is one line and is deliberately shorter than its row** (Lukas, 2026-09-17). It
-is a row of chips on one axis, and a second row of them costs the band a whole line of height for
-a control nobody was hunting for -- so it is `flex-wrap: nowrap` with its own contained
-`overflow-x`, and chips that do not fit scroll inside it rather than making the band taller.
-`design/0010`'s "the band must never grow a horizontal scrollbar" is about the band; this
-scroller is inside one control and the band's own width is untouched. The chips are **30 px**
-against the row's 44: at full height the lens read as the row's main event, which it is not.
+**The recent lens is one line, and it sits beside the source segment rather than below it.** It
+had `flex-basis: 100%` and `order: 2` from github#73, which gave it a line of its own; it takes
+`order: 0` and `flex: 1 1 auto` now, so line 1 reads **NOTES / Added / Touched / Today / Last 7**.
+It is also `flex-wrap: nowrap` with its own contained `overflow-x`: chips that do not fit scroll
+inside the lens rather than making the band taller. `design/0010`'s "the band must never grow a
+horizontal scrollbar" is about the band; this scroller is inside one control and the band's own
+width is untouched. Chips are **26 px** against the row's 32.
 
-**The year strip gets 44 px of height and keeps its data-driven width.** The chips are
+**The year strip keeps its data-driven width and takes 22 px of height.** The chips are
 absolutely positioned on a date axis, so their x *is* the data: measured at 390 px they sit
 36-41 px apart, and widening each to 44 makes neighbours **overlap by about 8 px**, which is
-strictly worse for a finger than 25 px chips with clear air between them. So the hit box grows
-in height only, with the pill drawn by a `::before` inside it at its old size, and the check
-asserts height alone for that one selector. It is the honest exception, named here rather than
-discovered in review; the alternative worth considering is fewer, wider chips on a phone.
+strictly worse for a finger than 26 px chips with clear air between them. A 44 px-**tall** strip
+was the first answer and it read as a band of empty space around six small words; 22 px is a real
+bump on the desktop's 14 and the strip stops being a gap. The alternative still worth considering
+is fewer, wider year chips on a phone, which is a product decision rather than a layout one.
+
+**So the floor is two numbers, not one, and the check says so by name.** Outside the calendar,
+44x44 -- the camera row, the calendar's toggle, the folder list, the sidebar's own controls.
+Inside it, by height: 26 px for the row, 20 px for the year strip. Writing it as one relaxed
+number would have lowered the bar everywhere to buy a compact calendar; writing it as two says
+which controls are driven and which are read.
 
 **The folder list is navigation now, not a legend.** It is what moved below the disc, so its
 rows are targets: eye 20x18, twisty 16x18 and solo 29x17 all go to 44, and `.lg` gets a 44 px
-minimum. 42 controls measured on the iPhone 14 afterwards, 6 under 44x44, and all six are the
-year strip.
+minimum. The solo pill's border became a soft fill at that size, because 44x44 of 1 px border
+draws a heavy empty box on every one of eighteen rows -- and the year strip's `::before` trick
+does not carry over: inside `#vg-years` the button is positioned so the pseudo lands behind it,
+while in the legend the nearest stacking context is the page root and the same pseudo disappears
+behind the sidebar's background.
 
 ### Measured after
 
@@ -491,8 +524,10 @@ year strip.
 | the page scrolls | no -- `overflow-y: hidden`, 844 in 844 | **yes, by 1449 px** |
 | disc box | 390x530, cropped left and right | **390x390, whole** |
 | drawn radius p50 | 1.64 px | **1.64 px**, unchanged |
-| controls under 44x44 | 79 of 81 | **0 of 79** |
-| the recent lens | 26 px chips, free to wrap | one line, 30 px chips |
+| controls under their floor | 79 of 81 | **0 of 79** |
+| the band | 314 px | **306 px** |
+| the recent lens | own line, free to wrap | **one line, beside the segment** |
+| pan | on, toggle drawn | **off at fit, on once zoomed** |
 | `#vg-compact` | line 1, x=191 | on the range's line |
 | a thumb on the disc | `touchstart:prevented` | `TAKEN` by the browser |
 | cascade while scrolled away | n/a | still walking, lit 166 -> 488 |

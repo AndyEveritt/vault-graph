@@ -1125,11 +1125,13 @@
 
     /* github#70 declared --vg-hrow-h so ONE height could reach every control in the band's row
        by `height` rather than by each control's own padding. This is that lever being pulled. */
-    .vault-graph #vg-heat .hrow { --vg-hrow-h: 44px; row-gap: 8px; }
-    /* The segment is a 1px-bordered shell, so its buttons come out 2px short of the row's
-       height. They carry the 44 themselves here and the shell takes what that gives it. */
-    .vault-graph #vg-heatsrc { height: auto; }
-    .vault-graph #vg-heatsrc button { height: 44px; padding: 0 12px; }
+    /* The band is the one place the 44px sweep was WRONG, and Lukas said so twice looking at
+       it (2026-09-17): the calendar is a reference you read, not a keypad you drive, and a row
+       of 44px controls made it the loudest thing on the page. 32px is a bump on the desktop's
+       26 rather than a doubling, and the band comes back from 409px to something nearer what
+       it was. github#70's one-height rule still holds -- only the number changed. */
+    .vault-graph #vg-heat .hrow { --vg-hrow-h: 32px; row-gap: 6px; gap: 8px; }
+    .vault-graph #vg-heatsrc button { padding: 0 10px; }
     /* The recent lens is ONE line and never wraps: it is a row of chips on one axis, and a
        second row of them costs the band a whole line of height for a control nobody was
        hunting for. Chips that do not fit scroll inside the row rather than pushing the band
@@ -1137,41 +1139,31 @@
        band, and this scroller is contained. They are also the one control here deliberately
        under 44px tall: a full-height chip made the lens read as the row's main event. */
     .vault-graph #vg-recent {
+      order: 0; flex-basis: auto; flex: 1 1 auto;
       flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0;
-      align-items: center; height: var(--vg-hrow-h);
+      align-items: center; height: var(--vg-hrow-h); row-gap: 0;
     }
     .vault-graph #vg-recent::-webkit-scrollbar { display: none; }
-    .vault-graph #vg-recent .chip { height: 30px; flex: 0 0 auto; }
+    .vault-graph #vg-recent .chip { height: 26px; flex: 0 0 auto; }
     /* The compact toggle was the only child of .hrow with no `order`, so it stayed on line 1
        beside the source segment while #vg-recent, #vg-heatnote and #vg-rangebox were given
        2/3/4 and wrapped away from it. Measured at 390px: x=191 on line 1, three lines and
        ~100px from the date range it compacts. It joins that range's line now. */
     .vault-graph #vg-compact { order: 4; margin-left: 0; }
-    .vault-graph #vg-rangebox { flex-wrap: wrap; row-gap: 8px; margin-left: 0; }
-    .vault-graph #vg-rangebox .dt { font-size: 14px; padding: 0 8px; }
-    .vault-graph #vg-rangeall { min-width: 44px; }
+    .vault-graph #vg-rangebox { flex-wrap: wrap; row-gap: 6px; margin-left: 0; }
+    .vault-graph #vg-rangebox .dt { font-size: 12px; padding: 0 5px; width: 98px; }
 
-    /* The year strip is the one place "every button at least 44x44" cannot be met. The chips
-       are absolutely positioned on a date axis, so their x IS the data: measured at 390px they
-       sit 36-41px apart, and widening each to 44 makes neighbours overlap by ~8px, which is
-       strictly worse for a finger than 25px chips with clear air between them. So the hit box
-       grows in height only and the pill keeps its look, drawn by ::before inside it. */
-    .vault-graph #vg-years { height: 44px; margin-top: 0; }
+    /* The year strip cannot be widened at all: the chips are absolutely positioned on a date
+       axis, so their x IS the data, and measured at 390px they sit 36-41px apart -- 44px-wide
+       neighbours would overlap by ~8px, which is strictly worse for a finger than 26px chips
+       with clear air between them. A 44px-TALL strip was the first answer and it read as a
+       band of empty space around six small words (Lukas, 2026-09-17). 22px: a real bump on the
+       desktop's 14, and the strip stops being a gap. */
+    .vault-graph #vg-years { height: 22px; margin-top: -3px; }
     .vault-graph #vg-years button {
-      height: 44px; padding: 0 5px; min-width: 26px;
-      display: flex; align-items: center; justify-content: center;
-      background: none; border: 0; border-radius: 0;
-      font: 600 11px/1 ui-sans-serif, "Segoe UI", system-ui, sans-serif;
+      height: 22px; padding: 0 6px; min-width: 26px;
+      font: 600 10.5px/22px ui-sans-serif, "Segoe UI", system-ui, sans-serif;
       font-variant-numeric: tabular-nums;
-    }
-    .vault-graph #vg-years button::before {
-      content: ""; position: absolute; z-index: -1;
-      left: 0; right: 0; top: 15px; height: 14px; border-radius: 4px;
-      border: 1px solid var(--border);
-      background: color-mix(in oklab, var(--text-3) 14%, transparent);
-    }
-    .vault-graph #vg-years button[aria-pressed="true"]::before {
-      background: color-mix(in oklab, var(--accent) 14%, transparent);
     }
 
     /* The panel's own controls are reached with a finger here too. The folder list IS the

@@ -2423,8 +2423,9 @@ check("the panel toggles fold each panel away and give the space back", async (p
 
 // github#170, design/0013 -- the only checks here that emulate touch
 const PHONE_HIT = 44;
-// github#170 -- D-8: the lens is shorter than its row, on purpose
-const PHONE_LENS_H = 28;
+// github#170 -- D-8: the band is read, not driven; its own floors
+const PHONE_BAND_H = 26;
+const PHONE_YEAR_H = 20;
 const PHONE_DEVICES = [{ name: "iPhone 14", w: 390, h: 844 }, { name: "Pixel 7", w: 412, h: 915 }];
 const PHONE_PROBE = `(function () {
   var box = function (el) {
@@ -2449,10 +2450,10 @@ const PHONE_PROBE = `(function () {
     var name = el.id || owner + " " + (el.className || el.tagName);
     // github#170 D-6 -- the year strip is on a date axis, so its width is the data
     var yr = el.parentElement && el.parentElement.id === "vg-years";
-    // github#170 D-8 -- the lens is one line of chips, deliberately shorter than the row
-    var lens = el.parentElement && el.parentElement.id === "vg-recent";
-    var bad = yr ? r.height < ${PHONE_HIT}
-            : lens ? (r.height < ${PHONE_LENS_H} || r.width < ${PHONE_HIT})
+    // github#170 D-8 -- the calendar is a reference, not a keypad: its own floor, by height
+    var band = !!el.closest("#vg-heat");
+    var bad = yr ? r.height < ${PHONE_YEAR_H}
+            : band ? r.height < ${PHONE_BAND_H}
             : (r.width < ${PHONE_HIT} || r.height < ${PHONE_HIT});
     if (bad) small.push(name + " " + Math.round(r.width) + "x" + Math.round(r.height));
     if (gb && !(r.right <= gb.left || r.left >= gb.right ||
@@ -2557,8 +2558,11 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
       say(!r.panning && !r.panLaidOut,
           `pan is ${r.panning ? "ON" : "off"} and its toggle is ` +
           `${r.panLaidOut ? "drawn" : "not drawn"}`);
-      say(r.small.length === 0, `${r.small.length} control(s) under ${PHONE_HIT}px: ` +
-                                r.small.join(", "));
+      say(r.small.length === 0, `${r.small.length} control(s) under their floor ` +
+                                `(${PHONE_HIT}px, or ${PHONE_BAND_H}/${PHONE_YEAR_H}px tall ` +
+                                `inside the calendar): ` + r.small.join(", "));
+
+
       say(r.hrowOutside.length === 0, `band controls outside their row: ${r.hrowOutside.join(", ")}`);
       say(r.compactY !== undefined && r.compactY === r.rangeY,
           `the compact toggle is on its own line (y ${r.compactY} against the range's ${r.rangeY})`);
@@ -2608,6 +2612,27 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
         await toRest(p);
       }
       say(midOver.length === 0, `mid-cascade, ${midOver.join(", ")} over the disc`);
+      // github#170 -- D-9: a fitted disc has nowhere to pan to; a zoomed one does
+      // github#170 -- not settlePan: that clicks Fit, the thing being measured
+      const panAt = async () => {
+        let prev = null, stable = 0;
+        for (let i = 0; i < 25 && stable < 3; i++) {
+          const now = await p.j(`__vg.panEnabled + "/" + __vg.camAtRest`);
+          stable = now === prev ? stable + 1 : 0;
+          prev = now;
+          await sleep(160);
+        }
+        return p.j(`__vg.panEnabled`);
+      };
+      const atRest = await panAt();
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      const zoomed = await panAt();
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      const refit = await panAt();
+      say(!atRest && zoomed && !refit,
+          `pan across a zoom: at rest ${atRest}, zoomed in ${zoomed}, back at fit ${refit}`);
 
       said.push(`${d.name}: band ${r.heat.h}px at ${r.heat.y}, disc ${r.graph.w}x${r.graph.h} ` +
                 `at ${r.graph.y}, panel at ${r.sidebar.y}, scrolls by ` +

@@ -654,7 +654,7 @@ function mountVaultGraph(root, data, deps) {
   }
 
   // github#4
-  // github#170 -- what the host stored; on a phone the layout overrules it
+  // github#170 -- what the host stored; on a phone the zoom decides instead
   var storedPan = deps.panEnabled === false ? false : true;
   var panEnabled = phone() ? false : storedPan;
   var onPanEnabled = typeof deps.onPanEnabled === "function" ? deps.onPanEnabled : null;
@@ -6233,6 +6233,9 @@ function mountVaultGraph(root, data, deps) {
       });
     })();
 
+    // github#170, design/0013 -- the zoom is what arms pan here, so watch the camera
+    renderer.getCamera().on("updated", function () { if (!dead) syncPhonePan(); });
+
     /** @type {number | null} */
     var rzTimer = null;
     var onResize = function () {
@@ -6472,10 +6475,22 @@ function mountVaultGraph(root, data, deps) {
     }
   }
 
+  // github#170, design/0013 -- a fitted disc has nowhere to pan to; a zoomed one does
+  function phonePanWanted() {
+    if (!phone()) return storedPan;
+    if (!renderer) return false;
+    return renderer.getCamera().getState().ratio < fitRatio() * 0.995;
+  }
+
   // github#170, design/0013 -- setPan(false) flies home; only on a real change
   function syncPhonePan() {
-    var want = phone() ? false : storedPan;
-    if (want !== panEnabled) setPan(want, false);
+    if (fitting) return;
+    var want = phonePanWanted();
+    if (want !== panEnabled) { setPan(want, false); return; }
+    // github#170 -- an interrupted flight can leave the setting off its flag
+    if (renderer && !!renderer.getSetting("enableCameraPanning") !== panEnabled) {
+      renderer.setSetting("enableCameraPanning", panEnabled);
+    }
   }
 
   /** @param {string | null} id */
@@ -8055,10 +8070,11 @@ function mountVaultGraph(root, data, deps) {
   function fit() {
     var to = { x: 0.5, y: 0.5, ratio: fitRatio(), angle: 0 };
     fitting = true;
-    // github#170 -- restore what pan is NOW, never a captured false
+    // github#170, design/0013 -- restore what pan is NOW, and re-ask once landed
     var landed = function () {
       fitting = false; camAtRest = true;
       renderer.setSetting("enableCameraPanning", panEnabled);
+      syncPhonePan();
     };
     // github#4 -- the flight needs panning on whatever the toggle says
     if (!panEnabled) renderer.setSetting("enableCameraPanning", true);

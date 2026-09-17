@@ -5335,13 +5335,14 @@ and the plugin needs no `Platform.isMobile` -- Obsidian mobile reports coarse at
 | | |
 |---|---|
 | reading order | **calendar, disc, folder list**, all in the scroll flow |
-| minimum hit box | **44 x 44 px**, for every control the issue names |
-| the year strip | **44 px tall, data-driven width** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours overlap by ~8px (D-6) |
-| the recent lens | **one line, never two**, and 30 px chips against the row's 44 (D-8) |
+| minimum hit box | **44 x 44 px** outside the calendar; the calendar is read rather than driven, so it keeps its own floors **by height**: 26 px for its control row, 20 px for the year strip (D-8) |
+| the year strip | **data-driven width, never widened** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours would overlap by ~8px (D-6) |
+| the recent lens | **one line, never two**, beside the source segment rather than below it (D-8) |
+| pan | **off at fit, on once the ratio is inside `fitRatio() * 0.995`** -- a fitted disc has nowhere to pan to (D-9) |
 | the disc box | **square**: `min(w, h)` already fit it to the width, so 390x390 draws the same disc as 390x530 -- p50 radius **1.64 px** either way |
 | over the disc box | **nothing**, at rest and mid-cascade |
 | the toggles drawn | the calendar's, so the band has a way back; **not** the folder list's, which is in the flow |
-| pan | **off**, through `setPan(false)`, and its toggle is not drawn |
+| the pan toggle | **not drawn** -- pan is automatic here, not a choice |
 | zoom | **survives** -- at 1.64px a pinch is the only route to a tappable dot |
 | the disc's mouse layer | `touch-action: pan-y`, and the captor claims a touch only when it can use it |
 
@@ -5353,10 +5354,16 @@ only `grid-row: 2` auto-place side by side and create an implicit second column,
 out of the disc's `1fr` (**334 px of square in a 390 px canvas**). Neither failed anything; both
 produced a smaller disc that still looked like a disc.
 
-**Pan is re-applied, not read once.** The layout is a media query and is live; `syncPhonePan()`
-runs on that query's change *and* on the root's resize beat, guarded on the value actually
-differing because `setPan(false)` flies the camera home. `storedPan` holds what the host chose,
-so a phone never writes over a desk's choice and a breakpoint crossing restores it.
+**Pan is re-applied, not read once.** `syncPhonePan()` runs on the media query's change, on the
+root's resize beat, and on the camera's own `updated`, guarded on the value actually differing
+because `setPan(false)` flies the camera home. `storedPan` holds what the host chose, so a phone
+never writes over a desk's choice and a breakpoint crossing restores it.
+
+**`fit()` asks again when it lands, and that line is load-bearing.** `syncPhonePan` returns early
+while `fitting`, or a fit in flight would re-arm pan on every frame as the ratio climbs back
+through the threshold -- and the camera's last `updated` is emitted by `setState` *before* the
+animation's callback clears `fitting`, so every update during a fit is skipped including the one
+that lands on the answer. Without the call in `landed()`, returning to fit leaves pan armed.
 
 **Check:** `smoke.mjs`'s "a phone gets the disc whole at the top of a page that scrolls", on the
 demo fixture at 390x844 and 412x915 with touch emulated -- nothing over the disc at rest or
