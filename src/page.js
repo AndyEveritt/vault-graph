@@ -325,10 +325,14 @@ function parseSortSpec(sources) {
     (sources || []).forEach(function (src) {
       var home = sortTrimPath(src.folder || "");
       var origin = src.origin || "sortspec";
-      /** @param {boolean} dead @returns {SortSection} */
-      var section = function (dead) {
-        return { target: home, rank: 3, re: null, pins: [], dir: null, numeric: true,
-                 dead: dead, origin: origin };
+      /**
+       * @param {boolean} dead
+       * @param {{ target: string, rank: number, re: RegExp | null } | null} [t]
+       * @returns {SortSection}
+       */
+      var section = function (dead, t) {
+        return { target: t ? t.target : home, rank: t ? t.rank : 3, re: t ? t.re : null,
+                 pins: [], dir: null, numeric: true, dead: dead, origin: origin };
       };
       var cur = section(false);
       var used = false;
@@ -348,8 +352,7 @@ function parseSortSpec(sources) {
             used = false;
             return;
           }
-          cur = section(false);
-          cur.target = t.target; cur.rank = t.rank; cur.re = t.re;
+          cur = section(false, t);
           used = true;
           return;
         }

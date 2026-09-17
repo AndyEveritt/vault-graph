@@ -68,6 +68,12 @@ anything else looks at it.**
 | `regexp: P`, `regexp: for-name: P` | any folder whose **name** matches `P` | 1 |
 | `/*`, `X/*`, `./*` | that folder and everything under it | 0, wildcard |
 
+**The rank is the discriminator, and a rank-1 `target` is NOT a path.** It holds the directive's
+raw value — `regexp: ^Arch` — so that a notice can quote what was written. Under the old `/re/`
+spelling that string always carried slashes, and one of `smoke.mjs`'s own helpers separated the
+sections the disc can see from the rest by testing for a slash; `regexp: ^Arch` has none, so it
+read as a top-level folder of that name. Anything sorting sections asks the **rank**.
+
 **A leading `/` is a root anchor, not noise to be trimmed.** It used to be stripped before the
 rank was decided, so `/Projects` — one segment once the slash was gone — became a rank-2 name
 match and governed `Old/Projects`, a folder its author never named. The rule that replaces it is

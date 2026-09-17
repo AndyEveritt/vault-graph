@@ -1181,8 +1181,10 @@ check("the wedge order follows the file explorer spec", async (p) => {
     var root = null, subs = [];
     spec.sections.forEach(function(s){
       if (s.target === "" && s.rank === 3) root = s;
-      // a section aimed at a top-level folder is the only other kind the disc can see
-      else if (s.target.indexOf("/") < 0 && s.target) subs.push(s);
+      // a section aimed at a top-level folder is the only other kind the disc can see.
+      // github#172 -- rank 1 holds a PATTERN, not a path: its target is the raw "regexp: P",
+      // which has no slash in it and would otherwise read here as a folder of that name
+      else if (s.rank !== 1 && s.target.indexOf("/") < 0 && s.target) subs.push(s);
     });
 
     __vg.setFolderOrder("name");
