@@ -146,6 +146,19 @@ standalone deliberately does not. The exported page is a snapshot: its data was 
 build time, so that window could only ever be empty. The chip is therefore **not built at
 all** there rather than built and always zero.
 
+### Three CSS specifics behind `#vg-heatsrc` and `#vg-recent` (github#174)
+
+`#vg-heatsrc` reads as one joined control rather than two loose buttons on purpose -- the
+Added/Touched pair is a single choice with two positions, the same idea `.seg` already uses
+in the sidebar at row scale, and both are always rendered so the row's width never shifts as
+the pressed one changes. The label above it took `font-family` alone rather than the `font`
+shorthand: `.hrow .lbl` already owns the size, weight, transform and letter-spacing by
+specificity, and `font: inherit` there would have silently taken all of those away instead of
+only the family it was meant to override. And Added/Touched are bolded identically -- weighting
+only the pressed side moved its sub-pixel width as the label text changed length, which put a
+1px wobble back into a row github#70 had just made stable; the accent fill already says which
+side is pressed, louder than 100 units of font-weight would.
+
 ## Two rejected encodings, both measured
 
 **Averaging the day's colours** failed in both directions. Mixing many hues in OKLab

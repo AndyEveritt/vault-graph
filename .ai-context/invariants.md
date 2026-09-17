@@ -5287,6 +5287,10 @@ would otherwise sit beside these lines is here. In source order:
   `setTimeScale` exists as a function where `setWedgeGrid` does not.
 - **`showCtxMenu()`** is the half of opening a menu that has nothing to do with what is in it:
   unhide, clamp inside the root, arm the three ways it closes.
+- **The colour menu's `.vis` row stacks rather than sitting beside its label** (github#174). The
+  menu is a fixed 176px wide, and a label with four choices under it does not fit on one line at
+  that width the way `.row` manages everywhere else in the sidebar, so this one row is the
+  exception and is written as a block rather than a flex pair.
 
 **`plugin/main.js`**
 

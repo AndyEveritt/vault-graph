@@ -9,9 +9,10 @@ const argv = process.argv.slice(2);
 const rootArg = argv.indexOf("--root");
 const ROOT = rootArg >= 0 ? resolve(argv[rootArg + 1]) : resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DIRS = ["plugin", "src", "scripts"];
-const EXT = /\.(m?js|ts)$/;
+const JS_EXT = /\.(m?js|ts)$/;
+const CSS_EXT = /\.css$/;
 
-// github#61
+// github#61, github#174
 const BASELINE = 378;
 
 const VERBOSE = argv.includes("--verbose");
@@ -22,13 +23,13 @@ const JSDOC_TAG = /^\*?\s*@(param|returns?|typedef|property|type|callback|templa
 const DIRECTIVE = /^(eslint-|@ts-|prettier-|BEGIN:|END:|---- (BEGIN|END))/;
 const BANNER = /^[-=]{4,}|[-=]{8,}/;
 
-function walk(dir, acc) {
+function walk(dir, acc, allowCss) {
   for (const entry of readdirSync(dir).sort()) {
     if (entry === "node_modules" || entry.startsWith(".")) continue;
     const p = join(dir, entry);
     const st = statSync(p);
-    if (st.isDirectory()) walk(p, acc);
-    else if (EXT.test(entry)) acc.push(p);
+    if (st.isDirectory()) walk(p, acc, allowCss);
+    else if (JS_EXT.test(entry) || (allowCss && CSS_EXT.test(entry))) acc.push(p);
   }
   return acc;
 }
@@ -121,7 +122,7 @@ function offending(c) {
   return true;
 }
 
-const files = DIRS.flatMap((d) => walk(join(ROOT, d), []));
+const files = DIRS.flatMap((d) => walk(join(ROOT, d), [], d === "src"));
 let total = 0;
 const rows = [];
 for (const f of files) {
