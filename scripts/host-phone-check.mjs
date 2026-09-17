@@ -401,9 +401,8 @@ try {
 
   // github#178 -- item 4
   const ybox = p.years.box;
-  const heatBox = p.band.heat;
-  const outside = p.years.chips.filter((c) => c.box && heatBox &&
-    (c.box.x < heatBox.x - 0.5 || c.box.right > heatBox.right + 0.5));
+  const outside = p.years.chips.filter((c) => c.box && ybox &&
+    (c.box.x < ybox.x - 0.5 || c.box.right > ybox.right + 0.5));
   const sorted = p.years.chips.filter((c) => c.box).slice().sort((a, b) => a.box.x - b.box.x);
   const overlaps = [];
   for (let i = 1; i < sorted.length; i++) {
@@ -458,12 +457,6 @@ try {
   console.log("\n" + (results.length - failed) + "/" + results.length + " pass" +
               (failed ? ", " + failed + " FAIL" : ""));
 
-  if (!KEEP) {
-    await cdp.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
-    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {});
-    await cdp.eval("app.emulateMobile(false); void 0").catch(() => {});
-    await sleep(600);
-  }
   await shutdown(failed ? 1 : 0);
 } catch (e) {
   console.error(e);
