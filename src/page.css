@@ -1153,7 +1153,20 @@
     .vault-graph .dimall button,
     .vault-graph .tools button { min-height: 44px; min-width: 44px; }
     .vault-graph #vg-q { height: 44px; font-size: 14px; }
+    /* The twisty and the eye already paint nothing but their glyph, so 44px of hit area is
+       invisible chrome and they can simply grow. */
     .vault-graph .tw, .vault-graph .eye { width: 44px; height: 44px; padding: 0; }
     .vault-graph .lg { min-height: 44px; }
-    .vault-graph .lg .only, .vault-graph .lgs .only { min-width: 44px; min-height: 44px; }
+    /* Solo is a bordered pill, and 44x44 of that border is a heavy empty box on every one of
+       eighteen rows. The year strip's ::before trick does not work here: #vg-years is a
+       positioned parent, so a z-index:-1 pseudo lands behind its own button and in front of the
+       page; inside the legend the nearest stacking context is the root, so the same pseudo
+       disappears behind the sidebar's background. So the target grows and the border becomes a
+       fill -- soft enough not to draw a box on every row, present enough to read as a control. */
+    .vault-graph .lg .only, .vault-graph .lgs .only {
+      min-width: 44px; height: 44px; padding: 0 8px;
+      display: flex; align-items: center; justify-content: center;
+      border: 0; border-radius: 10px;
+      background: color-mix(in oklab, var(--text-3) 12%, transparent);
+    }
   }

@@ -2496,7 +2496,7 @@ const settlePan = async (p) => {
 // github#170
 check("a phone gets the disc whole at the top of a page that scrolls", async (p) => {
   const dpr = await p.j(`window.devicePixelRatio || 1`);
-  // github#170 -- the only checks that emulate touch; they own putting the page back
+  // github#170 -- these emulate touch, so they own putting the page back
   const restore = async () => {
     await p.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {});
     await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
