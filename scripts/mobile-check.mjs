@@ -180,6 +180,19 @@ async function main() {
 
   // github#73
   const got = await fitViewport(p, W, H);
+  // github#170, design/0013 -- bandOpen is read at mount, and the fitted
+  // github#170 -- viewport lands after it, so boot again at the real size
+  // github#170 -- forgetting the stored choice: a default is what none is
+  await p.eval("(function () { try { var k = window.SETTINGS_KEY; if (!k) return;" +
+               " var v = JSON.parse(window.localStorage.getItem(k) || '{}');" +
+               " delete v.bandOpen; window.localStorage.setItem(k, JSON.stringify(v));" +
+               " } catch (e) { } })(); void 0").catch(() => {});
+  await p.eval("location.reload(); void 0").catch(() => {});
+  await sleep(1200);
+  for (let i = 0; i < 160; i++) {
+    if (await p.eval("!!(window.__vg && __vg.renderer && __vg.graph)").catch(() => false)) break;
+    await sleep(250);
+  }
   let settled = false;
   for (let i = 0; i < 200 && !settled; i++) {
     settled = !(await p.eval("!!__vg.demo.busy()").catch(() => false));
@@ -247,6 +260,20 @@ async function main() {
     "  var root = document.querySelector('.vault-graph');" +
     "  var g = document.getElementById('vg-graph');" +
     "  var gb = g ? g.getBoundingClientRect() : null;" +
+    // github#170 -- over the disc means over the CIRCLE, not over its square
+    "  var disc = null;" +
+    "  if (gb && window.__vg && __vg.renderer && __vg.graph) {" +
+    "    var R = __vg.renderer, G = __vg.graph;" +
+    "    var dcx = gb.left + gb.width / 2, dcy = gb.top + gb.height / 2, far = 0;" +
+    "    G.forEachNode(function (id) {" +
+    "      var dd = R.getNodeDisplayData(id); if (!dd || dd.hidden) return;" +
+    "      var v = R.graphToViewport(G.getNodeAttributes(id));" +
+    "      var ax = v.x + gb.left - dcx, ay = v.y + gb.top - dcy;" +
+    "      var reach = Math.sqrt(ax * ax + ay * ay) + R.scaleSize(dd.size);" +
+    "      if (reach > far) far = reach;" +
+    "    });" +
+    "    disc = { cx: dcx, cy: dcy, r: far };" +
+    "  }" +
     // github#170 -- every control a finger is meant to reach
     "  var SEL = '#vg-cam button, #vg-mob button, #vg-ov, #vg-heatsrc button, #vg-recent button,'" +
     "          + ' #vg-compact, #vg-rangebox .dt, #vg-rangeall, #vg-years button,'" +
@@ -259,9 +286,13 @@ async function main() {
     "    var name = el.id || owner + ' ' + (el.className || el.tagName);" +
     "    ctl.push({ name: name, w: Math.round(r.width), h: Math.round(r.height)," +
     "               x: Math.round(r.left), y: Math.round(r.top) });" +
-    // github#170 -- the box the renderer draws in
-    "    if (gb && !(r.right <= gb.left || r.left >= gb.right ||" +
-    "                r.bottom <= gb.top || r.top >= gb.bottom)) over.push(name);" +
+    // github#170 -- nearest point of the box to the centre, against the radius
+    "    if (disc) {" +
+    "      var qx = Math.max(r.left, Math.min(disc.cx, r.right));" +
+    "      var qy = Math.max(r.top, Math.min(disc.cy, r.bottom));" +
+    "      var gap = Math.sqrt((qx - disc.cx) * (qx - disc.cx) + (qy - disc.cy) * (qy - disc.cy));" +
+    "      if (gap < disc.r) over.push(name + ' ' + Math.round(gap) + 'px from the centre');" +
+    "    }" +
     "  });" +
     "  var sb = document.getElementById('vg-sidebar');" +
     "  var heat = document.getElementById('vg-heat');" +
@@ -278,6 +309,14 @@ async function main() {
     "           overflowY: getComputedStyle(root).overflowY," +
     "           coarse: !!(window.matchMedia && matchMedia('(pointer: coarse)').matches)," +
     "           phone: !!(window.__vg && __vg.phone), narrow: !!(window.__vg && __vg.narrow)," +
+    // github#170 -- folded on a phone, its toggle in the disc's corner
+    "           bandOpen: !!(window.__vg && __vg.bandOpen)," +
+    "           dataBand: root.getAttribute('data-band')," +
+    "           bandLaidOut: !!(document.getElementById('vg-heat') || {}).offsetParent," +
+    "           mob: (function () { var m = document.getElementById('vg-mob');" +
+    "             return m ? box(m) : null; })()," +
+    "           disc: disc ? { cx: Math.round(disc.cx), cy: Math.round(disc.cy)," +
+    "                          r: Math.round(disc.r) } : null," +
     "           graph: gb ? box(g) : null," +
     "           sidebar: sb ? box(sb) : null, heat: heat ? box(heat) : null," +
     "           panVisible: !!(document.getElementById('vg-pan') || {}).offsetParent," +
@@ -694,15 +733,31 @@ async function main() {
     : `NO -- overflow-y ${q.overflowY}, ${q.scrollH} of content in a ${q.clientH} window`}`);
   console.log(`  disc box                 ${q.graph ? `${q.graph.w}x${q.graph.h} at ` +
               `${q.graph.x},${q.graph.y}` : "absent"}`);
+  // github#170 -- the drawn disc, which is what a control has to clear
+  console.log(`  drawn disc               ${q.disc ? `radius ${q.disc.r} at ${q.disc.cx},` +
+              `${q.disc.cy} (the square's inscribed circle is ` +
+              `${q.graph ? Math.round(q.graph.w / 2) : "?"})` : "absent"}`);
   console.log(`  over the disc            ${q.over.length ? q.over.join(", ") : "nothing"}` +
               (q.phone && q.over.length ? "   <-- NOTHING MAY COVER THE DISC ON A PHONE" : ""));
+  // github#170 -- folded at load, its toggle in the disc's corner
+  console.log(`  the calendar at load     ${q.bandOpen ? "open" : "folded"} ` +
+              `(data-band ${q.dataBand}, laid out ${q.bandLaidOut})` +
+              (q.phone && q.bandOpen ? "   <-- A PHONE OPENS ON THE DISC, NOT THE BAND" : ""));
+  console.log(`  its toggle               ${q.mob ? `${q.mob.w}x${q.mob.h} at ` +
+              `${q.mob.x},${q.mob.y}` : "absent"}${q.mob && q.graph
+    ? (q.mob.x >= q.graph.x - 1 && q.mob.y >= q.graph.y - 1 &&
+       q.mob.r2 <= q.graph.x + q.graph.w / 2 && q.mob.b2 <= q.graph.y + q.graph.h / 2
+        ? "   in the disc's top-left corner"
+        : "   NOT in the disc's top-left corner")
+    : ""}`);
   console.log(`  panel below the disc     ${q.sidebar && q.graph
     ? (q.sidebar.y >= q.graph.b2 - 1
         ? `yes, its top is at ${q.sidebar.y} and the disc ends at ${q.graph.b2}`
         : `NO -- panel top ${q.sidebar.y}, disc ends ${q.graph.b2}`)
     : "no panel"}`);
-  console.log(`  band below the disc      ${q.heat && q.graph
-    ? (q.heat.y >= q.graph.b2 - 1 ? `yes, at ${q.heat.y}` : `no, at ${q.heat.y}`) : "absent"}`);
+  console.log(`  band below the disc      ${q.heat && q.graph && q.bandLaidOut
+    ? (q.heat.y >= q.graph.b2 - 1 ? `yes, at ${q.heat.y}` : `no, at ${q.heat.y}`)
+    : "n/a, the calendar is folded"}`);
   console.log(`  pan                      ${q.panning ? "ON" : "off"}, ` +
               `toggle ${q.panVisible ? "drawn" : "not drawn"}`);
   console.log(`  scroll from the disc     ${scrollFromDisc}`);
