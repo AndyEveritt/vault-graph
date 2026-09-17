@@ -688,7 +688,8 @@ function mountVaultGraph(root, data, deps) {
   // github#82, decisions/0009 -- absent means nobody chose; width decides
   var sheetOpen = typeof deps.sheetOpen === "boolean" ? deps.sheetOpen : !narrow();
   var onSheetOpen = typeof deps.onSheetOpen === "function" ? deps.onSheetOpen : null;
-  var bandOpen = typeof deps.bandOpen === "boolean" ? deps.bandOpen : true;
+  // github#170, design/0013 -- off a phone !phone() is the true this replaces
+  var bandOpen = typeof deps.bandOpen === "boolean" ? deps.bandOpen : !phone();
   var onBandOpen = typeof deps.onBandOpen === "function" ? deps.onBandOpen : null;
 
   // github#70, decisions/0009 -- the host owns the clock. The page never writes this back:

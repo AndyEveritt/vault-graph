@@ -1043,8 +1043,12 @@
     .vault-graph[data-band="on"] #vg-stage {
       grid-template-rows: auto auto; overflow: visible; order: 1;
     }
-    /* The calendar keeps the top, above the disc, and keeps its toggle (in the control row
-       below). [data-band] is honoured here rather than overridden: there IS a way back. */
+    /* The calendar keeps the top, above the disc, WHEN IT IS OPEN -- and on a phone it starts
+       folded, so the disc is the first thing on screen and the page opens on the animation
+       rather than on a reference band. page.js decides that (`bandOpen` defaults to `!phone()`,
+       the same "absent means nobody chose" rule the sheet already uses), not this file, because
+       a host that stored a choice must still win. [data-band] is honoured here rather than
+       overridden: there IS a way back, and its toggle is in the disc's own corner below. */
     .vault-graph #vg-heat { order: 1; }
     /* The sidebar leaves the sheet and rejoins the flow, whatever data-sheet says. Nothing
        reads the attribute here; it is simply inert, which is why the JS setters did not need a
@@ -1088,11 +1092,10 @@
     /* The camera cluster stops floating and becomes a row under the disc. This is want #1
        answered by want #3: the buttons are sized for the width they are drawn at because they
        are no longer standing on a disc that needs the room. */
-    /* Both control clusters share ONE cell -- `grid-column: 1` on each, not just `grid-row`.
-       Two items naming the same row and no column auto-place side by side, which creates an
+    /* `grid-column: 1` is not tidiness, and it stays load-bearing now that this is the row's
+       only cluster. A grid item naming a row but no column auto-places, which creates an
        implicit second column and takes its width out of the disc's `1fr`: measured, the square
-       came out 334px in a 390px canvas and every dot fell under 2px. They do not collide in the
-       one cell, because 56px at the left ends well before a 152px cluster centred at 119. */
+       came out 334px in a 390px canvas and every dot fell under 2px. */
     .vault-graph #vg-cam {
       position: static; z-index: auto; grid-row: 2; grid-column: 1; justify-self: center;
       flex-direction: row; justify-content: center; gap: 10px; padding: 8px 0;
@@ -1104,13 +1107,19 @@
        carries an id, a class and a type, so a bare `#vg-pan` loses to it on specificity and the
        button stayed drawn; qualifying it is what makes this rule reach. */
     .vault-graph #vg-cam button#vg-pan { display: none; }
-    /* The calendar's own toggle rides the same row rather than floating at the disc's corner,
-       so the disc stays clear and every control on this page is in one place. The sheet toggle
-       goes: the folder list is in the flow and there is nothing left to summon. */
-    .vault-graph #vg-mob {
-      position: static; z-index: auto; grid-row: 2; grid-column: 1; justify-self: start;
-      padding: 8px 0 8px 12px;
-    }
+    /* The calendar's own toggle sits in the top-left CORNER OF THE DISC'S SQUARE, and there is
+       no rule here doing that: the base rule at the top of this file already says
+       `position: absolute; left/top: var(--panels-inset)` inside #vg-canvas, which is still
+       `position: relative`, and on a phone #vg-graph is row 1 stretched across and started at
+       the top -- so the canvas's own corner IS the graph view's corner. The first pass pinned
+       the cluster into the control row under the disc instead (`position: static; grid-row: 2`);
+       that override is what was removed, rather than a second corner rule being written beside
+       the base one. The corner is empty because the disc is a CIRCLE in a square: measured at
+       390px the button's nearest corner is 197px from the centre and the drawn disc's radius is
+       167, so it clears by ~30px -- and smoke.mjs now measures that against the drawn disc
+       rather than against the square, which is what let a box-overlap check call this a
+       collision. The sheet toggle still goes: the folder list is in the flow and there is
+       nothing left to summon. */
     .vault-graph #vg-mob button#vg-sheet { display: none; }
     /* github#79, design/0017 -- the tile is a hover-revealed pointer affordance, and with pan
        off only a zoom can crop the disc. Its whole job -- where the frame sits, click to fit --
