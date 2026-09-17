@@ -5382,7 +5382,8 @@ and the plugin needs no `Platform.isMobile` -- Obsidian mobile reports coarse at
 |---|---|
 | reading order | **disc, folder list**, all in the scroll flow -- the calendar starts **folded** and opens above the disc (github#170 second pass) |
 | minimum hit box | **44 x 44 px** outside the calendar; the calendar is read rather than driven, so it keeps its own floors **by height**: 26 px for its control row, 20 px for the year strip (D-8) |
-| the year strip | **data-driven width, never widened** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours would overlap by ~8px (D-6) |
+| the year strip | **data-driven width, never widened** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours would overlap by ~8px (D-6). A chip stays **inside the band**, not inside the strip: it is centred on its year's x with `translateX(-50%)`, so the end chips bleed into the band's 14px padding, which is what keeps a chip's x equal to its data -- and what they may not do is leave the band. Measured before github#178, the leftmost chip sat at **x = -0.19** at every width from 320 to 430 (github#178) |
+| two year chips | **never overlap.** github#23's `minGap < 28` thins by whole years against a constant that approximates a chip and never re-checks the gap after thinning, so the tightest kept gap on the demo fixture is **7.6px at 390 and 0.6px at 320** -- one denser vault from a collision. `fitYears` clamps the ends and then sweeps **right to left**, dropping any chip still overlapping its neighbour; backwards, because the newest year is the one worth keeping. The thinning rule itself is untouched, so which years are round is unchanged (github#178) |
 | the recent lens | **one line, never two**, beside the source segment rather than below it (D-8) |
 | pan | **off at fit, on once the ratio is inside `fitRatio() * 0.995`** -- a fitted disc has nowhere to pan to (D-9) |
 | the disc box | **square**: `min(w, h)` already fit it to the width, so 390x390 draws the same disc as 390x530 -- p50 radius **1.64 px** either way |
@@ -5440,6 +5441,29 @@ at all -- so a host-CSS collision is invisible to every gate that runs on a push
 `obsidian-smoke.mjs`, which launches a real Obsidian, or a device can see one. This was reported
 from a phone (github#170 want #4), diagnosed from that screenshot plus a static audit of which
 controls declare a radius, and is **confirmed only on the device**.
+
+**The audit above was of `border-radius`, and the property that was actually breaking the segment
+was `height` (github#178).** Obsidian's `app.css` sets `button { height: var(--input-height) }`, and
+`.is-mobile` retunes that token to `--touch-size-m`, **44px**; on the desktop it is 30px. An explicit
+`height` overrides a flex stretch, and `#vg-heatsrc button` specified none -- so the segment's two
+halves were 44px inside a 32px container on a phone and 30px inside a 26px row on the desktop,
+clipped by the container's `overflow: hidden` with their labels centred in the taller box, which is
+what "Added is taller than Touched, the outline broken between them" was. **github#70's "every
+control in the band's row is the same height" could not catch it**: it measures `#vg-heatsrc`, the
+container, which was always right, and never the two buttons inside it.
+The reset is `.vault-graph #vg-heat :where(button)` / `:where(input)` -- **(1,1,0)**, which beats
+every `app.css` rule reaching these elements (`button` (0,0,1), `button:not(.clickable-icon)` and
+`input[type='date']` both (0,1,1)) while tying with or losing to the band's own rules, so it sits
+above them in the file. It sets exactly `height: auto` and `box-shadow: none`, because every other
+property the host touches is already set by a band rule -- and a wider reset would have *taken*
+things away: `.vault-graph button.btn` is (0,2,1), which loses to anything carrying an id, so the
+chips and `#vg-rangeall` would have lost the `padding: 5px 8px` and 6px radius they get from `.btn`.
+
+**And the gap is closed now:** `scripts/host-phone-check.mjs` renders the plugin inside a real
+desktop Obsidian with `app.emulateMobile(true)` and the device metrics at a phone's width, and puts
+the band's controls under checks that can fail. It is manual, like `obsidian-smoke.mjs` -- it needs
+Obsidian installed and takes a minute or two -- so the invisibility to a *push* is unchanged; what
+changed is that it no longer takes a device and a person noticing.
 
 **Two things make a "default" unmeasurable, and both once made this check unable to fail.**
 `bandOpen` is read **once, at mount**, so a harness that resizes a page into a phone measures the

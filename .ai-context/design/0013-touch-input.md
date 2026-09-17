@@ -800,6 +800,160 @@ the measurement, and asserted in the check so it cannot be reopened on a reading
   `landed` is what makes the reorder work, and it also means a touch arrests a fit part-way. That
   was already true and is still what the design wants: a gesture stops an animation.
 
+## github#178 — the host's CSS, and the promise github#170 made and did not keep
+
+**Status** as-built · 2026-09-17 github#178
+
+> Every phone check in this repo ran on a page that carries none of Obsidian's stylesheet. The
+> one surface that decides how the band's controls are drawn was the one nothing measured.
+
+github#170 saw this coming and got most of it right. `invariants.md` already says that `page.css` is
+scoped so the page cannot style its host, that **nothing stops the host styling the page**, and that
+"a bare `<button>` inside Obsidian wears Obsidian's radius, min-height and shadow" — it named
+`#vg-heatsrc button` as the one control in the band declaring no radius, and gave it one. It even
+stated the structural gap outright: a host-CSS collision "is invisible to every gate that runs on a
+push", and that the fix was "confirmed only on the device".
+
+Two things it did not do. It audited **which controls declare a `border-radius`** — and the property
+that was actually breaking the segment is `height`, which nobody enumerated. And "confirmed only on
+the device" stayed true, so the next regression had to be reported from a phone again, which is what
+happened. This section is the harness that closes that, and the audit done by measurement instead of
+by eye.
+
+### The gap was in the harness, not in anyone's reasoning
+
+`smoke.mjs`, `mobile-check.mjs` and every phone reading in this record drive **the exported page in
+Chrome**. That page is one HTML file with `page.css` inline and nothing else. The plugin is a
+different situation entirely: `page.css` is shipped as `styles.css` and injected into **Obsidian's
+own document**, where `app.css` is already styling bare `button` and `input` elements. So a control
+that sets its colour, its border and its font but not its `height` gets whatever the host says —
+and no Chrome check can see that, because in Chrome there is no host.
+
+`scripts/host-phone-check.mjs` is that surface. `CONTRIBUTING.md` has how to run it.
+
+### What the host actually sets, read out of `app.css` rather than guessed
+
+Obsidian ships its stylesheet inside `resources/obsidian.asar` as `/app.css` — 637 KB, 21,708
+lines. The rules that reach the band:
+
+| where | what |
+|---|---|
+| `app.css:7199` | `button { height: var(--input-height); padding: var(--size-4-1) var(--size-4-3); display: inline-flex; align-items: center; justify-content: center; font-size: var(--font-ui-small); font-weight: var(--input-font-weight); border-radius: var(--button-radius); border: 0; white-space: nowrap }` |
+| `app.css:7219` | `button:not(.clickable-icon) { background-color: var(--interactive-normal); box-shadow: var(--input-shadow) }` |
+| `app.css:8222` | `input[type='date'], input[type='text'], … { background; border; color; font-family: inherit; padding: var(--input-padding); font-size; border-radius: var(--input-radius); outline: none }` |
+| `app.css:18747` | `.is-mobile { --input-height: var(--touch-size-m); --input-radius: var(--touch-radius-m); --input-border-width: 0px; --input-padding: var(--size-4-1) var(--size-4-4); --input-font-weight: var(--font-medium) }` |
+| `app.css:2842` | `--touch-size-m: 44px`, and `--size-4-1: 4px`, `--size-4-3: 12px` |
+
+So **inside Obsidian on a phone every bare `button` is 44 px tall**, and on the desktop 30 px.
+
+### One control had no height, and it was the one in the photograph
+
+`#vg-heatsrc` — the Added | Touched segment — is `height: var(--vg-hrow-h)` with `overflow: hidden`,
+and its two buttons took their height from the flex stretch, which is to say they specified none.
+Under the host they were 44 px inside a 32 px box: clipped top and bottom, and with the label
+centred in the 44 rather than in the 30 that shows, **sitting about three quarters of the way down
+the visible box**. That is exactly what "Added renders as a solid filled blue block, taller than
+Touched, the outline broken between them" is.
+
+**It was wrong on the desktop too**, and had been all along: 30 px halves in a 26 px row. Nobody
+had looked, for the same reason nobody had looked at the phone.
+
+**And github#70's check could not have caught either**, which is worth stating rather than
+discovering again. "Every control in the band's row is the same height" measures `#vg-heatsrc` — the
+*container* — along with `#vg-recent`'s chips, `#vg-compact`, the two date fields and `#vg-rangeall`.
+The container was always the right height. The check never looked at the two buttons inside it.
+
+### The reset is scoped to the band and deliberately weak
+
+```css
+.vault-graph #vg-heat :where(button),
+.vault-graph #vg-heat :where(input) { height: auto; box-shadow: none; }
+```
+
+`:where()` contributes nothing, so this is **(1,1,0)**. That is above every `app.css` rule that
+reaches these elements — `button` is (0,0,1), `button:not(.clickable-icon)` is (0,1,1),
+`input[type='date']` is (0,1,1) — and at or below every rule of the band's own, so it sits *above*
+them in the file and they still win:
+
+| rule | specificity | wins against the reset by |
+|---|---|---|
+| `.vault-graph #vg-heatsrc button` | (1,1,1) | specificity |
+| `.vault-graph #vg-recent .chip` | (1,2,0) | specificity |
+| `.vault-graph #vg-rangebox .dt` | (1,2,0) | specificity |
+| `.vault-graph #vg-years button` | (1,1,1) | specificity |
+| `.vault-graph #vg-compact` | (1,1,0) | a tie, and it comes later |
+| `.vault-graph #vg-rangeall` | (1,1,0) | a tie, and it comes later |
+
+**Two declarations, not a sweep, and that is the finding rather than a shortcut.** Everything else
+`app.css` sets — padding, background, border, radius, font — is already set by a band rule, so a
+blanket reset would only have taken things *away*: `.vault-graph button.btn` is **(0,2,1)**, which
+loses to anything carrying an id, so a reset at (1,1,0) would have stripped the chips and
+`#vg-rangeall` of the `padding: 5px 8px` and the 6 px radius they get from `.btn`. `height` and
+`box-shadow` are the only two properties the host sets that nothing in the band sets back.
+
+No `!important` anywhere: the issue asked for specificity to do the work, and it can.
+
+### The year strip was ours, and the phone only made it visible
+
+Not a host problem at all. `buildYears` puts `left: <the year's x>` on a chip and the CSS centres it
+there with `transform: translateX(-50%)`, so **the first chip — always at x=0 — hangs half its own
+width to the left of the strip**. On the desktop that half is 12 px and the band's padding is 14, so
+it lands in the padding and reads as deliberate. On a phone the chip is 28.38 px wide, half is
+14.19, and the 0.19 px over the edge is the clipped `'14` in the photograph.
+
+The thinning was the other half. `every = minGap < 28 ? 2 : 1` tests the **raw per-year gap** against
+a constant that approximates a chip, and never re-checks the gap *after* thinning, nor against the
+chip's real width. Measured headless on the demo fixture, the tightest gap between two kept chips is
+**7.6 px at 390 and 0.6 px at 320** — so the strip was one denser vault away from the overlap that
+was reported, and on a 650-note vault spanning 2014–2026 with the compact axis on, it was over it.
+
+`fitYears` does two things and neither re-spaces anything:
+
+- **Clamp, to the band and not to the strip.** A chip may still bleed into the band's padding —
+  that is what the padding is for, and it is what keeps the chip's x equal to its data, which
+  design/0013 says above is the whole point of the strip. It may not go past the band's edge. The
+  bound is the exact float: an earlier cut used `Math.ceil` and the one pixel it overshot turned a
+  0.6 px gap at 320 into an overlap and cost the strip a chip.
+- **Sweep right to left and drop what still collides.** Backwards, because the newest year is the
+  one worth keeping; the thinning rule github#23 wrote is untouched, so *which* years are round is
+  unchanged.
+
+`fitYears` caches the chip width and the band's padding against the ribbon width, because
+`drawDateUI` runs inside `onFrame` during a brush drag and an uncached `getBoundingClientRect` after
+`replaceChildren` forces a second layout every frame.
+
+### Measured after
+
+The exported page, every box and every computed property of every element under `#vg-heat`, against
+the tree at `e4b962f`, headless, demo fixture:
+
+| | |
+|---|---|
+| 1600 px | **identical**, 39 elements |
+| 390 px | **one element moves** — the leftmost year chip, x −0.19 → 0.00 |
+
+The band's controls under the host, with `app.css` injected ahead of `page.css`:
+
+| | before | after |
+|---|---|---|
+| segment halves, phone | **44 px** in a 32 px box | **30 px** |
+| segment halves, desktop | **30 px** in a 26 px row | **24 px** |
+| a bare host button, phone | 44 px, 12 px padding | unchanged — the host is not touched |
+| every other band control | at its declared height | unchanged |
+
+### Known limits, stated rather than discovered later
+
+- **`app.emulateMobile(true)` is not a phone.** It sets the `is-mobile` / `is-phone` classes and the
+  mobile layout, and with CDP touch emulation and a 390 px override it is the closest thing that
+  runs on this machine. Font metrics, the real safe-area insets and iOS's own form-control
+  rendering are still Chrome-on-Windows.
+- **The chip-width cache is keyed on the ribbon width.** A font or theme change that alters the chip
+  at an identical ribbon width leaves it stale until the next resize. Cosmetic, and the alternative
+  is a forced layout on every frame of a brush drag.
+- **A chip the sweep drops has no label at all**, so at a very narrow width a year with notes in it
+  can go unnamed. That is the conservative half of a question design/0013 already parked — fewer,
+  wider year chips on a phone — and it stays parked.
+
 ## What this deliberately does not do
 
 Coarse-pointer 44 px hit areas on the range handles, the year chips and the legend's eyes; node
