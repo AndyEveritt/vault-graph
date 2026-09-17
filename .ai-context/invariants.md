@@ -5382,12 +5382,14 @@ default for the size the page *booted* at -- both checks reboot under the emulat
 the exported page **persists `bandOpen` to `localStorage`** (`shell.html`), so the tap that proves
 the fold has a way back stores `false`, and the next boot would start folded because of the tap
 rather than because of the default. `reboot()` forgets that one key first; storing `open` on
-purpose and booting a phone with it is the other half, asserted.
+purpose and booting a phone with it is the other half, asserted -- and since the phone now ignores
+the store, that assertion reads the other way round: the stored `open` must **not** reach the
+phone, and the phone's own tap must leave it exactly as it found it.
 
 **Check:** `smoke.mjs`'s "a phone gets the disc whole at the top of a page that scrolls", on the
 demo fixture at 390x844 and 412x915 with touch emulated and the page **booted at that size** --
-the calendar folded with the disc's top at y=0, its toggle inside the disc square's top-left
-quadrant, nothing over the drawn disc at rest or mid-cascade, the root scrolling, the panel below
+the calendar folded with the disc's top at y=0, a desk's stored `open` ignored and a tap here
+leaving that stored value untouched, its toggle inside the disc square's top-left quadrant, nothing over the drawn disc at rest or mid-cascade, the root scrolling, the panel below
 the disc, pan off with no toggle, and a raw touch trace showing the disc releasing a one-finger
 move to the browser. A tap then opens the band, and everything *inside* the band is measured
 there because a folded band has no boxes to measure: every hit box at 44 (height only for
@@ -5395,7 +5397,7 @@ there because a folded band has no boxes to measure: every hit box at 44 (height
 every `.hrow` child inside its row, `#vg-compact` on the range's line. A second tap folds it
 again. Its twin, "a narrow window with a pointer keeps the desktop's answer", holds the other
 half of the predicate at 390x844 with a fine pointer **and asserts the calendar is still open
-there** -- the fold keys off `phone()`, never off `narrow()`. Both put touch emulation and the
+there, from the store** -- the fold keys off `phone()`, never off `narrow()`. Both put touch emulation and the
 metrics override back on every exit. `scripts/mobile-check.mjs` reports the same readings at any
 device and takes the `screen-left` lock.
 

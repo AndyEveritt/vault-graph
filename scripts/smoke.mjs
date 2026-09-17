@@ -2743,8 +2743,8 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
                 `${r.panning ? "on" : "off"}`);
     }
 
-    // github#170, decisions/0009 -- a reader who opened it keeps it open
-    // github#170 -- stored on purpose here, so no reboot() forgets it
+    // github#170, design/0013 -- a desk's stored open must not reach a phone
+    // github#170 -- nor its own tap write over one; found on the real vault
     const stored = await p.j(`(function () {
       try {
         var k = window.SETTINGS_KEY;
@@ -2755,7 +2755,7 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
         return JSON.parse(window.localStorage.getItem(k)).bandOpen === true;
       } catch (e) { return false; }
     })()`);
-    if (!stored) bad.push(`could not store a band choice to check that one survives`);
+    if (!stored) bad.push(`could not store a band choice to check a phone ignores it`);
     await p.eval(`location.reload(); void 0`).catch(() => {});
     await sleep(1200);
     for (let i = 0; i < 160; i++) {
@@ -2764,11 +2764,24 @@ check("a phone gets the disc whole and clear, on a page that scrolls", async (p)
     }
     await sleep(600);
     const rs = await p.j(PHONE_PROBE);
-    if (!(rs.phone && rs.bandOpen && rs.dataBand === "on")) {
-      bad.push(`a stored "open" did not survive the phone default (__vg.phone ${rs.phone}, ` +
+    if (!(rs.phone && !rs.bandOpen && rs.dataBand === "off")) {
+      bad.push(`a desk's stored "open" reached a phone (__vg.phone ${rs.phone}, ` +
                `__vg.bandOpen ${rs.bandOpen}, data-band ${rs.dataBand})`);
     }
-    said.push(`a phone with "open" stored keeps it open: ${rs.bandOpen}`);
+    // github#170 -- opening it here leaves the desk's choice as it was
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const kept = await p.j(`(function () {
+      try {
+        return JSON.parse(window.localStorage.getItem(window.SETTINGS_KEY) || "{}").bandOpen;
+      } catch (e) { return "unreadable"; }
+    })()`);
+    const openedHere = await p.j(`!!__vg.bandOpen`);
+    if (kept !== true || !openedHere) {
+      bad.push(`a phone's tap wrote over the desk's choice (stored now ${kept}, ` +
+               `opened here ${openedHere})`);
+    }
+    said.push(`a desk's stored "open" does not reach a phone, and a tap here left it ${kept}`);
   } finally {
     await restore();
   }

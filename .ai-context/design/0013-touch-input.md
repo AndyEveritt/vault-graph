@@ -553,7 +553,7 @@ heatmap off by default and move heatmap toggle button to left upper corner of th
 Both are about the phone layout only; the desktop default and the desktop toggle position are
 untouched, and every measured desktop box is identical before and after.
 
-### Folded is a default, not an override — and that distinction is the whole design
+### Folded is the layout's call, not the store's — corrected on the real vault
 
 Two patterns were already in the file, one line apart, and they mean opposite things:
 
@@ -563,19 +563,35 @@ var panEnabled = phone() ? false : storedPan;
 ```
 
 `sheetOpen` is *"absent means nobody chose; the width decides"* (`decisions/0009`) — a stored
-choice wins. `panEnabled` **overrides** a stored choice, because pan on a phone is not a choice
-at all: it is off, and its toggle is not even drawn, so obeying a desk's stored `true` would
-hand a phone a control it cannot see.
+choice wins. `panEnabled` **overrides** a stored choice, because pan on a phone is not a choice at
+all.
 
-The band took the `sheetOpen` form: `... : !phone()`. The band keeps a real toggle on a phone
-and there is a way back, so a reader who opened it must keep it open — overriding that would be
-the page arguing with someone who has already answered. And off a phone `!phone()` evaluates to
-the literal `true` it replaced, so the desktop path is not merely unchanged in effect, it is the
-same expression.
+**This first shipped with the `sheetOpen` form, and installing it on the maintainer's own vault
+proved that wrong the same afternoon.** His `data.json` already carried `"bandOpen": true` —
+written by a click *on the desktop*, where the band is open anyway — so the phone obeyed a
+preference he had never expressed for a phone, and "off by default" was unreachable there. Worse,
+the only way to reach it was to fold the band on the phone, which would have written `false` back
+and started his **desktop** folded too. One shared value cannot express two form factors.
+
+So the band takes `panEnabled`'s form after all:
+
+```js
+var storedBand = typeof deps.bandOpen === "boolean" ? deps.bandOpen : true;
+var bandOpen = phone() ? false : storedBand;
+```
+
+and `setBand` does not persist on a phone, exactly as `syncPhonePan` passes `setPan(want, false)` —
+so a phone starts folded every time, a tap opens it for that session, and a desk's stored choice is
+neither read nor written from there. Off a phone `storedBand` is the expression the literal `true`
+always was, so the desktop path is unchanged — measured identical at 1600x1000, every box.
+
+What was given up is real and was weighed: a phone reader who *wants* the calendar open taps once
+per launch, because there is nowhere to remember that which is not the desk's setting. A separate
+`bandOpenPhone` key would buy that back and is the obvious next step if anyone asks; it was not
+worth a new setting and a migration for a band that is one tap away.
 
 Not re-derived when the media query flips, either. `sheetOpen` is not, and re-folding a band the
-reader opened two seconds ago on a rotate would be hostile. `syncPhonePan` exists because pan
-must track a live layout; the band has no such obligation.
+reader opened two seconds ago on a rotate would be hostile.
 
 ### The corner needed no rule — it needed one deleted
 
@@ -648,14 +664,18 @@ design above: with `open` stored, a phone keeps it open.
 | over the drawn disc | nothing | **nothing** |
 | a tap on the toggle | n/a | band open above the disc, tap again folds it |
 | 390x844 on a mouse | calendar open | **calendar open** |
+| a desk's stored `open`, on a phone | obeyed — band open | **ignored — band folded** |
+| a phone's own tap | wrote the shared setting | **leaves the desk's value untouched** |
 | desktop, 1600x1000 | every box | **identical, every box** |
 
 ### Known limits, stated rather than discovered later
 
-- **A phone that folds the band writes `false` to the shared store**, and a desk reading the
-  same store then opens folded. That is the sheet's behaviour too and is `decisions/0009` as
-  written; this pass deliberately did not change it, because the ask was about the default and
-  not about whose store it is.
+- **A phone reader who wants the calendar open taps once per launch.** There is nowhere to
+  remember that which is not the desk's setting, and the desk's setting is exactly what a phone
+  must stop reading. A `bandOpenPhone` key would buy it back; it was judged not worth a new
+  setting and a migration for a control one tap away.
+- **The sheet still has the flaw the band just lost.** `sheetOpen` is one shared value across
+  form factors too, and nothing here changed that — it simply was not what was reported.
 - **The reboot is a real page load in the middle of a shared page's run.** It leaves the page
   cleaner than the state manipulation it replaced, but it is the one new cost in this check.
 
