@@ -3259,6 +3259,234 @@ check("a swipe after Fit still scrolls, and a late finger still pinches", async 
            detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
 });
 
+// github#175, design/0013 -- the four items raised after github#173 merged
+// github#175 -- items 1 and 2: setPan(false) flew a disc home
+check("a swipe in the tail of a fit flight still scrolls", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const swipe = async (c) => {
+    await p.eval(PHONE_TRACE_ON);
+    await finger(p, "touchStart", [{ x: c.x, y: c.y, id: 1 }]);
+    // github#175 -- the flag claimsTouch reads, sampled after stopAnimation()
+    const held = await p.j(`!!__vg.renderer.getCamera().enabledPanning`);
+    await finger(p, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 }]);
+    await finger(p, "touchMove", [{ x: c.x, y: c.y - 100, id: 1 }]);
+    await finger(p, "touchEnd", []);
+    return { trace: await traceOff(p), held };
+  };
+  const free = (t) => t.indexOf("live:prevented") < 0 && t.indexOf("TAKEN") >= 0;
+  try {
+    for (const d of PHONE_DEVICES) {
+      await phoneOn(p, d, dpr);
+      // github#175 -- the settled ratio at rest IS fitRatio(); nothing to expose
+      const FIT = await camRatio(p);
+      if (await p.j(`!!__vg.panEnabled`)) {
+        bad.push(`${d.name}: pan was armed at fit (ratio ${FIT})`);
+      }
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      await sleep(700);
+      await panSettled(p);
+      const zoomed = await camRatio(p);
+      if (!(zoomed < FIT - 1e-4 && await p.j(`!!__vg.panEnabled`))) {
+        bad.push(`${d.name}: the zoom did not arm pan (${FIT} -> ${zoomed}) -- ` +
+                 `nothing would claim the swipe, so this check cannot fail`);
+      }
+      await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+      await sleep(150);
+      const c = await discAt(p);
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      // github#175 -- 345ms into a 380ms flight: its tail, where the ratio has
+      // github#175 -- climbed back over phonePanWanted()'s own threshold
+      await sleep(345);
+      const tail = await camRatio(p);
+      const { trace, held } = await swipe(c);
+      // github#175 -- both halves, or a pass is meaningless: the finger has to
+      // github#175 -- land with the flight still up AND past the pan threshold
+      if (!(tail > FIT * 0.995 && tail < FIT - 1e-5)) {
+        bad.push(`${d.name}: the finger missed the tail (ratio ${tail}, fit ${FIT}, ` +
+                 `threshold ${+(FIT * 0.995).toFixed(5)}) -- retimed, not fixed`);
+      }
+      if (held) {
+        bad.push(`${d.name}: panning was armed as the swipe began -- setPan(false) ` +
+                 `flew a disc already home [${trace}]`);
+      }
+      if (!free(trace)) {
+        bad.push(`${d.name}: the flight's tail claimed the swipe [${trace}]`);
+      }
+      said.push(`${d.name}: fit ${FIT}, zoomed ${zoomed}, at +345ms ${tail}, ` +
+                `panning ${held ? "ARMED" : "off"}, [${trace}]`);
+      await sleep(700);
+      await settlePan(p);
+    }
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#175 -- item 3 did NOT reproduce; asserted, not fixed
+check("a settings push during a fit flight changes nothing", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  // github#175 -- the same flight twice, with and without the push that
+  // github#175 -- applyHiddenDefaults() makes; the two rides have to agree
+  const ride = (push) => p.j(`(function () {
+    var s = [], t0 = Date.now(), pushed = -1;
+    var b = document.getElementById("vg-reset"); if (b) b.click();
+    return new Promise(function (res) {
+      var iv = setInterval(function () {
+        var t = Date.now() - t0, st = __vg.renderer.getCamera().getState();
+        if (${push ? "true" : "false"} && pushed < 0 && t >= 110) {
+          pushed = t; __vg.setPanEnabled(true);
+        }
+        s.push([t, +st.ratio.toFixed(5), __vg.panEnabled ? 1 : 0,
+                __vg.renderer.getSetting("enableCameraPanning") ? 1 : 0]);
+        if (t > 1500) { clearInterval(iv); res(JSON.stringify({ s: s, pushed: pushed })); }
+      }, 30);
+    });
+  })()`).then(JSON.parse);
+  const read = (r) => {
+    const a = r.s;
+    const edge = (k) => {
+      for (let i = 1; i < a.length; i++) if (!a[i][k] && a[i - 1][k]) return a[i][0];
+      return -1;
+    };
+    return { panOff: edge(2), panningOff: edge(3), pushed: r.pushed,
+             flips: a.reduce((n, x, i) => n + (i && x[2] !== a[i - 1][2] ? 1 : 0), 0) };
+  };
+  try {
+    await phoneOn(p, PHONE_DEVICES[0], dpr);
+    const out = [];
+    for (const push of [false, true]) {
+      await settlePan(p);
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      await sleep(700);
+      await panSettled(p);
+      if (!(await p.j(`!!__vg.panEnabled`))) {
+        bad.push(`the zoom did not arm pan, so the push has no transient to read`);
+      }
+      out.push(read(await ride(push)));
+      await sleep(600);
+    }
+    const plain = out[0], pushed = out[1];
+    if (pushed.pushed < 0) bad.push(`the push never fired -- this could not have failed`);
+    if (pushed.flips !== plain.flips) {
+      bad.push(`the push changed how often pan flipped (${plain.flips} -> ${pushed.flips})`);
+    }
+    // github#175 -- 60ms is two sample periods; the measured spread was 1ms
+    if (Math.abs(pushed.panningOff - plain.panningOff) > 60) {
+      bad.push(`the push extended the flying (panning off ${plain.panningOff}ms -> ` +
+               `${pushed.panningOff}ms)`);
+    }
+    // github#175 -- and one 380ms ride, not the two items 1 and 2 used to leave
+    if (!(plain.panningOff > 300 && plain.panningOff < 700)) {
+      bad.push(`the disc did not fly home exactly once (panning off at ` +
+               `${plain.panningOff}ms against a 380ms flight)`);
+    }
+    said.push(`no push: pan off ${plain.panOff}ms, panning off ${plain.panningOff}ms, ` +
+              `flips ${plain.flips} | pushed at ${pushed.pushed}ms: pan off ` +
+              `${pushed.panOff}ms, panning off ${pushed.panningOff}ms, flips ${pushed.flips}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#175 -- item 4: the flip re-assigned storedBand to itself and saved
+check("a rotation to landscape writes the host nothing", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const at = async (w, h) => {
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: w, height: h, deviceScaleFactor: dpr, mobile: true });
+    await sleep(1400);
+    return p.j(`(function () { var r = document.querySelector(".vault-graph");
+      return JSON.stringify({ phone: !!__vg.phone, bandOpen: !!__vg.bandOpen,
+        dataBand: r.getAttribute("data-band"),
+        laidOut: !!(document.getElementById("vg-heat") || {}).offsetParent }); })()`)
+      .then(JSON.parse);
+  };
+  try {
+    await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: 700, height: 900, deviceScaleFactor: dpr, mobile: true });
+    await sleep(700);
+    // github#175 -- a desk that stored "open", so the flip has one to restore
+    await p.eval(`(function () { var k = window.SETTINGS_KEY;
+      var s = JSON.parse(window.localStorage.getItem(k) || "{}");
+      s.bandOpen = true; window.localStorage.setItem(k, JSON.stringify(s)); })(); void 0`);
+    await p.eval(`location.reload(); void 0`).catch(() => {});
+    await sleep(1200);
+    for (let i = 0; i < 160; i++) {
+      if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+      await sleep(250);
+    }
+    await sleep(600);
+    const folded = await at(700, 900);
+    if (!(folded.phone && !folded.bandOpen)) {
+      bad.push(`700x900 coarse did not fold (phone ${folded.phone}, bandOpen ` +
+               `${folded.bandOpen}) -- there is no flip to count`);
+    }
+    // github#175 -- onBandOpen here IS saveSettings({bandOpen}); count the calls
+    const wrapped = await p.j(`(function () { window.__vgBw = 0;
+      var o = window.saveSettings; if (typeof o !== "function") return false;
+      window.__vgBwOff = function () { window.saveSettings = o; };
+      window.saveSettings = function (patch) {
+        if (patch && Object.prototype.hasOwnProperty.call(patch, "bandOpen")) window.__vgBw++;
+        return o(patch);
+      }; return true; })()`);
+    if (!wrapped) bad.push(`no saveSettings to wrap -- the count would mean nothing`);
+    const wide = await at(900, 700);
+    const writes = await p.j(`window.__vgBw`);
+    await p.eval(`if (window.__vgBwOff) window.__vgBwOff(); void 0`);
+    if (!(!wide.phone && wide.bandOpen && wide.dataBand === "on" && wide.laidOut)) {
+      bad.push(`rotating to 900x700 lost the desk's open (phone ${wide.phone}, ` +
+               `bandOpen ${wide.bandOpen}, data-band ${wide.dataBand}, laid out ` +
+               `${wide.laidOut}) -- github#173's restore must survive this`);
+    }
+    if (writes !== 0) {
+      bad.push(`the rotation wrote the host ${writes} time(s) for a stored value`);
+    }
+    // github#175 -- a real desk choice still writes: the gate is "it moved"
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const stored = await p.j(`(function () { try { return String(JSON.parse(
+      window.localStorage.getItem(window.SETTINGS_KEY) || "{}").bandOpen);
+    } catch (e) { return "unreadable"; } })()`);
+    if (stored !== "false") {
+      bad.push(`a tap at desk width stopped being written through (stored ${stored})`);
+    }
+    said.push(`folded at 700x900, rotated to 900x700 open and laid out, host writes ` +
+              `${writes}, a desk tap still stored ${stored}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#175 -- item 5: the allocation github#173 took out of phone()
+check("narrow() costs no MediaQueryList", async (p) => {
+  const per = (expr, n) => p.j(`(function () { var c = 0, o = window.matchMedia;
+    window.matchMedia = function (q) { c++; return o.call(window, q); };
+    try { for (var i = 0; i < ${n}; i++) { ${expr} } } finally { window.matchMedia = o; }
+    return c / ${n}; })()`);
+  const narrow = await per(`void __vg.narrow;`, 20);
+  const phone = await per(`void __vg.phone;`, 20);
+  const bad = [];
+  if (narrow !== 0) bad.push(`narrow() builds ${narrow} MediaQueryList per read`);
+  // github#175 -- github#173's hoist, so a regression there surfaces here too
+  if (phone !== 0) bad.push(`phone() builds ${phone} MediaQueryList per read`);
+  return { ok: bad.length === 0,
+           detail: `matchMedia per read: narrow() ${narrow}, phone() ${phone}` +
+                   (bad.length ? `  <- ${bad.join("; ")}` : "") };
+});
+
 // github#13
 
 // github#13

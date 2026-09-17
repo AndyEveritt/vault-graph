@@ -662,8 +662,12 @@ function mountVaultGraph(root, data, deps) {
   // github#73, design/0013
   // github#82 -- NARROW_PX must match the breakpoint in page.css
   var NARROW_PX = 720;
+  // github#175, design/0013 -- held from mount, as phoneMq is
+  var narrowMq = WIN.matchMedia
+    ? WIN.matchMedia("(max-width: " + NARROW_PX + "px)")
+    : null;
   function narrow() {
-    return !!(WIN.matchMedia && WIN.matchMedia("(max-width: " + NARROW_PX + "px)").matches);
+    return !!(narrowMq && narrowMq.matches);
   }
 
   // github#170, design/0013 -- must match page.css's phone block
@@ -6480,7 +6484,8 @@ function mountVaultGraph(root, data, deps) {
   /* github#131, design/0019 */
   // github#135 -- a MediaQueryList lives on the window; remove it
   if (WIN.matchMedia) {
-    var readMq = WIN.matchMedia("(max-width: 720px)");
+    // github#175 -- the same query; one object, not two
+    var readMq = narrowMq;
     var onReadMq = function () { cardHome(); setReading(reading); afterPanel(); };
     if (readMq.addEventListener) {
       readMq.addEventListener("change", onReadMq);
@@ -8106,8 +8111,25 @@ function mountVaultGraph(root, data, deps) {
     return FIT_RATIO * k;
   }
 
+  // github#175, design/0013 -- the state fit() would fly to
+  function fitTarget() {
+    return { x: 0.5, y: 0.5, ratio: fitRatio(), angle: 0 };
+  }
+
+  // github#175, design/0013 -- and whether the camera is in it
+  // github#175 -- a redundant flight re-armed panning for claimsTouch
+  function atFit() {
+    if (!renderer) return false;
+    var to = fitTarget(), st = renderer.getCamera().getState();
+    // github#175 -- the same 0.5% band phonePanWanted() reads
+    return Math.abs(st.ratio - to.ratio) <= to.ratio * 0.005
+        && Math.abs(st.x - to.x) <= 1e-3
+        && Math.abs(st.y - to.y) <= 1e-3
+        && Math.abs((st.angle || 0) - to.angle) <= 1e-3;
+  }
+
   function fit() {
-    var to = { x: 0.5, y: 0.5, ratio: fitRatio(), angle: 0 };
+    var to = fitTarget();
     fitting = true;
     // github#170, design/0013 -- restore what pan is NOW, and re-ask once landed
     var landed = function () {
@@ -8439,8 +8461,10 @@ function mountVaultGraph(root, data, deps) {
     // github#170, design/0013 -- a phone never writes over a desk's stored choice
     // github#173 -- storedBand follows every deliberate one, as storedPan does
     if (!phone()) {
+      // github#175, design/0013 -- a flip re-assigned it to itself
+      var moved = storedBand !== bandOpen;
       storedBand = bandOpen;
-      if (onBandOpen) onBandOpen(bandOpen);
+      if (moved && onBandOpen) onBandOpen(bandOpen);
     }
   }
 
@@ -8450,7 +8474,13 @@ function mountVaultGraph(root, data, deps) {
     if (btn) btn.setAttribute("aria-pressed", panEnabled ? "true" : "false");
     if (renderer) {
       if (panEnabled) renderer.setSetting("enableCameraPanning", true);
-      else fit();
+      // github#175, design/0013 -- a disc home needs no flight
+      // github#175 -- the flight is what claimsTouch read as armed
+      else if (atFit()) {
+        renderer.setSetting("enableCameraPanning", false);
+        // github#175 -- what a landed flight sets, and what atFit() just read
+        camAtRest = true;
+      } else fit();
     }
     if (persist && onPanEnabled) onPanEnabled(panEnabled);
     return panEnabled;
