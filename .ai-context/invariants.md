@@ -5366,15 +5366,33 @@ through the threshold -- and the camera's last `updated` is emitted by `setState
 animation's callback clears `fitting`, so every update during a fit is skipped including the one
 that lands on the answer. Without the call in `landed()`, returning to fit leaves pan armed.
 
-**The calendar is FOLDED on a phone by default, and a default is not an override (github#170).**
-`bandOpen` takes the `sheetOpen` form, `... : !phone()` -- `decisions/0009`'s *absent means nobody
-chose* -- and **not** `panEnabled`'s `phone() ? false : storedPan`. The difference is whether the
-reader has a way back: pan on a phone is off with no toggle drawn, so obeying a stored `true`
-would hand a phone a control it cannot see, while the band keeps its toggle, so a reader who
-opened it must keep it open. Off a phone `!phone()` is the literal `true` it replaced, so the
-desktop path is the same expression, not merely the same outcome. It is **not** re-derived when
-the media query flips: `sheetOpen` is not either, and re-folding a band the reader just opened
-would be hostile.
+**The calendar is FOLDED on a phone, and the store is neither read nor written there
+(github#170).** `bandOpen` takes `panEnabled`'s form -- `phone() ? false : storedBand` -- and
+`setBand` skips `onBandOpen` on a phone, exactly as `syncPhonePan` passes `setPan(want, false)`.
+It first shipped with `sheetOpen`'s *absent means nobody chose* form and **installing it on a real
+vault disproved that the same afternoon**: a `"bandOpen": true` written by a desktop click made
+"off by default" unreachable on the phone, and the only route to it would have written `false` back
+and folded the desktop too. One shared value cannot express two form factors. Off a phone
+`storedBand` is the expression the literal `true` always was, so the desktop path is unchanged --
+measured identical at 1600x1000, every box. The cost, taken knowingly: a phone reader who wants the
+calendar open taps once per launch. It is **not** re-derived when the media query flips --
+re-folding a band the reader just opened would be hostile.
+
+**Every control in the band declares its own `border-radius`, and the segment declares `0`
+(github#170).** `page.css` is scoped so the page cannot style its host; **nothing stops the host
+styling the page**, and a bare `<button>` inside Obsidian wears Obsidian's radius, min-height and
+shadow. `#vg-heatsrc button` was the only control in the band declaring none -- every other one
+does (`.tools`/`.mini`/`button.btn` 6px, `#vg-years` 4px, `#vg-compact` 6px, `#vg-rangeall` 5px,
+`#vg-cam`/`#vg-mob` 8px, and `#vg-tabs .tab` declares `0` for this exact reason). The segment is a
+fixed `height: var(--vg-hrow-h)` box with `overflow: hidden`, so a host radius domes the pressed
+half and a host min-height or shadow spills past the bottom and is sheared off.
+
+**The structural gap that hid it, stated because no gate closes it:** `check-scope.mjs` proves the
+page cannot reach its host, and `smoke.mjs` drives the **exported** page, where there is no host CSS
+at all -- so a host-CSS collision is invisible to every gate that runs on a push. Only
+`obsidian-smoke.mjs`, which launches a real Obsidian, or a device can see one. This was reported
+from a phone (github#170 want #4), diagnosed from that screenshot plus a static audit of which
+controls declare a radius, and is **confirmed only on the device**.
 
 **Two things make a "default" unmeasurable, and both once made this check unable to fail.**
 `bandOpen` is read **once, at mount**, so a harness that resizes a page into a phone measures the
