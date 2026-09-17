@@ -1,5 +1,4 @@
-  /* ---- tokens: every palette hex once, as a light/dark pair; the theme
-     blocks below only map --gN onto one of them. github#77, design/0004 */
+  /* github#77, design/0004 */
   .vault-graph {
     --surface-1-l: #fcfcfb;
     --surface-1-d: #1a1a19;
@@ -118,8 +117,7 @@
     background: var(--surface-0);
     border-right: 1px solid var(--border);
     overflow-y: auto;
-    /* github#116 -- this is the scroll container, so its scrollbar's width came out of every
-       block until the gutter was reserved. Measured: invariants.md. */
+    /* github#116 */
     scrollbar-gutter: stable;
     padding: 14px 14px 28px;
     display: flex; flex-direction: column; gap: 18px;
@@ -133,18 +131,8 @@
     color: var(--text-3); margin-bottom: 7px; font-weight: 600;
   }
 
-  /* github#86, design/0015 -- the grouping dimension, in the group list's own heading.
-     Semi-obvious: no border or fill at rest, so it reads as the heading it replaced, and a
-     chevron that is always there so anyone looking for a control finds one. */
-  /* github#86, design/0015 -- the grouping is a segmented control in the group list's own
-     heading, in the style the settings segments already use: two named sides, the active one
-     filled with the accent, so the one control that changes what the whole disc IS reads as a
-     control. It replaced a dropdown drawn as a heading with a chevron, which read as a label:
-     "is the dropdown obvious enough?" -- it was not. Inline, so the count sits beside it, and
-     the heading's uppercase does not reach the names. */
-  /* github#131, design/0019 -- the two readings of the sidebar. A tab, not a segment: the
-     dimseg below it changes what the disc IS, and these two change only what this column
-     shows, so they must not read as the same kind of control. */
+  /* github#86, design/0015 */
+  /* github#131, design/0019 */
   .vault-graph #vg-tabs { display: flex; gap: 4px; margin-bottom: 9px; }
   .vault-graph #vg-tabs .tab {
     flex: 1 1 0; min-width: 0; font: inherit; font-size: 11px; padding: 5px 9px; cursor: pointer;
@@ -158,8 +146,7 @@
     color: var(--text-1); font-weight: 600; border-bottom-color: var(--accent);
   }
   .vault-graph #vg-tabs .tab:disabled { opacity: 0.4; cursor: default; }
-  /* The card in the column: one scroll container, not two. The reading carries the
-     positioning context, or the card's absolute close button escapes to the page corner. */
+  /* github#131, design/0019 */
   .vault-graph #vg-readnote { position: relative; }
   .vault-graph #vg-readnote > #vg-detail {
     position: static; width: auto; max-height: none; overflow: visible;
@@ -180,7 +167,7 @@
     background: var(--accent); border-color: var(--accent); color: #fff;
   }
   .vault-graph .dimseg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  /* github#86 -- the grouping owns a full-width row; All and None sit under it, at their own width */
+  /* github#86 */
   .vault-graph .dimseg.dimfull { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 6px; }
   .vault-graph .dimseg.dimfull button { padding: 5px 8px; border-radius: 6px; text-align: center; }
   .vault-graph .dimseg .dimct { font-variant-numeric: tabular-nums; opacity: 0.62; margin-left: 5px; font-weight: 500; }
@@ -240,9 +227,7 @@
     gap: 8px; padding: 4px 6px; border-radius: 5px; cursor: pointer;
     border: 1px solid transparent; text-align: left; background: none;
     font: inherit; color: var(--text-1); flex: 1; min-width: 0;
-    /* github#78 -- this is a <button>, and Obsidian gives every button an inset
-       shadow that paints OVER a background image. Reset it or the host decides
-       whether the count bar is visible. design/0006 */
+    /* github#78, design/0006 */
     box-shadow: none;
   }
   .vault-graph .lg[data-hl="on"], .vault-graph .lgs[data-hl="on"] {
@@ -252,28 +237,9 @@
     color: var(--text-1);
   }
   .vault-graph .lg[data-hl="on"] .ct, .vault-graph .lgs[data-hl="on"] .ct { color: var(--text-2); }
-  /* github#78 -- background-COLOR, not the shorthand. The shorthand resets
-     background-image; .lg.bar out-orders it as written, so this buys independence
-     from rule order rather than fixing a live bug. Measured: invariants.md. */
+  /* github#78, design/0006 */
   .vault-graph .lg:hover { background-color: var(--surface-2); border-color: var(--border); }
-  /* github#78 -- the count bar: this row's share of the vault, drawn along the bottom of
-     the row in the group's own colour. A background layer rather than a fifth grid cell
-     because .nm is the only 1fr and already truncates; the row is one width on every row
-     (219px measured) while .nm is not (122/117/141px), so the row is the honest track.
-     The selector carries #vg-legend for SPECIFICITY, not for scoping: a plain
-     `.vault-graph .lg.bar` ties with `.vault-graph .lg:hover` and loses to whichever
-     comes last, and a stale plugin stylesheet in the host document put a `background`
-     SHORTHAND on hover after it -- wiping every longhand and the bar with them. An id
-     makes the rule win on merit rather than on order. github#78
-
-     It starts 2px in, which is what keeps it: the highlight's leading accent band is
-     an `inset 2px` shadow and inset shadows paint OVER a background image, so a bar
-     flush to the edge lost its first 2px and a floored one vanished. It stays in the
-     padding strip BELOW the content, where no grid item can cover it -- moving the
-     origin to content-box fixed the band and let the `only` chip cover the bar
-     instead. The floor is 4px so that no state paints fewer than 3px — lifted to 0 by
-     `--vg-floor` on a row walking down to nothing, or the shrink ends in a 4px stub
-     that blinks out. design/0006 */
+  /* github#78, design/0006 */
   .vault-graph #vg-legend .lg.bar {
     background-image: linear-gradient(var(--vg-bar), var(--vg-bar));
     background-repeat: no-repeat;
@@ -281,11 +247,7 @@
     background-size: max(var(--vg-floor, 4px), var(--vg-share)) 2px;
   }
   .vault-graph #vg-legend .lg.bar.bar-out { --vg-floor: 0px; }
-  /* github#86, design/0015 -- during a dimension switch the rows of the disc being left stay,
-     inert, and drop out as their notes fade; a row of the disc arriving drops in with its
-     first note. The height is animated through max-height because a row's height is what
-     the font makes it; 48px clears any row the legend draws, and the cap exists only while
-     the legend carries lg-switching, so no host font can ever clip a resting row. */
+  /* github#86, design/0015 */
   .vault-graph #vg-legend.lg-switching .lgr { max-height: 48px; transition: max-height .3s ease, opacity .25s ease; }
   .vault-graph #vg-legend.lg-switching .lgr.lgr-gone { max-height: 0; opacity: 0; overflow: hidden; pointer-events: none; }
   .vault-graph #vg-legend.lg-switching .lgr[data-old] { pointer-events: none; }
@@ -339,7 +301,7 @@
   /* github#71 -- the segmented Folder order radio borrows the pressed look */
   .vault-graph .mini button[aria-pressed="true"], .vault-graph button.btn[aria-pressed="true"],
   .vault-graph .mini button[role="radio"][aria-checked="true"],
-  /* github#165 -- the developer menu's speed row, which is menuitemradio inside role="menu" */
+  /* github#165 */
   .vault-graph .mini button[role="menuitemradio"][aria-checked="true"] {
     background: var(--accent); border-color: var(--accent); color: #fff;
   }
@@ -370,22 +332,16 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .vault-graph .sws { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-  /* github#86, design/0015 -- the settings tabs are the group list's own segmented control,
-     one rule apart: it spans the panel and sits above the rows. */
+  /* github#86, design/0015 */
   .vault-graph .dimseg.setseg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 9px; }
   .vault-graph .dimseg.setseg button { text-align: center; padding: 5px 8px; }
   .vault-graph #vg-setbody { max-height: 46vh; overflow-y: auto; }
-  /* github#77 -- auto-fill, never a fixed count: the panel is 288px wide minus its
-     padding and a scrollbar, and four fixed columns overflowed it, putting the
-     twelfth slot behind a horizontal scrollbar. */
+  /* github#77 */
   .vault-graph #vg-setbody .sws {
     display: grid; grid-template-columns: repeat(auto-fill, 50px); gap: 4px;
     justify-content: start;
   }
-  /* github#77 -- a swatch is the dots the slot will draw, on the ground it will
-     draw them on. The <svg> is 1 unit to 1 CSS pixel and must never be scaled,
-     or the radii stop being the ones the disc draws. Every colour in it comes
-     from a token, so a theme change repaints it with no rebuild. */
+  /* github#77, design/0004 */
   .vault-graph .swatch {
     width: 50px; height: 42px; padding: 0; cursor: pointer; border-radius: 5px;
     border: 1px solid var(--border); line-height: 0; flex: 0 0 auto;
@@ -427,8 +383,7 @@
   .vault-graph.vg-tokens .vg-subrow {
     margin-left: 24px; padding-top: 6px; padding-bottom: 6px; border-top: none;
   }
-  /* github#77 -- the swatches get their own fixed grid, so the chevron on a
-     folder with subfolders cannot shift them out of line with its neighbours */
+  /* github#77 */
   .vault-graph.vg-tokens .sws { flex-wrap: nowrap; justify-content: flex-end; }
   .vault-graph.vg-tokens .sw-grid {
     display: grid; grid-template-columns: repeat(4, 50px); gap: 4px;
@@ -481,10 +436,7 @@
   .vault-graph {
     --controls-inset: 12px;
     --controls-h: 142px;
-    /* github#82 -- the panel cluster's own inset, and deliberately NOT --controls-inset:
-       the plugin raises that one to 44px because Obsidian's status bar floats over the
-       bottom-right corner (github#4). Nothing floats over the top-left, so the toggles
-       would have been pushed 44px into the disc for a reason that is not theirs. */
+    /* github#4, github#82 */
     --panels-inset: 12px;
     --ov-size: 96px;
   }
@@ -492,18 +444,12 @@
     position: absolute; right: var(--controls-inset); bottom: var(--controls-inset);
     z-index: 6; display: flex; flex-direction: column; gap: 6px;
   }
-  /* github#73 -- the two panel buttons wear the camera cluster's look
-     github#82 -- and are drawn at every width. They were the phone's alone until two users
-     asked for the same fold on a PC; the state machine behind them never was touch-specific.
-     The cluster sits in the opposite corner from #vg-cam and at the same z-index; only the
-     phone raises it, because only there is a panel drawn over it. */
+  /* github#73, github#82, design/0013 */
   .vault-graph #vg-mob {
     position: absolute; left: var(--panels-inset); top: var(--panels-inset);
     z-index: 6; display: flex; flex-direction: row; gap: 6px;
   }
-  /* github#79 -- beside the cluster at the pan button's row, bottom-aligned with it. The
-     cluster is 142px tall (--controls-h) and the tile is 96, so it sits entirely inside the
-     band the detail card's max-height already clears: the card does not have to yield. */
+  /* github#79, design/0017 */
   .vault-graph #vg-ov {
     position: absolute; bottom: var(--controls-inset);
     right: calc(var(--controls-inset) + 31px + 8px);
@@ -609,27 +555,10 @@
     border-bottom: 1px solid var(--border); background: var(--surface-0);
     display: flex; flex-direction: column; gap: 6px; min-width: 0;
   }
-  /* github#82 -- the band folds away at every width, so these two live outside the
-     breakpoint. design/0010 gives the band its own grid row precisely so it cannot collide
-     with the disc, and hiding the row honours that where floating the band over the disc
-     would not. The row has to be pinned to 1fr with the band gone or #vg-canvas inherits the
-     stage's `auto` and collapses to nothing -- every child of it is absolutely positioned.
-     The phone's branch keys the same two properties off [data-band="on"]; one attribute
-     cannot hold both values, so the two can never fight. */
+  /* github#82, design/0010 */
   .vault-graph[data-band="off"] #vg-heat { display: none; }
   .vault-graph[data-band="off"] #vg-stage { grid-template-rows: 1fr; }
-  /* github#70 -- ONE height for every control in this row, declared once here and applied
-     by `height` rather than by each control's own padding. Measured at 1440x900 before this:
-     the segment 22.5px, the chips 27.9, the compact toggle 22.0, the date inputs 22.3, All
-     dates 27.9 -- six controls, four heights, reading as five separate widgets that happened
-     to land on one line. Their paddings still differ (a segment position is not a date
-     input), which is exactly why the height cannot be left to them.
-
-     26px is deliberately a little taller than the segment was: the segment was the smallest
-     real control in the row and the row now sits a touch bigger than it did, rather than
-     everything shrinking to the tightest member. Vertical padding stays out of the shorthand
-     on anything sized this way -- `height` plus `padding` in one rule is how the 22.3 and the
-     22.5 came about in the first place. */
+  /* github#70, design/0010 */
   .vault-graph #vg-heat .hrow {
     --vg-hrow-h: 26px;
     display: flex; align-items: center; gap: 10px; min-width: 0;
@@ -643,33 +572,13 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   /* ------------------------------------------------- the recent lens, github#70 ----- */
-  /* The label is a button now, so it has to be talked back out of being one: it keeps the
-     .lbl type and colour and gains only a pointer and a hover tint. A control that looks
-     like a control here would compete with the chips beside it for the same glance. */
-  /* font-FAMILY only, not the `font` shorthand: this rule outranks `.hrow .lbl` on
-     specificity, so `font: inherit` here would silently take the size, weight, transform and
-     letter-spacing away from the rule that owns them and the label would stop matching its
-     siblings. Everything typographic stays where it was. */
-  /* One joined control rather than two loose buttons, so the pair reads as a single choice
-     with two positions -- the same thing .seg does in the sidebar, at row scale. Both are
-     always rendered, which is also what keeps the row's width fixed. */
+  /* github#70, design/0010 */
   .vault-graph #vg-heatsrc {
     display: inline-flex; flex: 0 0 auto; border: 1px solid var(--border);
     border-radius: 6px; overflow: hidden; height: var(--vg-hrow-h);
   }
-  /* Both weights are the SAME on purpose. Bolding only the pressed one moved the segment's
-     sub-pixel width as the bold moved between "Added" and "Touched", which put a 1px wobble
-     back into the row -- the fill already says which is on, far louder than 100 units of
-     weight would. */
-  /* github#170 -- the three properties a HOST stylesheet imposes on a bare <button>, and the
-     only control in this band that was not already immune to them. Every other button here
-     declares its own radius (.tools/.mini/button.btn 6px, #vg-years 4px, #vg-compact 6px,
-     #vg-rangeall 5px, #vg-cam/#vg-mob 8px) and #vg-tabs .tab declares `border-radius: 0` for
-     exactly this reason; this one declared none, so inside Obsidian it wore Obsidian's. The
-     segment is a fixed `height: var(--vg-hrow-h)` box with `overflow: hidden`, so a host radius
-     domes the pressed half and a host min-height or shadow spills out of the bottom and is
-     sheared off -- which is what a phone showed and what the exported page, with no host CSS
-     around it, can never reproduce. The container owns the rounding; the halves must not. */
+  /* github#70, design/0010 */
+  /* github#170 */
   .vault-graph #vg-heatsrc button {
     font: inherit; font-size: 11px; font-weight: 500; line-height: 1;
     display: flex; align-items: center; padding: 0 9px; cursor: pointer;
@@ -687,19 +596,13 @@
     display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
     height: var(--vg-hrow-h); padding-block: 0;
   }
-  /* An armed chip wears the page's ONE pressed treatment (button.btn[aria-pressed]),
-     accent-filled like every other toggle here. Colouring it --today to match the halo it
-     casts was tried and dropped: a second "on" colour makes the reader learn two, and the
-     halo is already named by the disc lighting up underneath. */
-  /* The count slot is reserved for the widest number this vault could ever put in it
-     (--vg-count-ch, set from the note count at mount), so a chip going 0 -> 115 does not
-     shove its neighbours along. Tabular figures make the reservation exact. */
+  /* github#70, design/0010 */
   .vault-graph #vg-recent .chip .n {
     font-variant-numeric: tabular-nums; color: var(--text-3); font-size: 10px;
     min-width: var(--vg-count-ch, 3ch); text-align: right;
   }
   .vault-graph #vg-recent .chip[aria-pressed="true"] .n { color: #fff; opacity: .8; }
-  /* A chip matching nothing still says so -- see syncRecentUI. */
+  /* github#70, design/0010 */
   .vault-graph #vg-recent .chip:disabled { opacity: .45; cursor: default; }
   /* ------------------------------------------------------ date range ----- */
   .vault-graph #vg-ribbon {
@@ -837,8 +740,7 @@
   }
   .vault-graph #vg-detail .x:hover { color: var(--text-1); }
 
-  /* github#73 -- geometry only; demoTapAt drives the two rings with transitions, because
-     this file has no keyframes and does not need any for one ripple. */
+  /* github#73, design/0013 */
   .vault-graph #vg-demotap {
     position: absolute; left: 0; top: 0; z-index: 49; pointer-events: none;
   }
@@ -863,7 +765,7 @@
     filter: drop-shadow(0 1px 2px rgba(0,0,0,.45));
   }
   .vault-graph #vg-democursor[hidden] { display: none; }
-  /* github#73 -- a recording at a phone's width shows a finger, not a mouse pointer */
+  /* github#73, design/0013 */
   .vault-graph #vg-democursor .finger { display: none; }
 
   .vault-graph .ctxmenu {
@@ -885,9 +787,7 @@
   }
   .vault-graph .ctxmenu .vis svg { width: 14px; height: 14px; flex: none; }
 
-  /* github#165 -- the developer menu. The colour menu's items are one full-width control
-     each; a label with four choices under it does not fit 176px on one line, so this row
-     stacks instead of sitting them side by side the way .row does everywhere else. */
+  /* github#165 */
   .vault-graph .ctxmenu .vis:first-child { margin-top: 0; }
   .vault-graph .ctxmenu .devrow {
     display: block; margin-top: 8px; padding-top: 8px;
@@ -921,11 +821,7 @@
     background: var(--surface-1); z-index: 20; font-size: 13px; color: var(--text-2);
   }
 
-  /* github#144 -- said out loud, over whatever is left of the disc. Above #vg-tip and the
-     camera cluster but under #vg-busy, which is a state this one cannot be in at the same
-     time. pointer-events: none so it never eats a click meant for the graph underneath.
-     Top centre is the empty part of the stage at this width: both control clusters are at
-     the bottom right and #vg-mob is at the top left. */
+  /* github#144 */
   .vault-graph #vg-glost {
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     z-index: 8; max-width: min(88%, 420px); pointer-events: none;
@@ -934,27 +830,16 @@
     box-shadow: 0 6px 20px rgba(0,0,0,.18); display: block; text-align: center;
   }
 
-  /* github#82 -- above the breakpoint the sidebar is a grid column, not a sheet, so folding
-     it means collapsing the column to nothing and handing its width to the stage. The sheet
-     treatment below is the phone's alone; a `display: none` scoped by an attribute outranks
-     every one of those sheet rules on specificity, so this branch has to be a media query or
-     it would kill the sheet at 720px and under. `not all and (max-width: 720px)` rather than
-     `min-width: 721px`: the two branches are then exact complements, and no fractional
-     viewport width can fall into neither. */
+  /* github#82, design/0013 */
   @media not all and (max-width: 720px) {
     .vault-graph[data-sheet="off"] { grid-template-columns: 1fr; }
-    /* Not a zero-width clipped column: left in the flow, every control inside it stays
-       focusable while its own toggle reports aria-expanded="false". github#73 fixed exactly
-       that on the phone by making the closed sheet visibility: hidden rather than merely
-       translated away. */
+    /* github#73, design/0013 */
     .vault-graph[data-sheet="off"] #vg-sidebar { display: none; }
   }
 
-  /* github#73 -- the disc gets the screen; the legend and the band are summoned */
+  /* github#73, design/0013 */
   @media (max-width: 720px) {
-    /* github#131, design/0019 -- the phone keeps design/0013's answer: the card is a sheet
-       over the stage, not a reading of a column that is itself summoned, so there is no
-       second reading here and no tab strip to choose one. */
+    /* github#131, design/0019 */
     .vault-graph #vg-tabs { display: none; }
     .vault-graph { grid-template-columns: 1fr; grid-template-rows: 1fr; }
     .vault-graph #vg-sidebar {
@@ -967,103 +852,64 @@
       visibility: hidden;
     }
     .vault-graph[data-sheet="on"] #vg-sidebar { transform: translateY(0); visibility: visible; }
-    /* The sheet stops where the disc starts, so it covers the disc and never the band, and
-       its own heading row is where the floating buttons already are. --vg-canvas-top is
-       published by syncCanvasTop(); the min() keeps it to 72% when the band is away. */
+    /* github#73, design/0013 */
     .vault-graph[data-sheet="on"] #vg-sidebar {
       max-height: min(72%, calc(100% - var(--vg-canvas-top, 0px)));
     }
     .vault-graph[data-band="on"][data-sheet="on"] .brand { padding-left: 100px; }
     .vault-graph #vg-heat { display: none; }
     .vault-graph[data-band="on"] #vg-heat:not([hidden]) { display: flex; }
-    /* With the band hidden, #vg-canvas would inherit the stage's auto row and collapse to
-       nothing: every child of it is absolutely positioned. github#73, design/0013 */
+    /* github#73, design/0013 */
     .vault-graph #vg-stage { grid-template-rows: 1fr; }
     .vault-graph[data-band="on"] #vg-stage { grid-template-rows: auto 1fr; }
-    /* The card is a sheet at the foot, not a panel over the disc: 48 linked notes filled the
-       whole screen and the disc was gone. github#73, design/0013 */
+    /* github#73, design/0013 */
     .vault-graph #vg-detail {
       left: 12px; right: 12px; width: auto;
       top: auto; bottom: 12px; max-height: 46%;
     }
-    /* Both control clusters move to the top corners, clear of that sheet. */
+    /* github#73, design/0013 */
     .vault-graph #vg-cam { top: var(--controls-inset); bottom: auto; }
-    /* github#79 -- the cluster is top-right here, so the tile goes left of it, top-aligned,
-       clear of #vg-mob's own corner on the left. */
+    /* github#79, design/0017 */
     .vault-graph { --ov-size: 72px; }
     .vault-graph #vg-ov { top: var(--controls-inset); bottom: auto; }
-    /* Above the sheet (z-index 8): #vg-mob sits in #vg-canvas, which the band pushes below
-       the sheet's top edge, and a panel that covers its own toggle cannot be closed. The rest
-       of the cluster -- where it sits and which way it runs -- is the base rule's, github#82. */
+    /* github#82, design/0013 */
     .vault-graph #vg-mob { z-index: 9; }
     .vault-graph #vg-mob button { opacity: .8; width: 44px; height: 44px; }
-    /* github#144 -- the top row is three control groups at this width and the gap between
-       them is ~170px, which is not a sentence. So the notice takes the full width and the
-       row for as long as a layer is gone: it stays pointer-events: none, so every button
-       under it is still reachable, and a lost context is a broken state that outranks the
-       camera buttons while it lasts. */
+    /* github#144 */
     .vault-graph #vg-glost {
       left: 12px; right: 12px; transform: none; max-width: none; z-index: 10;
     }
-    /* The band's control row is one line of five things and the stage clips it at this
-       width: the second date field and All dates were cut off and unreachable. */
+    /* github#73, design/0013 */
     .vault-graph #vg-heat .hrow { flex-wrap: wrap; row-gap: 6px; }
     .vault-graph #vg-heatnote { flex-basis: 100%; order: 3; }
     .vault-graph #vg-rangebox { order: 4; }
-    /* github#70 -- the chips are the widest new thing in a row that already wrapped at this
-       width, so they take a line of their own rather than pushing the scale off the edge. */
+    /* github#70, design/0013 */
     .vault-graph #vg-recent { order: 2; flex-basis: 100%; flex-wrap: wrap; row-gap: 4px; }
     .vault-graph #vg-democursor .arrow { display: none; }
     .vault-graph #vg-democursor .finger { display: block; }
-    /* Solo is opacity 0 until its row is hovered, which on a finger means never.
-       github#73, design/0013 */
+    /* github#73, design/0013 */
     .vault-graph .lg .only, .vault-graph .lgs .only { opacity: 1; }
   }
   @media (max-width: 720px) and (prefers-reduced-motion: reduce) {
     .vault-graph #vg-sidebar { transition: none; }
   }
 
-  /* github#170, design/0013 -- the phone: the disc whole at the top of a page that scrolls,
-     everything that used to float over it in the flow beneath it.
-
-     `(pointer: coarse)` as well as the width, and the pair is the whole decision. Width alone
-     would hand pan-off and 44px chrome to a narrow desktop window and to a 320px Obsidian
-     sidebar on a PC, where a mouse loses function and gains nothing; coarse alone would hand it
-     to a touchscreen laptop at 1440px, where the two-column layout is right and design/0013
-     already left the iPad on it deliberately. It needs no host branch either: Obsidian mobile
-     reports coarse at 390px, so the plugin and the exported page take one road and
-     Platform.isMobile -- which the exported page cannot ask about at all -- never enters it.
-     NARROW_PX in page.js carries the same number and the same must-match comment.
-
-     This block comes AFTER the (max-width: 720px) one on purpose. Both are id-scoped, so
-     specificity ties and source order is what decides; the sheet rules above are being undone
-     here, not fought on points. */
+  /* github#170, design/0013 */
   @media (max-width: 720px) and (pointer: coarse) {
-    /* The page scrolls. That is the fix: the disc no longer has to share one viewport-sized
-       box with the controls, so nothing has to be drawn over it. */
+    /* github#170, design/0013 */
     .vault-graph {
       grid-template-columns: 1fr; grid-template-rows: auto auto;
       overflow-y: auto; overflow-x: hidden;
     }
-    /* order, because #vg-sidebar comes FIRST in the DOM and the sheet rules above made that
-       irrelevant by taking it out of the flow. Back in the flow it would land above the disc,
-       between the calendar and the controls. */
+    /* github#170, design/0013 */
     .vault-graph #vg-stage,
     .vault-graph[data-band="off"] #vg-stage,
     .vault-graph[data-band="on"] #vg-stage {
       grid-template-rows: auto auto; overflow: visible; order: 1;
     }
-    /* The calendar keeps the top, above the disc, WHEN IT IS OPEN -- and on a phone it starts
-       folded, so the disc is the first thing on screen and the page opens on the animation
-       rather than on a reference band. page.js decides that (`bandOpen` defaults to `!phone()`,
-       the same "absent means nobody chose" rule the sheet already uses), not this file, because
-       a host that stored a choice must still win. [data-band] is honoured here rather than
-       overridden: there IS a way back, and its toggle is in the disc's own corner below. */
+    /* github#170, design/0013 */
     .vault-graph #vg-heat { order: 1; }
-    /* The sidebar leaves the sheet and rejoins the flow, whatever data-sheet says. Nothing
-       reads the attribute here; it is simply inert, which is why the JS setters did not need a
-       phone branch -- only the two auto-closes did, and for the store's sake rather than the
-       layout's. */
+    /* github#170, design/0013 */
     .vault-graph #vg-sidebar,
     .vault-graph[data-sheet="on"] #vg-sidebar,
     .vault-graph[data-sheet="off"] #vg-sidebar {
@@ -1072,40 +918,23 @@
       border-top: 1px solid var(--border); border-right: 0; border-radius: 0;
       box-shadow: none; z-index: auto; transition: none;
     }
-    /* The indent existed to step aside for the floating toggles, which are gone. */
+    /* github#170, design/0013 */
     .vault-graph[data-band="on"][data-sheet="on"] .brand { padding-left: 0; }
 
-    /* The disc is a SQUARE at the top, and that is arithmetic rather than taste:
-       matrixFromCamera scales by min(width, height), so the 390x530 box this replaced was
-       already fitting the disc to its 390px width. A 390x390 box draws the same disc at the
-       same radius with no dead space above and below it -- measured, see changelog-detail. */
+    /* github#170, design/0013 */
     .vault-graph #vg-canvas {
       order: 2; overflow: visible;
       display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto auto;
     }
-    /* `align-self: start` is load-bearing, not tidiness. A grid item stretches on both axes by
-       default, so with the calendar above it the disc's HEIGHT became the definite one and
-       aspect-ratio derived the width from it -- measured 319x319 in a 375px column, every one
-       of 1403 dots under 2px. Stretched across, started down: the width is definite and the
-       square follows from it. */
+    /* github#170, design/0013 */
     .vault-graph #vg-graph {
       position: relative; inset: auto; overflow: hidden;
       grid-row: 1; grid-column: 1; justify-self: stretch; align-self: start;
       width: 100%; height: auto; aspect-ratio: 1 / 1;
     }
-    /* github#73, design/0013 set `touch-action: none` here so the browser could not pan the
-       page out from under a drag. With pan off and the page scrolling, that is exactly
-       backwards: the disc is the top 375px, so it is where a thumb lands, and `none` meant the
-       one place you cannot scroll from is the first place you touch. `pan-y` gives the browser
-       the vertical gesture and leaves the tap and the pinch to the page. */
+    /* github#73, design/0013 */
     .vault-graph #vg-graph .vg-layer-mouse { touch-action: pan-y; }
-    /* The camera cluster stops floating and becomes a row under the disc. This is want #1
-       answered by want #3: the buttons are sized for the width they are drawn at because they
-       are no longer standing on a disc that needs the room. */
-    /* `grid-column: 1` is not tidiness, and it stays load-bearing now that this is the row's
-       only cluster. A grid item naming a row but no column auto-places, which creates an
-       implicit second column and takes its width out of the disc's `1fr`: measured, the square
-       came out 334px in a 390px canvas and every dot fell under 2px. */
+    /* github#170, design/0013 */
     .vault-graph #vg-cam {
       position: static; z-index: auto; grid-row: 2; grid-column: 1; justify-self: center;
       flex-direction: row; justify-content: center; gap: 10px; padding: 8px 0;
@@ -1113,50 +942,22 @@
     .vault-graph #vg-cam button, .vault-graph #vg-mob button {
       width: 44px; height: 44px; opacity: .8;
     }
-    /* Pan is off here and is not a choice, so a toggle for it would be a lie. `#vg-cam button`
-       carries an id, a class and a type, so a bare `#vg-pan` loses to it on specificity and the
-       button stayed drawn; qualifying it is what makes this rule reach. */
+    /* github#170, design/0013 */
     .vault-graph #vg-cam button#vg-pan { display: none; }
-    /* The calendar's own toggle sits in the top-left CORNER OF THE DISC'S SQUARE, and there is
-       no rule here doing that: the base rule at the top of this file already says
-       `position: absolute; left/top: var(--panels-inset)` inside #vg-canvas, which is still
-       `position: relative`, and on a phone #vg-graph is row 1 stretched across and started at
-       the top -- so the canvas's own corner IS the graph view's corner. The first pass pinned
-       the cluster into the control row under the disc instead (`position: static; grid-row: 2`);
-       that override is what was removed, rather than a second corner rule being written beside
-       the base one. The corner is empty because the disc is a CIRCLE in a square: measured at
-       390px the button's nearest corner is 197px from the centre and the drawn disc's radius is
-       167, so it clears by ~30px -- and smoke.mjs now measures that against the drawn disc
-       rather than against the square, which is what let a box-overlap check call this a
-       collision. The sheet toggle still goes: the folder list is in the flow and there is
-       nothing left to summon. */
+    /* github#170, design/0013 */
     .vault-graph #vg-mob button#vg-sheet { display: none; }
-    /* github#79, design/0017 -- the tile is a hover-revealed pointer affordance, and with pan
-       off only a zoom can crop the disc. Its whole job -- where the frame sits, click to fit --
-       is the Fit button now sitting at 44px directly under the disc. */
+    /* github#79, design/0017 */
     .vault-graph #vg-ov { display: none; }
-    /* The card was a sheet over the disc because there was nowhere else to put it. Now there
-       is, and in the flow it can be as tall as it needs instead of capped at 46%. */
+    /* github#170, design/0013 */
     .vault-graph #vg-detail {
       position: static; left: auto; right: auto; top: auto; bottom: auto; grid-row: 3; grid-column: 1;
       width: auto; max-height: none; margin: 10px 12px 12px; z-index: auto;
     }
 
-    /* github#70 declared --vg-hrow-h so ONE height could reach every control in the band's row
-       by `height` rather than by each control's own padding. This is that lever being pulled. */
-    /* The band is the one place the 44px sweep was WRONG, and Lukas said so twice looking at
-       it (2026-09-17): the calendar is a reference you read, not a keypad you drive, and a row
-       of 44px controls made it the loudest thing on the page. 32px is a bump on the desktop's
-       26 rather than a doubling, and the band comes back from 409px to something nearer what
-       it was. github#70's one-height rule still holds -- only the number changed. */
+    /* github#70, design/0013 */
     .vault-graph #vg-heat .hrow { --vg-hrow-h: 32px; row-gap: 6px; gap: 8px; }
     .vault-graph #vg-heatsrc button { padding: 0 10px; }
-    /* The recent lens is ONE line and never wraps: it is a row of chips on one axis, and a
-       second row of them costs the band a whole line of height for a control nobody was
-       hunting for. Chips that do not fit scroll inside the row rather than pushing the band
-       taller -- design/0010's "the band must never grow a horizontal scrollbar" is about the
-       band, and this scroller is contained. They are also the one control here deliberately
-       under 44px tall: a full-height chip made the lens read as the row's main event. */
+    /* github#70, design/0010, design/0013 */
     .vault-graph #vg-recent {
       order: 0; flex-basis: auto; flex: 1 1 auto;
       flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0;
@@ -1164,20 +965,12 @@
     }
     .vault-graph #vg-recent::-webkit-scrollbar { display: none; }
     .vault-graph #vg-recent .chip { height: 26px; flex: 0 0 auto; }
-    /* The compact toggle was the only child of .hrow with no `order`, so it stayed on line 1
-       beside the source segment while #vg-recent, #vg-heatnote and #vg-rangebox were given
-       2/3/4 and wrapped away from it. Measured at 390px: x=191 on line 1, three lines and
-       ~100px from the date range it compacts. It joins that range's line now. */
+    /* github#170, design/0013 */
     .vault-graph #vg-compact { order: 4; margin-left: 0; }
     .vault-graph #vg-rangebox { flex-wrap: wrap; row-gap: 6px; margin-left: 0; }
     .vault-graph #vg-rangebox .dt { font-size: 12px; padding: 0 5px; width: 98px; }
 
-    /* The year strip cannot be widened at all: the chips are absolutely positioned on a date
-       axis, so their x IS the data, and measured at 390px they sit 36-41px apart -- 44px-wide
-       neighbours would overlap by ~8px, which is strictly worse for a finger than 26px chips
-       with clear air between them. A 44px-TALL strip was the first answer and it read as a
-       band of empty space around six small words (Lukas, 2026-09-17). 22px: a real bump on the
-       desktop's 14, and the strip stops being a gap. */
+    /* github#170, design/0013 */
     .vault-graph #vg-years { height: 22px; margin-top: -3px; }
     .vault-graph #vg-years button {
       height: 22px; padding: 0 6px; min-width: 26px;
@@ -1185,23 +978,15 @@
       font-variant-numeric: tabular-nums;
     }
 
-    /* The panel's own controls are reached with a finger here too. The folder list IS the
-       navigation now -- it is what moved below the disc -- so its rows are targets, not a
-       legend to read. Measured at 390px: eye 20x18, twisty 16x18, solo 29x17. */
+    /* github#170, design/0013 */
     .vault-graph .dimseg.dimfull button { min-height: 44px; }
     .vault-graph .dimall button,
     .vault-graph .tools button { min-height: 44px; min-width: 44px; }
     .vault-graph #vg-q { height: 44px; font-size: 14px; }
-    /* The twisty and the eye already paint nothing but their glyph, so 44px of hit area is
-       invisible chrome and they can simply grow. */
+    /* github#170, design/0013 */
     .vault-graph .tw, .vault-graph .eye { width: 44px; height: 44px; padding: 0; }
     .vault-graph .lg { min-height: 44px; }
-    /* Solo is a bordered pill, and 44x44 of that border is a heavy empty box on every one of
-       eighteen rows. The year strip's ::before trick does not work here: #vg-years is a
-       positioned parent, so a z-index:-1 pseudo lands behind its own button and in front of the
-       page; inside the legend the nearest stacking context is the root, so the same pseudo
-       disappears behind the sidebar's background. So the target grows and the border becomes a
-       fill -- soft enough not to draw a box on every row, present enough to read as a control. */
+    /* github#170, design/0013 */
     .vault-graph .lg .only, .vault-graph .lgs .only {
       min-width: 44px; height: 44px; padding: 0 8px;
       display: flex; align-items: center; justify-content: center;

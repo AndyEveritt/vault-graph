@@ -679,6 +679,14 @@ design above: with `open` stored, a phone keeps it open.
 - **The reboot is a real page load in the middle of a shared page's run.** It leaves the page
   cleaner than the state manipulation it replaced, but it is the one new cost in this check.
 
+## The recording overlays, `#vg-demotap` and `#vg-democursor` (github#174)
+
+`#vg-demotap`'s two rings animate through `el.animate()` rather than a CSS keyframe: the file
+has no keyframes anywhere else, and one ripple does not earn the file its first one.
+`#vg-democursor` swaps its arrow glyph for a finger glyph under the same `(max-width: 720px)`
+breakpoint the layout uses, because a recording taken at a phone's width is showing a touch
+gesture and a mouse arrow there would be showing the wrong input.
+
 ## What this deliberately does not do
 
 Coarse-pointer 44 px hit areas on the range handles, the year chips and the legend's eyes; node
