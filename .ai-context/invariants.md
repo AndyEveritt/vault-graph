@@ -5334,13 +5334,24 @@ and the plugin needs no `Platform.isMobile` -- Obsidian mobile reports coarse at
 
 | | |
 |---|---|
+| reading order | **calendar, disc, folder list**, all in the scroll flow |
 | minimum hit box | **44 x 44 px**, for every control the issue names |
 | the year strip | **44 px tall, data-driven width** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours overlap by ~8px (D-6) |
+| the recent lens | **one line, never two**, and 30 px chips against the row's 44 (D-8) |
 | the disc box | **square**: `min(w, h)` already fit it to the width, so 390x390 draws the same disc as 390x530 -- p50 radius **1.64 px** either way |
 | over the disc box | **nothing**, at rest and mid-cascade |
+| the toggles drawn | the calendar's, so the band has a way back; **not** the folder list's, which is in the flow |
 | pan | **off**, through `setPan(false)`, and its toggle is not drawn |
 | zoom | **survives** -- at 1.64px a pinch is the only route to a tappable dot |
 | the disc's mouse layer | `touch-action: pan-y`, and the captor claims a touch only when it can use it |
+
+**Two grid traps guard that square, and both are silent.** `#vg-graph` takes `align-self: start`
+with `justify-self: stretch`, because a grid item stretches on both axes by default and the
+*height* would otherwise be the definite one -- measured **319x319 in a 375 px column**, all 1403
+dots under 2 px. And every flow child of `#vg-canvas` names `grid-column: 1`: two items naming
+only `grid-row: 2` auto-place side by side and create an implicit second column, whose 56 px come
+out of the disc's `1fr` (**334 px of square in a 390 px canvas**). Neither failed anything; both
+produced a smaller disc that still looked like a disc.
 
 **Pan is re-applied, not read once.** The layout is a media query and is live; `syncPhonePan()`
 runs on that query's change *and* on the root's resize beat, guarded on the value actually

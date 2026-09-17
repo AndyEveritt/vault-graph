@@ -2423,6 +2423,8 @@ check("the panel toggles fold each panel away and give the space back", async (p
 
 // github#170, design/0013 -- the only checks here that emulate touch
 const PHONE_HIT = 44;
+// github#170 -- D-8: the lens is shorter than its row, on purpose
+const PHONE_LENS_H = 28;
 const PHONE_DEVICES = [{ name: "iPhone 14", w: 390, h: 844 }, { name: "Pixel 7", w: 412, h: 915 }];
 const PHONE_PROBE = `(function () {
   var box = function (el) {
@@ -2447,8 +2449,11 @@ const PHONE_PROBE = `(function () {
     var name = el.id || owner + " " + (el.className || el.tagName);
     // github#170 D-6 -- the year strip is on a date axis, so its width is the data
     var yr = el.parentElement && el.parentElement.id === "vg-years";
+    // github#170 D-8 -- the lens is one line of chips, deliberately shorter than the row
+    var lens = el.parentElement && el.parentElement.id === "vg-recent";
     var bad = yr ? r.height < ${PHONE_HIT}
-                 : (r.width < ${PHONE_HIT} || r.height < ${PHONE_HIT});
+            : lens ? (r.height < ${PHONE_LENS_H} || r.width < ${PHONE_HIT})
+            : (r.width < ${PHONE_HIT} || r.height < ${PHONE_HIT});
     if (bad) small.push(name + " " + Math.round(r.width) + "x" + Math.round(r.height));
     if (gb && !(r.right <= gb.left || r.left >= gb.right ||
                 r.bottom <= gb.top || r.top >= gb.bottom)) over.push(name);
@@ -2465,8 +2470,23 @@ const PHONE_PROBE = `(function () {
       if (c.id) lines[c.id] = Math.round(r.top);
     });
   }
+  // github#170 D-8 -- one line, never two: a wrapped lens costs the band a whole row
+  var lensRow = document.getElementById("vg-recent"), lensLines = 0;
+  if (lensRow) {
+    var tops = {};
+    Array.prototype.forEach.call(lensRow.children, function (c) {
+      var r = c.getBoundingClientRect();
+      if (r.width || r.height) tops[Math.round(r.top)] = 1;
+    });
+    lensLines = Object.keys(tops).length;
+  }
   var pan = document.getElementById("vg-pan");
+  var band = document.getElementById("vg-band");
+  var sheet = document.getElementById("vg-sheet");
   return { phone: !!__vg.phone, narrow: !!__vg.narrow,
+           lensLines: lensLines,
+           bandBtn: !!(band && band.offsetParent),
+           sheetBtn: !!(sheet && sheet.offsetParent),
            coarse: !!(window.matchMedia && matchMedia("(pointer: coarse)").matches),
            scrollH: root.scrollHeight, clientH: root.clientHeight,
            overflowY: getComputedStyle(root).overflowY,
@@ -2494,7 +2514,7 @@ const settlePan = async (p) => {
 };
 
 // github#170
-check("a phone gets the disc whole at the top of a page that scrolls", async (p) => {
+check("a phone gets the disc whole and clear, on a page that scrolls", async (p) => {
   const dpr = await p.j(`window.devicePixelRatio || 1`);
   // github#170 -- these emulate touch, so they own putting the page back
   const restore = async () => {
@@ -2527,8 +2547,13 @@ check("a phone gets the disc whole at the top of a page that scrolls", async (p)
       say(!!r.graph && !!r.sidebar && r.sidebar.y >= r.graph.b2 - 1,
           `the panel is not below the disc (panel top ${r.sidebar && r.sidebar.y}, ` +
           `disc ends ${r.graph && r.graph.b2})`);
-      say(!!r.heat && !!r.graph && r.heat.y >= r.graph.b2 - 1,
-          `the band is not below the disc (band top ${r.heat && r.heat.y})`);
+      say(!!r.heat && !!r.graph && r.heat.b2 <= r.graph.y + 1,
+          `the band is not above the disc (band ends ${r.heat && r.heat.b2}, ` +
+          `disc starts ${r.graph && r.graph.y})`);
+      say(r.bandBtn && !r.sheetBtn,
+          `the calendar's toggle is ${r.bandBtn ? "drawn" : "NOT DRAWN"} and the sheet's is ` +
+          `${r.sheetBtn ? "STILL DRAWN" : "not"}`);
+      say(r.lensLines === 1, `the recent lens wrapped onto ${r.lensLines} lines`);
       say(!r.panning && !r.panLaidOut,
           `pan is ${r.panning ? "ON" : "off"} and its toggle is ` +
           `${r.panLaidOut ? "drawn" : "not drawn"}`);
@@ -2584,10 +2609,11 @@ check("a phone gets the disc whole at the top of a page that scrolls", async (p)
       }
       say(midOver.length === 0, `mid-cascade, ${midOver.join(", ")} over the disc`);
 
-      said.push(`${d.name}: disc ${r.graph.w}x${r.graph.h} at ${r.graph.y}, ` +
-                `scrolls by ${r.scrollH - r.clientH}px, band at ${r.heat.y}, ` +
-                `panel at ${r.sidebar.y}, ${r.controls} controls with ${r.small.length} ` +
-                `under ${PHONE_HIT}, pan ${r.panning ? "on" : "off"}`);
+      said.push(`${d.name}: band ${r.heat.h}px at ${r.heat.y}, disc ${r.graph.w}x${r.graph.h} ` +
+                `at ${r.graph.y}, panel at ${r.sidebar.y}, scrolls by ` +
+                `${r.scrollH - r.clientH}px, lens on ${r.lensLines} line, ${r.controls} ` +
+                `controls with ${r.small.length} under ${PHONE_HIT}, pan ` +
+                `${r.panning ? "on" : "off"}`);
     }
   } finally {
     await restore();

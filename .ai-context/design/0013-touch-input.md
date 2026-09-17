@@ -354,7 +354,7 @@ for every other check in the run". That was right about the mechanism and wrong 
 cost: the flag is scopeable per check, and `mobile-harness.md` has the measurement and the two
 orderings that make it work.
 
-### The disc is a square at the top, and that is arithmetic
+### The disc is a square, and that is arithmetic
 
 `matrixFromCamera` scales by `min(width, height)`, so the 390x530 box this replaces was already
 fitting the disc to its 390 px width. A 390x390 box therefore draws **the same disc at the same
@@ -363,16 +363,34 @@ over it. The height that box was wasting becomes the scroll the page now has.
 
 The root scrolls (`overflow-y: auto`), `#vg-stage` takes `order: 1` and `#vg-sidebar` `order: 2`
 -- the sidebar comes first in the DOM, and the sheet rules made that irrelevant by taking it out
-of the flow -- and inside the stage `#vg-canvas` is `order: 1` to the band's `2`. `#vg-canvas`
-becomes a three-row grid: the square disc, the camera row, the note card.
+of the flow. Inside the stage the calendar keeps `order: 1` and `#vg-canvas` takes `2`, so the
+reading order is **calendar, disc, folder list**. `#vg-canvas` is a three-row grid: the square
+disc, the control row, the note card.
 
-**Both panels are forced on below the breakpoint.** `[data-band="off"]` and `[data-sheet="off"]`
-live outside any media query, so a fold chosen at a desk would otherwise reach a phone and hide
-a panel whose toggle is no longer drawn. That is the inverse of the known limit above, and worse,
-because there would be no way back. `data-sheet` is simply inert here; the state machine needed
-no phone branch, only the two auto-closes did -- and those for the *store's* sake, not the
-layout's: `clickStage` and `select()` would have gone on writing `sheetOpen: false` through
-`decisions/0009`'s channel and folded the sidebar away on the next desktop session.
+**The calendar stays at the top and keeps its toggle** (Lukas, 2026-09-17). An earlier cut put
+the disc first and forced both panels on, since neither had a toggle left; with the calendar's
+toggle drawn there is a way back, so `[data-band]` is honoured here rather than overridden and
+folding it brings the disc up. `[data-sheet]` stays inert -- the folder list is in the flow and
+has no toggle -- which is why the state machine needed no phone branch. Only the two auto-closes
+did, and those for the *store's* sake rather than the layout's: `clickStage` and `select()` would
+have gone on writing `sheetOpen: false` through `decisions/0009`'s channel and folded the sidebar
+away on the next desktop session.
+
+**Two grid traps, both measured rather than reasoned about, both silent.**
+
+- **`align-self` decides which axis the aspect ratio is derived from.** A grid item stretches on
+  both axes by default. With the calendar above it, the disc's *height* became the definite one
+  and `aspect-ratio` derived the width from it: **319x319 in a 375 px column**, with all 1403
+  dots under 2 px. `align-self: start` with `justify-self: stretch` makes the width definite and
+  the square follow from it.
+- **Two items naming the same row and no column do not share a cell.** `#vg-cam` and `#vg-mob`
+  both took `grid-row: 2`, so auto-placement put them side by side and **created an implicit
+  second column**, whose 56 px came straight out of the disc's `1fr` -- 334 px of square in a
+  390 px canvas. Both carry `grid-column: 1` now and genuinely share the cell; they do not
+  collide, because 56 px at the left ends well before a 152 px cluster centred at 119.
+
+Neither failed anything. Both produced a smaller disc that still looked like a disc, which is the
+failure mode this repo's own brief names: reasoning about the code instead of measuring it.
 
 ### Nothing is drawn over the disc, which is also the answer to "the buttons are too big"
 
@@ -382,7 +400,10 @@ layout's: `clickStage` and `select()` would have gone on writing `sheetOpen: fal
 - **The pan toggle is not drawn.** Pan is off and is not a choice here, so a toggle for it
   would be a lie. It takes `#vg-cam button#vg-pan` to say so: `#vg-cam button` carries an id, a
   class and a type, so a bare `#vg-pan` loses to it on specificity and the button stayed drawn.
-- **`#vg-mob` is not drawn.** Both panels are in the flow; there is nothing left to summon.
+- **`#vg-mob` joins that row and loses one of its two buttons.** The calendar's toggle rides the
+  control row rather than floating at the disc's corner, so the disc stays clear and every
+  control on this page is in one place. The sheet's toggle goes: the folder list is in the flow
+  and there is nothing left to summon.
 - **`#vg-ov` is not drawn.** `design/0017` built the tile as a hover-revealed pointer
   affordance, and with pan off only a zoom can crop the disc. Its whole job -- where the frame
   sits, click to fit -- is the Fit button now sitting at 44 px directly underneath.
@@ -441,6 +462,14 @@ could reach every control in the row by `height` rather than by each control's o
 this is that lever being pulled, not a new mechanism. The source segment's buttons carry the 44
 themselves, because the segment is a 1 px-bordered shell and its children came out 2 px short.
 
+**The recent lens is one line and is deliberately shorter than its row** (Lukas, 2026-09-17). It
+is a row of chips on one axis, and a second row of them costs the band a whole line of height for
+a control nobody was hunting for -- so it is `flex-wrap: nowrap` with its own contained
+`overflow-x`, and chips that do not fit scroll inside it rather than making the band taller.
+`design/0010`'s "the band must never grow a horizontal scrollbar" is about the band; this
+scroller is inside one control and the band's own width is untouched. The chips are **30 px**
+against the row's 44: at full height the lens read as the row's main event, which it is not.
+
 **The year strip gets 44 px of height and keeps its data-driven width.** The chips are
 absolutely positioned on a date axis, so their x *is* the data: measured at 390 px they sit
 36-41 px apart, and widening each to 44 makes neighbours **overlap by about 8 px**, which is
@@ -460,9 +489,10 @@ year strip.
 |---|---|---|
 | over the disc box | `vg-zin, vg-zout, vg-reset, vg-pan, vg-sheet, vg-band` | **nothing** |
 | the page scrolls | no -- `overflow-y: hidden`, 844 in 844 | **yes, by 1449 px** |
-| disc box | 390x530, below a 314 px band | **390x390, at the top** |
+| disc box | 390x530, cropped left and right | **390x390, whole** |
 | drawn radius p50 | 1.64 px | **1.64 px**, unchanged |
-| controls under 44x44 | 79 of 81 | **6 of 78**, all the year strip |
+| controls under 44x44 | 79 of 81 | **0 of 79** |
+| the recent lens | 26 px chips, free to wrap | one line, 30 px chips |
 | `#vg-compact` | line 1, x=191 | on the range's line |
 | a thumb on the disc | `touchstart:prevented` | `TAKEN` by the browser |
 | cascade while scrolled away | n/a | still walking, lit 166 -> 488 |

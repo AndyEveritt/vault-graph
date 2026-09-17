@@ -1035,20 +1035,17 @@
       grid-template-columns: 1fr; grid-template-rows: auto auto;
       overflow-y: auto; overflow-x: hidden;
     }
-    /* Both panels are forced on below here. [data-band="off"] and [data-sheet="off"] live
-       outside any media query, so a fold chosen on a desktop would otherwise reach a phone and
-       hide a panel whose toggle is no longer drawn -- the inverse of design/0013's known "a
-       desktop choice reaches a phone" wart, and worse, because there would be no way back. */
     /* order, because #vg-sidebar comes FIRST in the DOM and the sheet rules above made that
        irrelevant by taking it out of the flow. Back in the flow it would land above the disc,
-       which is the layout this issue is replacing. */
+       between the calendar and the controls. */
     .vault-graph #vg-stage,
     .vault-graph[data-band="off"] #vg-stage,
     .vault-graph[data-band="on"] #vg-stage {
       grid-template-rows: auto auto; overflow: visible; order: 1;
     }
-    .vault-graph #vg-heat,
-    .vault-graph[data-band="off"] #vg-heat { display: flex; order: 2; }
+    /* The calendar keeps the top, above the disc, and keeps its toggle (in the control row
+       below). [data-band] is honoured here rather than overridden: there IS a way back. */
+    .vault-graph #vg-heat { order: 1; }
     /* The sidebar leaves the sheet and rejoins the flow, whatever data-sheet says. Nothing
        reads the attribute here; it is simply inert, which is why the JS setters did not need a
        phone branch -- only the two auto-closes did, and for the store's sake rather than the
@@ -1069,11 +1066,18 @@
        already fitting the disc to its 390px width. A 390x390 box draws the same disc at the
        same radius with no dead space above and below it -- measured, see changelog-detail. */
     .vault-graph #vg-canvas {
-      order: 1; overflow: visible;
+      order: 2; overflow: visible;
       display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto auto;
     }
+    /* `align-self: start` is load-bearing, not tidiness. A grid item stretches on both axes by
+       default, so with the calendar above it the disc's HEIGHT became the definite one and
+       aspect-ratio derived the width from it -- measured 319x319 in a 375px column, every one
+       of 1403 dots under 2px. Stretched across, started down: the width is definite and the
+       square follows from it. */
     .vault-graph #vg-graph {
-      position: relative; inset: auto; aspect-ratio: 1 / 1; overflow: hidden;
+      position: relative; inset: auto; overflow: hidden;
+      grid-row: 1; grid-column: 1; justify-self: stretch; align-self: start;
+      width: 100%; height: auto; aspect-ratio: 1 / 1;
     }
     /* github#73, design/0013 set `touch-action: none` here so the browser could not pan the
        page out from under a drag. With pan off and the page scrolling, that is exactly
@@ -1084,17 +1088,30 @@
     /* The camera cluster stops floating and becomes a row under the disc. This is want #1
        answered by want #3: the buttons are sized for the width they are drawn at because they
        are no longer standing on a disc that needs the room. */
+    /* Both control clusters share ONE cell -- `grid-column: 1` on each, not just `grid-row`.
+       Two items naming the same row and no column auto-place side by side, which creates an
+       implicit second column and takes its width out of the disc's `1fr`: measured, the square
+       came out 334px in a 390px canvas and every dot fell under 2px. They do not collide in the
+       one cell, because 56px at the left ends well before a 152px cluster centred at 119. */
     .vault-graph #vg-cam {
-      position: static; z-index: auto;
+      position: static; z-index: auto; grid-row: 2; grid-column: 1; justify-self: center;
       flex-direction: row; justify-content: center; gap: 10px; padding: 8px 0;
     }
-    .vault-graph #vg-cam button { width: 44px; height: 44px; opacity: .8; }
+    .vault-graph #vg-cam button, .vault-graph #vg-mob button {
+      width: 44px; height: 44px; opacity: .8;
+    }
     /* Pan is off here and is not a choice, so a toggle for it would be a lie. `#vg-cam button`
        carries an id, a class and a type, so a bare `#vg-pan` loses to it on specificity and the
        button stayed drawn; qualifying it is what makes this rule reach. */
     .vault-graph #vg-cam button#vg-pan { display: none; }
-    /* Nothing is left to summon: both panels are in the flow. */
-    .vault-graph #vg-mob { display: none; }
+    /* The calendar's own toggle rides the same row rather than floating at the disc's corner,
+       so the disc stays clear and every control on this page is in one place. The sheet toggle
+       goes: the folder list is in the flow and there is nothing left to summon. */
+    .vault-graph #vg-mob {
+      position: static; z-index: auto; grid-row: 2; grid-column: 1; justify-self: start;
+      padding: 8px 0 8px 12px;
+    }
+    .vault-graph #vg-mob button#vg-sheet { display: none; }
     /* github#79, design/0017 -- the tile is a hover-revealed pointer affordance, and with pan
        off only a zoom can crop the disc. Its whole job -- where the frame sits, click to fit --
        is the Fit button now sitting at 44px directly under the disc. */
@@ -1102,7 +1119,7 @@
     /* The card was a sheet over the disc because there was nowhere else to put it. Now there
        is, and in the flow it can be as tall as it needs instead of capped at 46%. */
     .vault-graph #vg-detail {
-      position: static; left: auto; right: auto; top: auto; bottom: auto;
+      position: static; left: auto; right: auto; top: auto; bottom: auto; grid-row: 3; grid-column: 1;
       width: auto; max-height: none; margin: 10px 12px 12px; z-index: auto;
     }
 
@@ -1113,7 +1130,18 @@
        height. They carry the 44 themselves here and the shell takes what that gives it. */
     .vault-graph #vg-heatsrc { height: auto; }
     .vault-graph #vg-heatsrc button { height: 44px; padding: 0 12px; }
-    .vault-graph #vg-recent button { min-width: 44px; }
+    /* The recent lens is ONE line and never wraps: it is a row of chips on one axis, and a
+       second row of them costs the band a whole line of height for a control nobody was
+       hunting for. Chips that do not fit scroll inside the row rather than pushing the band
+       taller -- design/0010's "the band must never grow a horizontal scrollbar" is about the
+       band, and this scroller is contained. They are also the one control here deliberately
+       under 44px tall: a full-height chip made the lens read as the row's main event. */
+    .vault-graph #vg-recent {
+      flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0;
+      align-items: center; height: var(--vg-hrow-h);
+    }
+    .vault-graph #vg-recent::-webkit-scrollbar { display: none; }
+    .vault-graph #vg-recent .chip { height: 30px; flex: 0 0 auto; }
     /* The compact toggle was the only child of .hrow with no `order`, so it stayed on line 1
        beside the source segment while #vg-recent, #vg-heatnote and #vg-rangebox were given
        2/3/4 and wrapped away from it. Measured at 390px: x=191 on line 1, three lines and
