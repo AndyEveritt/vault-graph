@@ -259,6 +259,8 @@
  * @property {RegExp | null} re   compiled pattern, rank 1 only
  * @property {string[]} pins   item names to float to the top, in the order they were listed
  * @property {"asc" | "desc" | null} dir
+ * @property {boolean} numeric   github#172 -- `a-z` reads numbers as numbers, `true a-z` as text
+ * @property {boolean} dead   github#172 -- its target-folder did not resolve; never pushed
  * @property {string} origin   which spec file this came from, for notices
  */
 
@@ -269,7 +271,7 @@
 
 /**
  * github#71 -- the parsed spec with `re` dropped
- * @typedef {{ target: string, rank: number, pins: string[], dir: "asc" | "desc" | null, origin: string }} SortSectionView
+ * @typedef {{ target: string, rank: number, pins: string[], dir: "asc" | "desc" | null, numeric: boolean, origin: string }} SortSectionView
  * @typedef {{ sections: SortSectionView[], skipped: SortSkip[], ok: boolean }} SortSpecView
  */
 
@@ -291,19 +293,22 @@ function sortTrimPath(s) {
 function sortTarget(raw, home) {
   var v = String(raw).trim();
   if (!v) return null;
-  // github#71 -- "/" and "/*" are settled before the regexp delimiters
-  if (v === "/" || v === ".") return { target: v === "/" ? "" : home, rank: 3, re: null };
-  if (v === "/*" || v === "./*") return { target: v === "/*" ? "" : home, rank: 0, re: null };
-  if (v.length > 2 && v.charAt(0) === "/" && v.charAt(v.length - 1) === "/") {
-    try { return { target: v, rank: 1, re: new RegExp(v.slice(1, -1)) }; } catch { return null; }
+  // github#172 -- the plugin spells a pattern `regexp:`, not `/re/`
+  var rx = /^regexp\s*:\s*(?:for-name\s*:\s*)?(.*)$/.exec(v);
+  if (rx) {
+    if (!rx[1].trim()) return null;
+    try { return { target: v, rank: 1, re: new RegExp(rx[1].trim()) }; } catch { return null; }
   }
+  // github#172 -- a leading / or . anchors: the result is a PATH
+  var anchored = v.charAt(0) === "/" || v.charAt(0) === ".";
   var wild = /\/\*$/.test(v);
   if (wild) v = v.slice(0, -2);
   if (v.charAt(0) === ".") v = home + "/" + v.replace(/^\.\/?/, "");
   var target = sortTrimPath(v);
-  if (!target && !wild) return null;
-  // github#71 -- no slash: matches the folder NAME at any depth, rank 2
-  return { target: target, rank: wild ? 0 : (target.indexOf("/") < 0 ? 2 : 3), re: null };
+  if (!target && !anchored) return null;
+  if (wild) return { target: target, rank: 0, re: null };
+  // github#71, github#172 -- a bare name matches at any depth, rank 2
+  return { target: target, rank: (!anchored && target.indexOf("/") < 0) ? 2 : 3, re: null };
 }
 
 /**
@@ -320,36 +325,48 @@ function parseSortSpec(sources) {
     (sources || []).forEach(function (src) {
       var home = sortTrimPath(src.folder || "");
       var origin = src.origin || "sortspec";
-      /** @type {SortSection} */
-      var cur = { target: home, rank: 3, re: null, pins: [], dir: null, origin: origin };
+      /**
+       * @param {boolean} dead
+       * @param {{ target: string, rank: number, re: RegExp | null } | null} [t]
+       * @returns {SortSection}
+       */
+      var section = function (dead, t) {
+        return { target: t ? t.target : home, rank: t ? t.rank : 3, re: t ? t.re : null,
+                 pins: [], dir: null, numeric: true, dead: dead, origin: origin };
+      };
+      var cur = section(false);
       var used = false;
+      // github#172 -- a broken target-folder drops its section, pins and all
+      var keep = function () { return !cur.dead && (used || cur.pins.length || cur.dir); };
       String(src.text || "").split(/\r?\n/).forEach(function (raw, i) {
         var line = raw.trim(), n = i + 1;
         if (!line || line.indexOf("//") === 0) return;
         var m = SORT_DIRECTIVE.exec(line);
         var key = m ? m[1] : "";
         if (key === "target-folder") {
-          if (used || cur.pins.length || cur.dir) sections.push(cur);
+          if (keep()) sections.push(cur);
           var t = sortTarget(m[2], home);
           if (!t) {
             skipped.push({ origin: origin, line: n, text: line, why: "target-folder is not a path this page can resolve" });
-            cur = { target: home, rank: 3, re: null, pins: [], dir: null, origin: origin };
+            cur = section(true);
             used = false;
             return;
           }
-          cur = { target: t.target, rank: t.rank, re: t.re, pins: [], dir: null, origin: origin };
+          cur = section(false, t);
           used = true;
           return;
         }
         if (key === "order-asc" || key === "order-desc") {
           var by = m[2].trim().toLowerCase();
-          if (by !== "a-z") {
+          // github#172 -- the plugin's a-z is numeric, its true a-z is plain
+          if (by !== "a-z" && by !== "true a-z") {
             // github#71 -- D-9: created/modified need folder timestamps we lack
             skipped.push({ origin: origin, line: n, text: line,
-                           why: "only `a-z` is applied; `" + by + "` needs folder timestamps the page does not have" });
+                           why: "only `a-z` and `true a-z` are applied; `" + by + "` needs folder timestamps the page does not have" });
             return;
           }
           cur.dir = key === "order-desc" ? "desc" : "asc";
+          cur.numeric = by === "a-z";
           return;
         }
         if (m || SORT_MARKER.test(line)) {
@@ -358,7 +375,7 @@ function parseSortSpec(sources) {
         }
         cur.pins.push(line);
       });
-      if (used || cur.pins.length || cur.dir) sections.push(cur);
+      if (keep()) sections.push(cur);
     });
   } catch (e) {
     return { sections: [], skipped: [{ origin: "sortspec", line: 0, text: "",
@@ -400,7 +417,9 @@ function orderBySortSection(names, section) {
   });
   var rest = names.filter(function (n) { return pinned.indexOf(n) < 0; });
   if (section.dir) {
-    rest.sort(function (a, b) { return a.localeCompare(b); });
+    // github#172 -- a-z is numeric-aware, like byGroupName
+    var opts = section.numeric ? { numeric: true } : undefined;
+    rest.sort(function (a, b) { return a.localeCompare(b, undefined, opts); });
     if (section.dir === "desc") rest.reverse();
   }
   return pinned.concat(rest);
@@ -7952,14 +7971,9 @@ function mountVaultGraph(root, data, deps) {
         title: "Biggest folder first. Sub-wedges are already size-ordered, so this changes the wedges only" }
     ];
     function folderOrderHTML() {
-      var note = sortSpec.ok
-        ? (sortSpec.sections.length ? "" : "no sortspec found in this vault")
-        : "the sortspec could not be read -- showing name order";
-      var skips = sortSpec.skipped.length;
-      if (!skips && !note) return "";
-      return '<div class="lbl" style="margin:2px 0 0;opacity:.7">' +
-             esc([note, skips ? skips + " line(s) skipped" : ""].filter(Boolean).join("; ")) +
-             '</div>';
+      var note = folderOrderNote();
+      return '<div id="vg-fonote" class="lbl" style="margin:2px 0 0;opacity:.7"' +
+             (note ? "" : " hidden") + '>' + esc(note) + '</div>';
     }
     function buildOptions() {
       var host = $("optbody");
@@ -8427,6 +8441,16 @@ function mountVaultGraph(root, data, deps) {
     return compactAxis;
   }
 
+  // github#172 -- the spec's own notice, and nothing while it is not read
+  function folderOrderNote() {
+    if (folderOrder !== "explorer") return "";
+    var note = sortSpec.ok
+      ? (sortSpec.sections.length ? "" : "no sortspec found in this vault")
+      : "the sortspec could not be read -- showing name order";
+    var skips = sortSpec.skipped.length;
+    return [note, skips ? skips + " line(s) skipped" : ""].filter(Boolean).join("; ");
+  }
+
   // github#71
   /** @param {string} v @param {boolean} [persist] @param {boolean} [instant] */
   function setFolderOrder(v, persist, instant) {
@@ -8439,6 +8463,13 @@ function mountVaultGraph(root, data, deps) {
       var btn = $("fo-" + k);
       if (btn) btn.setAttribute("aria-checked", k === folderOrder ? "true" : "false");
     });
+    // github#172 -- the note follows the mode, not the panel
+    var fonote = $("fonote");
+    if (fonote) {
+      var noteText = folderOrderNote();
+      fonote.textContent = noteText;
+      fonote.hidden = !noteText;
+    }
     // github#71, design/0001 -- a real relayout; `instant` is for the suite
     hardRelayout(!instant);
     attempt(placeLogo); attempt(heatBuild); attempt(buildLegend);
@@ -11035,7 +11066,7 @@ function mountVaultGraph(root, data, deps) {
                       return { ok: sortSpec.ok, skipped: sortSpec.skipped.slice(),
                                sections: sortSpec.sections.map(function (x) {
                                  return { target: x.target, rank: x.rank, pins: x.pins.slice(),
-                                          dir: x.dir, origin: x.origin };
+                                          dir: x.dir, numeric: x.numeric, origin: x.origin };
                                }) };
                     },
                     // github#86, design/0015 -- one grouping's rows, whichever disc is on screen:

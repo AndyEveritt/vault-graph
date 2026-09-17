@@ -1181,8 +1181,10 @@ check("the wedge order follows the file explorer spec", async (p) => {
     var root = null, subs = [];
     spec.sections.forEach(function(s){
       if (s.target === "" && s.rank === 3) root = s;
-      // a section aimed at a top-level folder is the only other kind the disc can see
-      else if (s.target.indexOf("/") < 0 && s.target) subs.push(s);
+      // a section aimed at a top-level folder is the only other kind the disc can see.
+      // github#172 -- rank 1 holds a PATTERN, not a path: its target is the raw "regexp: P",
+      // which has no slash in it and would otherwise read here as a folder of that name
+      else if (s.rank !== 1 && s.target.indexOf("/") < 0 && s.target) subs.push(s);
     });
 
     __vg.setFolderOrder("name");
@@ -1293,8 +1295,8 @@ check("an unreadable sortspec falls back to name order and names the line", asyn
   })()`);
   // github#71 -- an empty target-folder drops its section, pin and all
   const brokenSkips = r.broken.skipped.map((s) => s.line + ":" + s.text);
-  const keptOrder = r.broken.names.join("|") === r.names.join("|") ||
-                    r.broken.names.join("|") === "gamma|alpha|beta";
+  // github#172 -- gamma|alpha|beta was the section NOT being dropped
+  const keptOrder = r.broken.names.join("|") === r.names.join("|") && !r.broken.matched;
   const namedTheLine = r.broken.skipped.length >= 2 &&
                        r.broken.skipped.some((s) => /modified/.test(s.text)) &&
                        r.broken.skipped.every((s) => s.line > 0 && !!s.why);
@@ -1303,7 +1305,8 @@ check("an unreadable sortspec falls back to name order and names the line", asyn
     ok: namedTheLine && junkIgnored && keptOrder,
     detail: `broken spec: ${r.broken.skipped.length} line(s) skipped [${brokenSkips.join(", ")}]` +
             (namedTheLine ? "" : "  <- a skipped line must carry its number and a reason") +
-            `; order [${r.broken.names.join(", ")}]` +
+            `; order [${r.broken.names.join(", ")}], section matched: ${r.broken.matched}` +
+            (keptOrder ? "" : "  <- the broken section must be dropped, pin and all") +
             `; a non-spec file skipped ${r.junk.skipped.length} line(s) and left the order alone` +
             (junkIgnored ? "" : "  <- IT DID NOT")
   };
@@ -1339,6 +1342,144 @@ check("a sortspec naming a folder that is gone is ignored, not fatal", async (p)
             `; a section aimed at a vanished folder matched something else: ${r.vanishedMatched}`
   };
 });
+
+// github#172
+check("a broken target-folder takes its pins with it, never the spec's own folder", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["alpha", "beta", "gamma"];
+    // the spec lives in Home; the pins after the broken line were aimed somewhere else entirely
+    var src = [{ folder: "Home", origin: "Home/sortspec.md", text: [
+      "target-folder: ",
+      "gamma",
+      "alpha",
+      "",
+      "target-folder: /",
+      "beta"
+    ].join("\\n") }];
+    return {
+      home: __vg.sortOrderFor(src, "Home", names),
+      root: __vg.sortOrderFor(src, "", names),
+      sections: __vg.parseSortSpec(src).sections.map(function(s){
+        return { target: s.target, rank: s.rank, pins: s.pins.slice() };
+      })
+    };
+  })()`);
+  const homeUntouched = !r.home.matched && r.home.names.join("|") === "alpha|beta|gamma";
+  // github#172 -- a dead section ends at the next target-folder
+  const nextStillRead = r.root.matched && r.root.names.join("|") === "beta|alpha|gamma";
+  const named = r.home.skipped.length === 1 && r.home.skipped[0].line === 1 &&
+                !!r.home.skipped[0].why;
+  const shape = r.sections.map((s) => `${s.target || "(root)"}@${s.rank}[${s.pins.join(" ")}]`);
+  return {
+    ok: homeUntouched && nextStillRead && named,
+    detail: `2 pins follow a valueless target-folder -> Home's own order ` +
+            `[${r.home.names.join(", ")}], section matched: ${r.home.matched}` +
+            (homeUntouched ? " (dropped, as it must be)"
+                           : "  <- EXPECTED alpha, beta, gamma and NO section aimed at Home") +
+            `; ${r.sections.length} section(s) survive [${shape.join(", ")}]` +
+            `; the section after it still read -> [${r.root.names.join(", ")}]` +
+            (nextStillRead ? "" : "  <- a dead section must not swallow the next one") +
+            `; ${r.home.skipped.length} line named` +
+            (named ? "" : "  <- the broken line must carry its number and a reason")
+  };
+}, { on: "all" });
+
+// github#172
+check("order-asc: a-z reads numbers as numbers, and true a-z as text", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["10 archive", "2 drafts", "1 inbox"];
+    var spec = function(line){
+      return [{ folder: "", origin: "s.md", text: "target-folder: /\\n" + line }];
+    };
+    return { az: __vg.sortOrderFor(spec("order-asc: a-z"), "", names),
+             txt: __vg.sortOrderFor(spec("order-asc: true a-z"), "", names),
+             desc: __vg.sortOrderFor(spec("order-desc: a-z"), "", names) };
+  })()`);
+  // github#172 -- relative order, so no locale's tie-break decides it
+  const before = (list, a, b) => list.indexOf(a) >= 0 && list.indexOf(a) < list.indexOf(b);
+  const numeric = before(r.az.names, "2 drafts", "10 archive");
+  const text = before(r.txt.names, "10 archive", "2 drafts");
+  const descends = before(r.desc.names, "10 archive", "2 drafts");
+  const bothApplied = r.az.skipped.length === 0 && r.txt.skipped.length === 0 &&
+                      !!r.az.matched && !!r.txt.matched;
+  return {
+    ok: numeric && text && descends && bothApplied,
+    detail: `a-z -> [${r.az.names.join(", ")}]` +
+            (numeric ? "" : "  <- 2 must come before 10; this is a plain localeCompare") +
+            `; true a-z -> [${r.txt.names.join(", ")}]` +
+            (text ? "" : "  <- 10 must come before 2 here") +
+            `; order-desc: a-z -> [${r.desc.names.join(", ")}]` +
+            (descends ? "" : "  <- it did not descend") +
+            `; ${r.az.skipped.length + r.txt.skipped.length} line(s) skipped` +
+            (bothApplied ? " (both directives applied)" : "  <- both are the plugin's own grammar")
+  };
+}, { on: "all" });
+
+// github#172
+check("a leading slash anchors a sortspec target at the vault root", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["one", "two", "three"];
+    var rooted = [{ folder: "", origin: "s.md", text: [
+      "target-folder: /Projects", "two", "",
+      "target-folder: Archive/Projects", "three"
+    ].join("\\n") }];
+    // a trailing slash is still a path, not a pattern between two delimiters
+    var trailing = [{ folder: "", origin: "s.md", text: "target-folder: /Projects/\\ntwo" }];
+    // the same anchoring in its relative spelling: "./" is the spec's own folder, exactly
+    var relative = [{ folder: "Notes", origin: "Notes/sortspec.md",
+                      text: "target-folder: ./\\ntwo" }];
+    var shape = function(src){
+      return __vg.parseSortSpec(src).sections.map(function(s){
+        return { target: s.target, rank: s.rank };
+      });
+    };
+    return {
+      shape: shape(rooted), trailingShape: shape(trailing), relativeShape: shape(relative),
+      atRoot: __vg.sortOrderFor(rooted, "Projects", names),
+      nested: __vg.sortOrderFor(rooted, "Archive/Projects", names),
+      deeper: __vg.sortOrderFor(rooted, "Old/Projects", names),
+      trailingAtRoot: __vg.sortOrderFor(trailing, "Projects", names),
+      trailingElsewhere: __vg.sortOrderFor(trailing, "Old Projects", names),
+      relativeSelf: __vg.sortOrderFor(relative, "Notes", names),
+      relativeElsewhere: __vg.sortOrderFor(relative, "Other/Notes", names)
+    };
+  })()`);
+  const fail = [];
+  const leads = (got, want, where) => {
+    if (got.names[0] !== want) fail.push(`${where}: expected ${want} to lead, got [${got.names.join(", ")}]`);
+  };
+  const untouched = (got, where) => {
+    if (got.matched) fail.push(`${where}: a root-anchored section reached it`);
+  };
+  // github#172 -- anchored means exact path at rank 3, never a name
+  const ranks = r.shape.map((s) => `${s.target}@${s.rank}`).join(", ");
+  if (r.shape.length !== 2 || r.shape.some((s) => s.rank !== 3)) {
+    fail.push(`/Projects and Archive/Projects must both be rank 3 exact paths, got [${ranks}]`);
+  }
+  if (r.trailingShape.length !== 1 || r.trailingShape[0].rank !== 3 ||
+      r.trailingShape[0].target !== "Projects") {
+    fail.push(`/Projects/ must be the path Projects at rank 3, got ` +
+              `[${r.trailingShape.map((s) => s.target + "@" + s.rank).join(", ")}]`);
+  }
+  if (r.relativeShape.length !== 1 || r.relativeShape[0].rank !== 3 ||
+      r.relativeShape[0].target !== "Notes") {
+    fail.push(`./ must be the path Notes at rank 3, got ` +
+              `[${r.relativeShape.map((s) => s.target + "@" + s.rank).join(", ")}]`);
+  }
+  leads(r.atRoot, "two", "Projects");
+  leads(r.nested, "three", "Archive/Projects");
+  leads(r.trailingAtRoot, "two", "Projects under /Projects/");
+  leads(r.relativeSelf, "two", "Notes under ./");
+  untouched(r.deeper, "Old/Projects");
+  untouched(r.trailingElsewhere, "Old Projects");
+  untouched(r.relativeElsewhere, "Other/Notes");
+  return {
+    ok: fail.length === 0,
+    detail: fail.length ? fail.join("; ")
+      : `/Projects and /Projects/ are both the root-level path Projects at rank 3, and ./ is ` +
+        `the spec's own folder; Old/Projects and Old Projects are reached by neither`
+  };
+}, { on: "all" });
 
 check("a folder keeps its colour when the wedge order changes", async (p) => {
   const r = await p.j(`(function(){

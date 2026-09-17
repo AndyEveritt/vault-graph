@@ -2975,8 +2975,26 @@ in the same run.
 github#71. `computeOrder()` compares names with `localeCompare(..., { numeric: true })`; the
 `subOrder` build compares with a plain `localeCompare`. Unifying them is the obvious tidy-up and
 it is **wrong**: it reorders numbered subfolders on the 10k fixture and fails that vault's
-golden, while reading in the diff like a refactor. The spec path's own `a-z` is plain
-`localeCompare` too, matching what the mirrored plugin's `a-z` means.
+golden, while reading in the diff like a refactor.
+
+**The spec path is a THIRD comparator, and github#172 corrected which one it is.** This section
+used to end "The spec path's own `a-z` is plain `localeCompare` too, matching what the mirrored
+plugin's `a-z` means." The second half of that sentence is false, and it is what the first half
+was resting on: the plugin's `a-z` is the numeric-aware order — its own README, "numbers are
+treated specifically and 2 goes before 11" — and its `true a-z` is the plain one, "numbers are
+treated as texts and 11 goes before 2". So `orderBySortSection` now picks its comparator from the
+directive: `a-z` numeric, `true a-z` plain. Measured on `2 drafts` against `10 archive`:
+`1 inbox | 10 archive | 2 drafts` before, `1 inbox | 2 drafts | 10 archive` after, which is what
+`byGroupName` and the explorer beside it both say.
+
+**That does not reopen the unification above.** This changed the spec path only, which is gated
+behind a non-default setting and reached by one fixture; the `subOrder` build's plain comparator
+is untouched and the 10k golden is unmoved. All five goldens were verified byte-identical after
+the change — band unchanged and positions unchanged on demo (1403), 10k (10002), shape (954),
+tag (891) and spec (287) — and `spec-vault` is the one that could have moved, since a
+spec-carrying vault with nothing stored opens in explorer mode, so its golden *is* the
+spec-ordered layout. It did not, because its only `order-desc: a-z` runs over zero-padded
+`YYYY-MM` folders, where numeric and plain collation agree.
 
 ## A vault's layout matches its golden snapshot — the sortspec paths
 
@@ -2997,6 +3015,30 @@ github#71, and all of these are `node scripts/smoke.mjs --only "sortspec"` plus
   two naming folders that do not exist → the one that exists still leads and **0 lines are
   skipped**. A stale pin is wear on a spec, not a syntax error — and a real root section usually
   pins *files*, which are not folders and can never match.
+
+github#172 adds three more, `on: "all"`, and each was verified to **fail on develop at fd08e12**
+by building a page from that revision and running the check body against it. A check nobody has
+watched fail is a check nobody has tested.
+
+- **a broken target-folder takes its pins with it, never the spec's own folder.** A valueless
+  `target-folder:` followed by two pins, in a spec living in `Home`. Develop: `Home`'s own order
+  came out `[gamma, alpha, beta]`, the section matched, and **two** sections survived —
+  `Home@3[gamma alpha]` and `(root)@3[beta]`. After: `[alpha, beta, gamma]`, nothing matched, one
+  section. It asserts the other half too, which is the easy over-correction: the section **after**
+  a dead one still has to be read.
+- **order-asc: a-z reads numbers as numbers, and true a-z as text.** Asserted as the relative
+  order of `2 drafts` against `10 archive` rather than a whole sequence, so no locale's
+  tie-breaking decides the check.
+- **a leading slash anchors a sortspec target at the vault root.** Develop:
+  `[Projects@2, Archive/Projects@3]`, `/Projects/` compiled to a rank-1 pattern, `./` resolved to
+  `Notes@2`, and all three of `Old/Projects`, `Old Projects` and `Other/Notes` were reached by a
+  section that never named them. After: every one a rank-3 exact path, and none of the three
+  reached.
+
+And the unreadable-spec check above was **tightened, not extended**: its `keptOrder` accepted
+`gamma|alpha|beta` as well as the untouched order, which is precisely the section *not* being
+dropped, so the check could never have caught the thing its own prose promised. It now requires
+the order unchanged **and** `matched` false, and it fails on develop.
 
 **The default is what keeps the other three goldens still.** `Name` is the default, no existing
 fixture carries a spec, and the spec path is gated behind a non-default setting. Verified the

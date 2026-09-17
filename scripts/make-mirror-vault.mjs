@@ -226,6 +226,10 @@ if (specNotes.length) {
   for (const n of specNotes) {
     const out = [];
     let target = n.dir;              // github#71 -- the real path the current section aims at
+    // github#172 -- "." and "./sub" resolve against the note's dir
+    const resolveTarget = (bare) =>
+      (bare.charAt(0) === "." ? n.dir + "/" + bare.replace(/^\.\/?/, "") : bare)
+        .split(/[\\/]/).filter(Boolean).join("/");
     for (const raw of n.specRaw.split(/\r?\n/)) {
       const line = raw.trim();
       if (!line) { out.push(""); continue; }
@@ -235,10 +239,10 @@ if (specNotes.length) {
         const v = tf[1].trim();
         if (v === "/" || v === "/*") { target = ""; out.push(line); continue; }
         const wild = /\/\*$/.test(v);
-        const bare = wild ? v.slice(0, -2) : v;
-        const mapped = bare === "." ? mapPath(n.dir) : mapPath(bare);
+        const real = resolveTarget(wild ? v.slice(0, -2) : v);
+        const mapped = mapPath(real);
         if (mapped === null) { target = null; specDropped++; continue; }
-        target = bare === "." ? n.dir : bare.split(/[\\/]/).filter(Boolean).join("/");
+        target = real;
         out.push("target-folder: " + (mapped || "/") + (wild ? "/*" : ""));
         continue;
       }
