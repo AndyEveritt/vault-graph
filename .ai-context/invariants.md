@@ -5323,3 +5323,41 @@ arms `wantWedgeDebug()`, which draws the lattice at boot — so **`--dev` is del
 added to `smoke.mjs`'s `buildFor`**: it would draw the wedge overlay over all 66 checks and
 every `shoot.mjs` still. Turning that on is a change to what the whole suite renders and wants
 a decision, not a default (D-7, github#165).
+
+## A phone is a narrow screen AND a coarse pointer, and it gets a page that scrolls (github#170)
+
+`design/0013`. **The predicate is `(max-width: 720px) and (pointer: coarse)`, both halves**, in
+`page.css`'s phone block and in `page.js`'s `phone()` beside `narrow()`. `NARROW_PX` carries the
+number for both queries and keeps the must-match comment it already had. A narrow desktop window,
+a 320px Obsidian side leaf on a PC and a touchscreen laptop at 1440px all keep the desktop layout,
+and the plugin needs no `Platform.isMobile` -- Obsidian mobile reports coarse at 390px.
+
+| | |
+|---|---|
+| minimum hit box | **44 x 44 px**, for every control the issue names |
+| the year strip | **44 px tall, data-driven width** -- the chips sit 36-41px apart on a date axis and 44px-wide neighbours overlap by ~8px (D-6) |
+| the disc box | **square**: `min(w, h)` already fit it to the width, so 390x390 draws the same disc as 390x530 -- p50 radius **1.64 px** either way |
+| over the disc box | **nothing**, at rest and mid-cascade |
+| pan | **off**, through `setPan(false)`, and its toggle is not drawn |
+| zoom | **survives** -- at 1.64px a pinch is the only route to a tappable dot |
+| the disc's mouse layer | `touch-action: pan-y`, and the captor claims a touch only when it can use it |
+
+**Pan is re-applied, not read once.** The layout is a media query and is live; `syncPhonePan()`
+runs on that query's change *and* on the root's resize beat, guarded on the value actually
+differing because `setPan(false)` flies the camera home. `storedPan` holds what the host chose,
+so a phone never writes over a desk's choice and a breakpoint crossing restores it.
+
+**Check:** `smoke.mjs`'s "a phone gets the disc whole at the top of a page that scrolls", on the
+demo fixture at 390x844 and 412x915 with touch emulated -- nothing over the disc at rest or
+mid-cascade, every hit box at 44 (height only for `#vg-years button`), the root scrolling, the
+band and the panel below the disc, pan off with no toggle, every `.hrow` child inside its row,
+`#vg-compact` on the range's line, and a raw touch trace showing the disc releasing a one-finger
+move to the browser. Its twin, "a narrow window with a pointer keeps the desktop's answer", holds
+the other half of the predicate at 390x844 with a fine pointer. Both put touch emulation and the
+metrics override back on every exit. `scripts/mobile-check.mjs` reports the same readings at any
+device and takes the `screen-left` lock.
+
+**The scrollbar costs the disc 15px in a desktop-Chrome harness and nothing on a phone** --
+`overflow-y: auto` reserves a classic scrollbar there, so the square measures 375 and the radius
+reads 1.59px. Coarse-pointer devices use overlay scrollbars. It is why the two readings of the
+same disc differ between `mobile-check.mjs` and the record.

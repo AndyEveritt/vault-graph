@@ -654,8 +654,9 @@ function mountVaultGraph(root, data, deps) {
   }
 
   // github#4
-  // github#170 -- a layout state on a phone, never a stored choice
-  var panEnabled = phone() ? false : (deps.panEnabled === false ? false : true);
+  // github#170 -- what the host stored; on a phone the layout overrules it
+  var storedPan = deps.panEnabled === false ? false : true;
+  var panEnabled = phone() ? false : storedPan;
   var onPanEnabled = typeof deps.onPanEnabled === "function" ? deps.onPanEnabled : null;
 
   // github#23
@@ -6238,7 +6239,7 @@ function mountVaultGraph(root, data, deps) {
       if (dead) return;
       if (rzTimer) WIN.clearTimeout(rzTimer);
       rzTimer = WIN.setTimeout(function () { rzTimer = null; refreshSizeScale(); placeLogo();
-                                             syncCanvasTop(); }, 120);
+                                             syncCanvasTop(); syncPhonePan(); }, 120);
     };
     if (window.ResizeObserver) {
       var rootRO = new ResizeObserver(onResize);
@@ -6460,6 +6461,21 @@ function mountVaultGraph(root, data, deps) {
       readMq.addListener(onReadMq);
       onDestroy.push(function () { readMq.removeListener(onReadMq); });
     }
+    // github#170, design/0013 -- the layout is live; a mount-time read of pan was not
+    var phoneMq = WIN.matchMedia("(max-width: " + NARROW_PX + "px) and (pointer: coarse)");
+    if (phoneMq.addEventListener) {
+      phoneMq.addEventListener("change", syncPhonePan);
+      onDestroy.push(function () { phoneMq.removeEventListener("change", syncPhonePan); });
+    } else if (phoneMq.addListener) {
+      phoneMq.addListener(syncPhonePan);
+      onDestroy.push(function () { phoneMq.removeListener(syncPhonePan); });
+    }
+  }
+
+  // github#170, design/0013 -- setPan(false) flies home; only on a real change
+  function syncPhonePan() {
+    var want = phone() ? false : storedPan;
+    if (want !== panEnabled) setPan(want, false);
   }
 
   /** @param {string | null} id */
@@ -7507,7 +7523,8 @@ function mountVaultGraph(root, data, deps) {
     if ($("reset")) $("reset").onclick = fit;
     if ($("zin")) $("zin").onclick = function () { zoomBy(1); };
     if ($("zout")) $("zout").onclick = function () { zoomBy(-1); };
-    if ($("pan")) $("pan").onclick = function () { setPan(!panEnabled, true); };
+    // github#170 -- storedPan follows every deliberate choice
+    if ($("pan")) $("pan").onclick = function () { storedPan = !panEnabled; setPan(storedPan, true); };
     // github#79
     if ($("ov")) $("ov").onclick = fit;
     setPan(panEnabled, false);
@@ -8038,16 +8055,13 @@ function mountVaultGraph(root, data, deps) {
   function fit() {
     var to = { x: 0.5, y: 0.5, ratio: fitRatio(), angle: 0 };
     fitting = true;
-    var landed = function () { fitting = false; camAtRest = true; };
-    // github#4
-    if (!panEnabled) {
-      renderer.setSetting("enableCameraPanning", true);
-      renderer.getCamera().animate(to, { duration: 380 }, function () {
-        renderer.setSetting("enableCameraPanning", false);
-        landed();
-      });
-      return;
-    }
+    // github#170 -- restore what pan is NOW, never a captured false
+    var landed = function () {
+      fitting = false; camAtRest = true;
+      renderer.setSetting("enableCameraPanning", panEnabled);
+    };
+    // github#4 -- the flight needs panning on whatever the toggle says
+    if (!panEnabled) renderer.setSetting("enableCameraPanning", true);
     renderer.getCamera().animate(to, { duration: 380 }, landed);
   }
 
@@ -11036,7 +11050,12 @@ function mountVaultGraph(root, data, deps) {
                     get subtagColors() { return Object.assign(dict(), dimSubColors.tag); },
                     get tagShown() { return Object.assign(dict(), dimShown.tag); },
                     setFolderShown: applyFolderShown,
-                    setPanEnabled: function (v) { return setPan(v !== false, false); },
+                    // github#170
+                    // github#170 -- the phone's layout outranks the settings row, as at mount
+                    setPanEnabled: function (v) {
+                      storedPan = v !== false;
+                      return setPan(phone() ? false : storedPan, false);
+                    },
                     // github#23
                     setCompactAxis: function (v) { return setCompactAxis(v !== false, false); },
                     // github#3

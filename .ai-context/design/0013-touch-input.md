@@ -319,6 +319,169 @@ control it now has.
   coarse by construction. It is what makes a tap work at all; more radius wants a filter or a
   zoom, not a smaller catchment.
 
+## github#170 -- a phone gets its own layout, not the desktop's with a sheet over it
+
+**Status** as-built · 2026-09-17 · reported on Reddit: *"Its hard to appreciate the animation
+in mobile, since the All and None buttons are inside the panel, which also cover the circle."*
+
+github#73 above gave the disc touch input and got the sheet out of the way of the *band*. It
+did not give the page a phone layout, and what it left is what the report describes: the disc
+fills the viewport, the sheet slides over it, the camera cluster stands on it at desktop size,
+and the band's controls are drawn for a pointer. Measured on `develop`, iPhone 14, demo
+fixture: **six elements intersecting the disc box** (four 31 px camera buttons and the two
+44 px panel toggles), **79 of 81 controls under 44x44**, the smallest a **25x14** year chip,
+the page **does not scroll** (`overflow-y: hidden`, 844 of content in 844), and the band takes
+**314 px** of the top before the disc starts.
+
+### "A phone" is `(max-width: 720px) and (pointer: coarse)`
+
+Both halves, and the pair is the decision this issue turned on.
+
+**Not width alone.** That hands pan-off and 44 px chrome to a narrow desktop window and to a
+320 px Obsidian side leaf on a PC, where a mouse loses function and gains nothing. **Not
+coarse alone.** That hands it to a touchscreen laptop at 1440 px, where the two-column layout
+is right -- the same judgement that left the iPad on the desktop layout above, for the same
+reason.
+
+**And it needs no host branch.** Obsidian mobile reports coarse at 390 px, so the plugin and
+the exported page take one road, and `Platform.isMobile` -- which the exported page cannot ask
+about at all -- never enters it. `NARROW_PX` carries the number for both queries, with the same
+must-match comment it already had.
+
+The closing section above parked coarse-pointer gating because it "needs
+`Emulation.setTouchEmulationEnabled` on the shared page, which would change `pointer: coarse`
+for every other check in the run". That was right about the mechanism and wrong about the
+cost: the flag is scopeable per check, and `mobile-harness.md` has the measurement and the two
+orderings that make it work.
+
+### The disc is a square at the top, and that is arithmetic
+
+`matrixFromCamera` scales by `min(width, height)`, so the 390x530 box this replaces was already
+fitting the disc to its 390 px width. A 390x390 box therefore draws **the same disc at the same
+radius** -- p50 1.64 px before and after -- with no dead space above and below it and nothing
+over it. The height that box was wasting becomes the scroll the page now has.
+
+The root scrolls (`overflow-y: auto`), `#vg-stage` takes `order: 1` and `#vg-sidebar` `order: 2`
+-- the sidebar comes first in the DOM, and the sheet rules made that irrelevant by taking it out
+of the flow -- and inside the stage `#vg-canvas` is `order: 1` to the band's `2`. `#vg-canvas`
+becomes a three-row grid: the square disc, the camera row, the note card.
+
+**Both panels are forced on below the breakpoint.** `[data-band="off"]` and `[data-sheet="off"]`
+live outside any media query, so a fold chosen at a desk would otherwise reach a phone and hide
+a panel whose toggle is no longer drawn. That is the inverse of the known limit above, and worse,
+because there would be no way back. `data-sheet` is simply inert here; the state machine needed
+no phone branch, only the two auto-closes did -- and those for the *store's* sake, not the
+layout's: `clickStage` and `select()` would have gone on writing `sheetOpen: false` through
+`decisions/0009`'s channel and folded the sidebar away on the next desktop session.
+
+### Nothing is drawn over the disc, which is also the answer to "the buttons are too big"
+
+- **`#vg-cam` stops floating** and becomes a centred row of three 44 px buttons under the disc.
+  The buttons are sized for the width they are drawn at *because* they are no longer standing
+  on a disc that needs the room.
+- **The pan toggle is not drawn.** Pan is off and is not a choice here, so a toggle for it
+  would be a lie. It takes `#vg-cam button#vg-pan` to say so: `#vg-cam button` carries an id, a
+  class and a type, so a bare `#vg-pan` loses to it on specificity and the button stayed drawn.
+- **`#vg-mob` is not drawn.** Both panels are in the flow; there is nothing left to summon.
+- **`#vg-ov` is not drawn.** `design/0017` built the tile as a hover-revealed pointer
+  affordance, and with pan off only a zoom can crop the disc. Its whole job -- where the frame
+  sits, click to fit -- is the Fit button now sitting at 44 px directly underneath.
+- **`#vg-detail` joins the flow.** It was a sheet over the disc because there was nowhere else
+  to put it; now there is, and in the flow it can be as tall as it needs instead of capped
+  at 46%.
+
+### Pan is a layout state, and it has to stay in step with a layout that is live
+
+`setPan(false)` at mount when `phone()`, through the path "the pan toggle locks the camera and
+flies home" already covers rather than a second one, and without `persist`, so a phone never
+writes over a desk's stored choice. `storedPan` holds what the host chose; the pan button and
+`setPanEnabled` both feed it, and `setPanEnabled` respects `phone()` for the same reason the
+mount does.
+
+**A mount-time read was not enough, and the harness is what found it.** The layout is a media
+query and is therefore live; pan was read once. `syncPhonePan()` re-applies on the media-query
+change *and* on the root's resize beat -- two paths because a pointer change fires no resize
+and, in an emulated browser, a width change does not always fire the compound query. It is
+guarded on the value actually differing, since `setPan(false)` flies the camera home and doing
+that on every resize would be its own defect.
+
+**Wheel and pinch zoom survive, deliberately.** At a 1.64 px median radius the 14 px touch
+catchment is what makes a tap work at all; pinching to a readable dot is the only way in.
+`enableCameraPanning: false` removes translation and nothing else.
+
+### The disc was the one place a thumb could not scroll from
+
+This is the half that a layout change alone would have got wrong, and it is github#73's own
+two mechanisms pointing the other way. `page.css` set `touch-action: none` on the mouse layer
+and `captor.ts` called `preventDefault()` on every `touchstart` and every `touchmove`. Both
+were right while the page itself panned -- they stop the browser panning the page out from
+under a drag. With pan off and the page scrolling they are exactly backwards: the disc is the
+top 375 px, so it is where a thumb lands.
+
+So the captor claims a gesture only when it can use it -- `claimsTouch()`: more than one finger,
+or `camera.enabledPanning` -- and the phone's layer is `touch-action: pan-y`. `touchend` keeps
+its `preventDefault` at every width, because that one suppresses the compatibility mouse events
+and a tap must still select once rather than twice; it is gated on `e.cancelable` only, so a
+gesture the browser has already claimed does not log a warning per lift.
+
+The gate is the camera's own flag rather than a width or a media query, which means the desktop
+gets the same correction for free: with the pan toggle off at a desk, a touchscreen can now
+scroll the page from the disc instead of being told nothing may move.
+
+### The band's controls, and the one place 44x44 cannot be met
+
+`#vg-compact` was **the only child of `.hrow` with no `order`**, so it stayed on line 1 beside
+the source segment while `#vg-recent`, `#vg-heatnote` and `#vg-rangebox` were given 2, 3 and 4
+and wrapped away from it -- measured at 390 px, x=191 on line 1, three lines and ~100 px from
+the date range it compacts. It takes `order: 4` and joins that range's line. That is what
+"the heatmap buttons render strangely" was.
+
+The rest of the row is `--vg-hrow-h: 44px`. github#70 declared that variable so one height
+could reach every control in the row by `height` rather than by each control's own padding;
+this is that lever being pulled, not a new mechanism. The source segment's buttons carry the 44
+themselves, because the segment is a 1 px-bordered shell and its children came out 2 px short.
+
+**The year strip gets 44 px of height and keeps its data-driven width.** The chips are
+absolutely positioned on a date axis, so their x *is* the data: measured at 390 px they sit
+36-41 px apart, and widening each to 44 makes neighbours **overlap by about 8 px**, which is
+strictly worse for a finger than 25 px chips with clear air between them. So the hit box grows
+in height only, with the pill drawn by a `::before` inside it at its old size, and the check
+asserts height alone for that one selector. It is the honest exception, named here rather than
+discovered in review; the alternative worth considering is fewer, wider chips on a phone.
+
+**The folder list is navigation now, not a legend.** It is what moved below the disc, so its
+rows are targets: eye 20x18, twisty 16x18 and solo 29x17 all go to 44, and `.lg` gets a 44 px
+minimum. 42 controls measured on the iPhone 14 afterwards, 6 under 44x44, and all six are the
+year strip.
+
+### Measured after
+
+| | develop | here |
+|---|---|---|
+| over the disc box | `vg-zin, vg-zout, vg-reset, vg-pan, vg-sheet, vg-band` | **nothing** |
+| the page scrolls | no -- `overflow-y: hidden`, 844 in 844 | **yes, by 1449 px** |
+| disc box | 390x530, below a 314 px band | **390x390, at the top** |
+| drawn radius p50 | 1.64 px | **1.64 px**, unchanged |
+| controls under 44x44 | 79 of 81 | **6 of 78**, all the year strip |
+| `#vg-compact` | line 1, x=191 | on the range's line |
+| a thumb on the disc | `touchstart:prevented` | `TAKEN` by the browser |
+| cascade while scrolled away | n/a | still walking, lit 166 -> 488 |
+
+The cascade question `github#170` asked to have measured either way: it **keeps walking**. The
+band and the count bars run on the same clock, so pausing one would desynchronise the others,
+and nothing in the page watches scroll.
+
+### Known limits, stated rather than discovered later
+
+- **The scrollbar costs the disc 15 px in the harness and nothing on a phone.** `overflow-y:
+  auto` reserves a classic scrollbar in desktop Chrome, so the square comes out 375 rather than
+  390 and the radius reads 1.59 px instead of 1.64. Coarse-pointer devices use overlay
+  scrollbars and lose nothing. It is a harness artifact, and the reason the two numbers in this
+  record differ from each other.
+- **A desktop choice still reaches a phone**, for the panels' *stored* state -- the layout now
+  ignores it rather than obeying it, which is the fix for the symptom, not for the sharing.
+- **Two fingers still only zoom**, unchanged from above.
+
 ## What this deliberately does not do
 
 Coarse-pointer 44 px hit areas on the range handles, the year chips and the legend's eyes; node

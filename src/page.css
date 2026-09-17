@@ -1075,6 +1075,12 @@
     .vault-graph #vg-graph {
       position: relative; inset: auto; aspect-ratio: 1 / 1; overflow: hidden;
     }
+    /* github#73, design/0013 set `touch-action: none` here so the browser could not pan the
+       page out from under a drag. With pan off and the page scrolling, that is exactly
+       backwards: the disc is the top 375px, so it is where a thumb lands, and `none` meant the
+       one place you cannot scroll from is the first place you touch. `pan-y` gives the browser
+       the vertical gesture and leaves the tap and the pinch to the page. */
+    .vault-graph #vg-graph .vg-layer-mouse { touch-action: pan-y; }
     /* The camera cluster stops floating and becomes a row under the disc. This is want #1
        answered by want #3: the buttons are sized for the width they are drawn at because they
        are no longer standing on a disc that needs the room. */
@@ -1140,9 +1146,14 @@
       background: color-mix(in oklab, var(--accent) 14%, transparent);
     }
 
-    /* The panel's own controls are reached with a finger here too. */
+    /* The panel's own controls are reached with a finger here too. The folder list IS the
+       navigation now -- it is what moved below the disc -- so its rows are targets, not a
+       legend to read. Measured at 390px: eye 20x18, twisty 16x18, solo 29x17. */
     .vault-graph .dimseg.dimfull button { min-height: 44px; }
     .vault-graph .dimall button,
     .vault-graph .tools button { min-height: 44px; min-width: 44px; }
     .vault-graph #vg-q { height: 44px; font-size: 14px; }
+    .vault-graph .tw, .vault-graph .eye { width: 44px; height: 44px; padding: 0; }
+    .vault-graph .lg { min-height: 44px; }
+    .vault-graph .lg .only, .vault-graph .lgs .only { min-width: 44px; min-height: 44px; }
   }

@@ -107,4 +107,54 @@ breakpoint, and it is the one viewport where the disc always had a sensible size
   working perfectly.
 - **The detail card covers the disc on a phone**, and the second tap path was landing on one of
   its own links and selecting a neighbour. The run closes the card through its own button
-  between the two paths. `--shot-selected` keeps it open on purpose, for looking at.
+  between the two paths. `--shot-selected` keeps it open on purpose, for looking at. (It no
+  longer covers the disc: github#170 put it in the flow.)
+
+## What github#170 added, and the two readings that cost a morning
+
+**The harness now takes the `screen-left` lock**, which it seized without asking for two
+weeks. `spike-check.mjs` already took it, and the two place a window on the same display
+through the same `leftmostScreen()`. `--no-lock` is the opt-out for a caller that holds it.
+The release is registered at module scope, not beside the browser's teardown, so a throw
+before Chrome is spawned still gives it back; `--keep` deliberately holds it, because the
+window it leaves behind is still on that display.
+
+Six readings were added, all reported at every width, because the desktop answer to each is
+how "desktop unchanged" gets checked: which elements intersect the disc box, whether the root
+scrolls and by how much, where the band and the panel land relative to the disc, every
+control's hit box with the ones under 44x44 named, the band's control row with any child that
+falls outside it, and whether the cascade is still walking while the disc is scrolled away.
+
+**Reading `scrollTop` cannot tell you whether a swipe scrolls the page, and the reading that
+looks like it works is the wrong one.** `Input.synthesizeScrollGesture` drives the *root*
+scroller. On a phone the scroller is `.vault-graph`, so the gesture moves nothing wherever it
+starts -- the disc, the band, the panel -- and the run reports "the disc is eating the
+gesture" three times for three places that are all fine. What is actually ours is the page's
+half: whether the disc's own listeners cancel a one-finger move. So the harness dispatches raw
+touch events and reads two things off them:
+
+```
+develop   touchstart:cancelable:prevented | touchmove:cancelable:prevented | touchmove:cancelable:prevented
+after     touchstart:cancelable:free      | touchmove:cancelable:free      | touchmove:TAKEN:free
+```
+
+`TAKEN` is a touchmove arriving **non-cancelable**, which is the browser saying it has taken
+the gesture over for scrolling. That, and nothing being prevented, is the whole precondition;
+what the compositor then does with it is not the page's business and not this harness's.
+
+**`pointer: coarse` is reachable from CDP, and design/0013 said it was not worth finding out.**
+`Emulation.setTouchEmulationEnabled{enabled: true}` flips `(pointer: coarse)` and `(hover:
+none)` to true, and disabling it restores `(pointer: fine)` -- measured 2026-09-17, headless.
+So `smoke.mjs` can exercise the phone predicate, scoped per check exactly like the
+`setDeviceMetricsOverride` it already toggles. Two orderings matter there:
+
+- **The device before its viewport.** Emulating touch first, then the metrics, means the width
+  change re-evaluates `(max-width: 720px) and (pointer: coarse)` with coarse already true. The
+  other order leaves the compound query never firing its `change`.
+- **`enableCameraPanning` is transient and `panEnabled` is not.** `fit()` enables panning for
+  its 380 ms flight and disables it on landing, and `toRest()` clicks Fit, so a read taken
+  right after `toRest` lands *inside* a flight and sees panning on. `settlePan()` waits for the
+  pair to stop changing, and the assertion is on `__vg.panEnabled`, which `setPan` writes
+  synchronously. The first cut of the check polled for stability *before* the resize beat's
+  120 ms debounce had even fired, found the value trivially stable at its old reading, and
+  failed on a page that was already correct.

@@ -2421,6 +2421,207 @@ check("the panel toggles fold each panel away and give the space back", async (p
   };
 });
 
+// github#170, design/0013 -- the only checks here that emulate touch
+const PHONE_HIT = 44;
+const PHONE_DEVICES = [{ name: "iPhone 14", w: 390, h: 844 }, { name: "Pixel 7", w: 412, h: 915 }];
+const PHONE_PROBE = `(function () {
+  var box = function (el) {
+    if (!el) return null;
+    var r = el.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height),
+             x: Math.round(r.left), y: Math.round(r.top),
+             r2: Math.round(r.right), b2: Math.round(r.bottom) };
+  };
+  var root = document.querySelector(".vault-graph");
+  var g = document.getElementById("vg-graph");
+  var gb = g ? g.getBoundingClientRect() : null;
+  var SEL = "#vg-cam button, #vg-mob button, #vg-ov, #vg-heatsrc button, #vg-recent button," +
+            " #vg-compact, #vg-rangebox .dt, #vg-rangeall, #vg-years button," +
+            " #vg-dim button, .dimall button, .tools button, .lgr .eye, .lgr .tw, .lg .only";
+  var small = [], over = [], n = 0;
+  Array.prototype.forEach.call(document.querySelectorAll(SEL), function (el) {
+    var r = el.getBoundingClientRect();
+    if (!r.width && !r.height) return;
+    n++;
+    var owner = el.id || (el.closest("[id]") ? el.closest("[id]").id : el.tagName);
+    var name = el.id || owner + " " + (el.className || el.tagName);
+    // github#170 D-6 -- the year strip is on a date axis, so its width is the data
+    var yr = el.parentElement && el.parentElement.id === "vg-years";
+    var bad = yr ? r.height < ${PHONE_HIT}
+                 : (r.width < ${PHONE_HIT} || r.height < ${PHONE_HIT});
+    if (bad) small.push(name + " " + Math.round(r.width) + "x" + Math.round(r.height));
+    if (gb && !(r.right <= gb.left || r.left >= gb.right ||
+                r.bottom <= gb.top || r.top >= gb.bottom)) over.push(name);
+  });
+  var hrow = document.querySelector("#vg-heat .hrow"), outside = [], lines = {};
+  if (hrow) {
+    var hb = hrow.getBoundingClientRect();
+    Array.prototype.forEach.call(hrow.children, function (c) {
+      var r = c.getBoundingClientRect();
+      if (!r.width && !r.height) return;
+      if (r.left < hb.left - 0.5 || r.right > hb.right + 0.5) {
+        outside.push((c.id || c.className) + " " + Math.round(r.left) + ".." + Math.round(r.right));
+      }
+      if (c.id) lines[c.id] = Math.round(r.top);
+    });
+  }
+  var pan = document.getElementById("vg-pan");
+  return { phone: !!__vg.phone, narrow: !!__vg.narrow,
+           coarse: !!(window.matchMedia && matchMedia("(pointer: coarse)").matches),
+           scrollH: root.scrollHeight, clientH: root.clientHeight,
+           overflowY: getComputedStyle(root).overflowY,
+           graph: box(g), sidebar: box(document.getElementById("vg-sidebar")),
+           heat: box(document.getElementById("vg-heat")),
+           panning: !!__vg.panEnabled,
+           liveSetting: !!__vg.renderer.getSetting("enableCameraPanning"),
+           panLaidOut: !!(pan && pan.offsetParent),
+           controls: n, small: small, over: over,
+           hrowOutside: outside, compactY: lines["vg-compact"], rangeY: lines["vg-rangebox"] };
+})()`;
+
+// github#170 -- see .ai-context/mobile-harness.md
+const settlePan = async (p) => {
+  await toRest(p);
+  await sleep(1200);
+  let prev = null, stable = 0;
+  for (let i = 0; i < 25 && stable < 3; i++) {
+    const now = await p.j(`__vg.panEnabled + "/" +
+                           __vg.renderer.getSetting("enableCameraPanning")`);
+    stable = now === prev ? stable + 1 : 0;
+    prev = now;
+    await sleep(200);
+  }
+};
+
+// github#170
+check("a phone gets the disc whole at the top of a page that scrolls", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  // github#170 -- the only checks that emulate touch; they own putting the page back
+  const restore = async () => {
+    await p.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {});
+    await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    await sleep(500);
+    await settlePan(p);
+  };
+  const said = [], bad = [];
+  try {
+    for (const d of PHONE_DEVICES) {
+      // github#170 -- the device before its viewport; see mobile-harness.md
+      await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+      await p.send("Emulation.setDeviceMetricsOverride",
+                   { width: d.w, height: d.h, deviceScaleFactor: dpr, mobile: true });
+      await sleep(700);
+      // github#170 -- see .ai-context/mobile-harness.md
+      await settlePan(p);
+      // github#170 -- the trace below scrolls the page; measure from the top
+      await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+      await sleep(200);
+      const r = await p.j(PHONE_PROBE);
+      const say = (cond, what) => { if (!cond) bad.push(d.name + ": " + what); return cond; };
+
+      say(r.coarse && r.phone, `the page does not call itself a phone (coarse ${r.coarse}, ` +
+                               `__vg.phone ${r.phone}) -- NARROW_PX and page.css disagree`);
+      say(r.over.length === 0, `${r.over.join(", ")} over the disc`);
+      say((r.overflowY === "auto" || r.overflowY === "scroll") && r.scrollH > r.clientH,
+          `the page does not scroll (overflow-y ${r.overflowY}, ${r.scrollH} in ${r.clientH})`);
+      say(!!r.graph && !!r.sidebar && r.sidebar.y >= r.graph.b2 - 1,
+          `the panel is not below the disc (panel top ${r.sidebar && r.sidebar.y}, ` +
+          `disc ends ${r.graph && r.graph.b2})`);
+      say(!!r.heat && !!r.graph && r.heat.y >= r.graph.b2 - 1,
+          `the band is not below the disc (band top ${r.heat && r.heat.y})`);
+      say(!r.panning && !r.panLaidOut,
+          `pan is ${r.panning ? "ON" : "off"} and its toggle is ` +
+          `${r.panLaidOut ? "drawn" : "not drawn"}`);
+      say(r.small.length === 0, `${r.small.length} control(s) under ${PHONE_HIT}px: ` +
+                                r.small.join(", "));
+      say(r.hrowOutside.length === 0, `band controls outside their row: ${r.hrowOutside.join(", ")}`);
+      say(r.compactY !== undefined && r.compactY === r.rangeY,
+          `the compact toggle is on its own line (y ${r.compactY} against the range's ${r.rangeY})`);
+
+      // github#170 -- a thumb lands on the disc; it must scroll from there
+      const gx = r.graph ? r.graph.x + Math.round(r.graph.w / 2) : Math.round(d.w / 2);
+      const gy = r.graph ? r.graph.y + Math.round(r.graph.h / 2) : Math.round(d.h / 4);
+      await p.eval(`(function () { window.__sev = [];
+        var l = document.querySelector("#vg-graph .vg-layer-mouse"); if (!l) return false;
+        window.__soff = function () {};
+        ["touchstart", "touchmove"].forEach(function (t) {
+          var h = function (e) { window.__sev.push(t + ":" + (e.cancelable ? "live" : "TAKEN") +
+            ":" + (e.defaultPrevented ? "prevented" : "free")); };
+          l.addEventListener(t, h, false);
+          var prev = window.__soff;
+          window.__soff = function () { l.removeEventListener(t, h, false); prev(); };
+        }); return true; })()`);
+      for (const [type, pts] of [["touchStart", [{ x: gx, y: gy, id: 1 }]],
+                                 ["touchMove", [{ x: gx, y: gy - 40, id: 1 }]],
+                                 ["touchMove", [{ x: gx, y: gy - 100, id: 1 }]],
+                                 ["touchEnd", []]]) {
+        await p.send("Input.dispatchTouchEvent", { type, touchPoints: pts }).catch(() => {});
+        await sleep(60);
+      }
+      await sleep(250);
+      const trace = await p.j(`(window.__sev || []).join(" | ")`);
+      await p.eval(`if (window.__soff) window.__soff(); void 0`);
+      const freed = trace.indexOf("touchmove:live:prevented") < 0 && trace.indexOf("TAKEN") >= 0;
+      say(freed, `a thumb cannot scroll the page from the disc [${trace}] ` +
+                 `(panEnabled ${r.panning}, enableCameraPanning ${r.liveSetting}, ` +
+                 `touch-action ${await p.j(
+                   `getComputedStyle(document.querySelector("#vg-graph .vg-layer-mouse")).touchAction`)})`);
+      const cam = await p.j(`(function () { var c = __vg.renderer.getCamera().getState();
+                             return { x: c.x, y: c.y }; })()`);
+      say(Math.abs(cam.x - 0.5) < 1e-6 && Math.abs(cam.y - 0.5) < 1e-6,
+          `that swipe panned the camera to ${cam.x.toFixed(4)},${cam.y.toFixed(4)}`);
+
+      // github#170 -- and the same while a cascade walks, not only at rest
+      const g2 = await biggestGroup(p);
+      let midOver = [];
+      if (g2) {
+        await clickEye(p, g2);
+        await sleep(240);
+        midOver = (await p.j(PHONE_PROBE)).over;
+        await p.eval(`__vg.state.hidden.folder = {}; __vg.syncAlpha(); __vg.applyLayout(false); void 0`);
+        await sleep(200);
+        await toRest(p);
+      }
+      say(midOver.length === 0, `mid-cascade, ${midOver.join(", ")} over the disc`);
+
+      said.push(`${d.name}: disc ${r.graph.w}x${r.graph.h} at ${r.graph.y}, ` +
+                `scrolls by ${r.scrollH - r.clientH}px, band at ${r.heat.y}, ` +
+                `panel at ${r.sidebar.y}, ${r.controls} controls with ${r.small.length} ` +
+                `under ${PHONE_HIT}, pan ${r.panning ? "on" : "off"}`);
+    }
+  } finally {
+    await restore();
+  }
+  return { ok: bad.length === 0, detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#170 -- the other half of the predicate: narrow alone is not a phone
+check("a narrow window with a pointer keeps the desktop's answer", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  let r = null;
+  try {
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: 390, height: 844, deviceScaleFactor: dpr, mobile: false });
+    await sleep(700);
+    await settlePan(p);
+    r = await p.j(PHONE_PROBE);
+  } finally {
+    await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    await sleep(500);
+    await settlePan(p);
+  }
+  const ok = r && !r.coarse && !r.phone && r.narrow && r.panning && r.panLaidOut &&
+             r.overflowY === "hidden";
+  return {
+    ok: !!ok,
+    detail: `390x844 with a fine pointer: coarse ${r && r.coarse}, __vg.narrow ${r && r.narrow}, ` +
+            `__vg.phone ${r && r.phone}, overflow-y ${r && r.overflowY}, ` +
+            `pan ${r && r.panning ? "on" : "OFF"}, toggle ` +
+            `${r && r.panLaidOut ? "drawn" : "NOT DRAWN"}` +
+            (ok ? "" : "  <- A NARROW DESKTOP WINDOW TOOK THE PHONE LAYOUT"),
+  };
+});
+
 // github#13
 
 // github#13
