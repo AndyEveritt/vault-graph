@@ -920,6 +920,14 @@ for the identical `(max-width: 720px)` query. **0.00** per read.
   names.
 - **`sheetOpen` still reads once at mount.** Unchanged by this pass, and still not what was
   reported.
+- **Turning pan off inside a zoom animation no longer cancels it.** `setPan(false)` used to call
+  `fit()`, and `camera.animate` cancels whatever frame is in flight; the guard skips that, so a
+  `zoomBy` animation started moments earlier now completes and leaves the disc slightly off fit
+  with pan off, rather than flying home. Reachable only off a phone -- on one, no `setPan(false)`
+  fires during a zoom, because `phonePanWanted()` only answers `false` at or above fit -- and only
+  inside the first few milliseconds of the 120 ms zoom, while the ratio is still within
+  `atFit()`'s band. Found by reading the diff rather than by a measurement, stated rather than
+  guarded: it needs two inputs a few milliseconds apart, and the next Fit tap corrects it.
 
 ## What this deliberately does not do
 
