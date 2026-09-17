@@ -661,11 +661,21 @@
      sub-pixel width as the bold moved between "Added" and "Touched", which put a 1px wobble
      back into the row -- the fill already says which is on, far louder than 100 units of
      weight would. */
+  /* github#170 -- the three properties a HOST stylesheet imposes on a bare <button>, and the
+     only control in this band that was not already immune to them. Every other button here
+     declares its own radius (.tools/.mini/button.btn 6px, #vg-years 4px, #vg-compact 6px,
+     #vg-rangeall 5px, #vg-cam/#vg-mob 8px) and #vg-tabs .tab declares `border-radius: 0` for
+     exactly this reason; this one declared none, so inside Obsidian it wore Obsidian's. The
+     segment is a fixed `height: var(--vg-hrow-h)` box with `overflow: hidden`, so a host radius
+     domes the pressed half and a host min-height or shadow spills out of the bottom and is
+     sheared off -- which is what a phone showed and what the exported page, with no host CSS
+     around it, can never reproduce. The container owns the rounding; the halves must not. */
   .vault-graph #vg-heatsrc button {
     font: inherit; font-size: 11px; font-weight: 500; line-height: 1;
     display: flex; align-items: center; padding: 0 9px; cursor: pointer;
     background: var(--surface-2); color: var(--text-2);
     border: 0; border-left: 1px solid var(--border);
+    border-radius: 0; min-height: 0; box-shadow: none;
   }
   .vault-graph #vg-heatsrc button:first-child { border-left: 0; }
   .vault-graph #vg-heatsrc button:hover { color: var(--text-1); }
