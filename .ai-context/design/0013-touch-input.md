@@ -893,6 +893,25 @@ loses to anything carrying an id, so a reset at (1,1,0) would have stripped the 
 
 No `!important` anywhere: the issue asked for specificity to do the work, and it can.
 
+### The lens wrapped the line it was written to scroll inside
+
+Also ours, and github#170 had already described the behaviour it was supposed to have: the lens is
+`flex-wrap: nowrap` with its own contained `overflow-x`, so "chips that do not fit scroll inside the
+lens rather than making the band taller". It was also `flex: 1 1 auto` — and an `auto` basis is the
+item's *content* size, which is exactly what a flex line is broken on. So the lens never reached the
+scroller it was given: with three chips it did not fit line 1 and took a line of its own, which is
+the second item in github#178's list.
+
+`flex: 1 1 0` never forces a wrap, and the lens still ends up the same width, because it is the only
+item on that line with a non-zero `flex-grow` — so on the exported page the *box does not move at
+all*, and only the declared basis changes.
+
+**Two chips fit and three do not, which is why no fixture had ever shown this.** The exported page
+has no "Since last open" chip at all (github#70), and a throwaway vault has no `lastSeen` for the
+plugin to build one from — so every harness run until this one measured a two-chip lens. `--seen-days`
+seeds it. This is `.ai-context/mobile-harness.md`'s rule about vault shape, one level down: the
+shape that could not exhibit it was not the vault's notes but the plugin's own stored state.
+
 ### The year strip was ours, and the phone only made it visible
 
 Not a host problem at all. `buildYears` puts `left: <the year's x>` on a chip and the CSS centres it
@@ -930,16 +949,39 @@ the tree at `e4b962f`, headless, demo fixture:
 | | |
 |---|---|
 | 1600 px | **identical**, 39 elements |
-| 390 px | **one element moves** — the leftmost year chip, x −0.19 → 0.00 |
+| 390 px | **two differences, and both are the fix** — the leftmost year chip, x −0.19 → 0.00, and `#vg-recent`'s `flex-basis: auto → 0px` **with its box unchanged** |
 
-The band's controls under the host, with `app.css` injected ahead of `page.css`:
+And the six items, in a real Obsidian — demo fixture, 390×844, mobile emulation, `--seen-days 7`
+so the lens has the three chips a real vault has:
 
 | | before | after |
 |---|---|---|
-| segment halves, phone | **44 px** in a 32 px box | **30 px** |
-| segment halves, desktop | **30 px** in a 26 px row | **24 px** |
-| a bare host button, phone | 44 px, 12 px padding | unchanged — the host is not touched |
-| every other band control | at its declared height | unchanged |
+| 1 the segment's halves | **44 / 44 px** in a 32 px box, labels **7 px low** | **30 / 30 px**, labels centred |
+| 2 the recent lens | its **own line** (top 502 vs the segment's 462), the row on **5 lines**, 181 in 181 | **beside the segment** (462), **4 lines**, **268 in 181 — scrolling** |
+| 3 the fold button and the date fields | **32 px, all four** | unchanged — **this one did not reproduce** |
+| 4 the year strip | `'16` **outside the band** | inside, nothing dropped |
+| 5 the band's boxes | `#vg-heatsrc` **116×44 in 116×30** | **nothing overflows**; ribbon and strip both 350@14 |
+| 6 the calendar's fold | `data-band="off"` at first open | unchanged — **it already held** |
+
+A bare host button stays 44 px throughout: the reset outranks `app.css`, it does not change it.
+
+**Two of the six were not defects, and measuring them is the answer rather than a miss.** The fold
+button and both date fields are 32 px, and the date fields carry the band's own 5 px radius and
+12 px font rather than the host's 44 px radius — so "the inputs render as Obsidian text inputs" is
+not what is happening. And the calendar *does* come up folded inside the host, which github#178
+asked to have settled either way.
+
+**The "three overlapping controls" is two, and both are the desktop's.** `drawRibbon` paints one
+canvas: the month histogram, then the heatmap-window scrubber — a 2 px track across the full width
+with a rounded pill for the window — and then the date-range brush, which dims outside the range and
+draws a 9 px grab handle at each end. That is the pair github#70's "the band's window and the brush
+move independently" is about. Nothing sits between the ribbon and the strip, and the two are the
+same width and left edge. At 390 px they simply read as clutter, which is a product question and is
+left alone here.
+
+**The desktop's own halves are wrong too** — 30 px in a 26 px row, measured with `app.css` injected
+ahead of `page.css` in headless Chrome rather than in Obsidian itself, and 24 px after. That reading
+is a simulation and is labelled as one; the phone numbers above are from the real host.
 
 ### Known limits, stated rather than discovered later
 
