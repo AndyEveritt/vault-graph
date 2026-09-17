@@ -241,7 +241,7 @@ export class MouseCaptor extends Emitter<CaptorEvents> implements MouseCaptorApi
 
   private readonly handleTouchStart = (e: TouchEvent): void => {
     // design/0013
-    // github#173 -- before the claim: a flight's transient panning is not the reader's
+    // github#173 -- a flight's transient panning is not the reader's
     this.host.getCamera().stopAnimation();
     if (this.claimsTouch(e)) e.preventDefault();
     const pts = touchPoints(e, this.container);

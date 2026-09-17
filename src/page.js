@@ -6239,7 +6239,7 @@ function mountVaultGraph(root, data, deps) {
     })();
 
     // github#170, design/0013 -- the zoom is what arms pan here, so watch the camera
-    // github#173 -- the one per-frame caller: off a phone there is nothing to ask
+    // github#173 -- the per-frame caller; off a phone there is nothing to ask
     renderer.getCamera().on("updated", function () { if (!dead && phone()) syncPhonePan(); });
 
     /** @type {number | null} */
@@ -6502,12 +6502,17 @@ function mountVaultGraph(root, data, deps) {
   }
 
   // github#173, design/0013 -- bandOpen is the layout's call, and the layout is live
+  // github#173 -- only on a flip: setBand's own reflow is a resize
+  var bandPhone = phone();
   function syncPhoneBand() {
-    var want = phone() ? false : storedBand;
+    var isPhone = phone();
+    if (isPhone === bandPhone) return;
+    bandPhone = isPhone;
+    var want = isPhone ? false : storedBand;
     if (want !== bandOpen) setBand(want);
   }
 
-  // github#173 -- the two the phone media query decides, on every path that re-asks
+  // github#173 -- the two the phone media query decides, on every path
   function syncPhoneLayout() {
     syncPhonePan();
     syncPhoneBand();
