@@ -28,9 +28,9 @@ page must work standalone. A spec is a file; a file can be read by both hosts.
 
 | read | ignored, with a notice naming the line |
 |---|---|
-| `target-folder:` — exact, `/`, `.`, `X/*`, `/regex/` | every other directive and punctuation-led marker |
+| `target-folder:` — exact, `/`, `/X`, `.`, `./X`, `X/*`, `regexp: P` | every other directive and punctuation-led marker |
 | bare names, as ordered pins | `order-asc`/`order-desc` over `created` and `modified` |
-| `order-asc` / `order-desc` over `a-z` | |
+| `order-asc` / `order-desc` over `a-z` and `true a-z` | |
 | the precedence: exact path > exact name > regexp > wildcard | |
 
 Three things fall out of that table and each is load-bearing.
@@ -47,6 +47,63 @@ the order it always had.
 **A pin naming something that is not there is not an error.** Specs outlive the folders they
 name, and a real root section usually pins *files*, which are not folders at all and can never
 match. Both are normal wear: the pin does not appear, nothing is skipped, nothing is reported.
+
+## The grammar, stated exactly — github#172
+
+The table above is the shape. This is the wording, because a code review of `2.8.0..develop`
+found three places where the page had quietly invented a grammar of its own, and in every one
+**the plugin wins**: it is the thing the spec was written for, and the page is only reading it.
+
+**A `target-folder:` value is ANCHORED or it is bare, and that decides the rank before
+anything else looks at it.**
+
+| value | resolves to | rank |
+|---|---|---|
+| `/` | the vault root | 3, exact path |
+| `/X`, `/X/`, `/X/Y` | `X`, `X`, `X/Y` — from the root | 3, exact path |
+| `.`, `./` | the folder the spec file is in | 3, exact path |
+| `./X` | `<that folder>/X` | 3, exact path |
+| `X`, with no slash and no leading `/` or `.` | a folder **named** `X`, at any depth | 2, exact name |
+| `X/Y` | the path `X/Y` | 3, exact path |
+| `regexp: P`, `regexp: for-name: P` | any folder whose **name** matches `P` | 1 |
+| `/*`, `X/*`, `./*` | that folder and everything under it | 0, wildcard |
+
+**A leading `/` is a root anchor, not noise to be trimmed.** It used to be stripped before the
+rank was decided, so `/Projects` — one segment once the slash was gone — became a rank-2 name
+match and governed `Old/Projects`, a folder its author never named. The rule that replaces it is
+one line: *anchored means the result is a path*, so no anchored value can ever demote to a name
+match. `./` had the same fault in its relative spelling, resolving to a one-segment path and then
+demoting; it is the spec's own folder now, exactly as `.` always was.
+
+**`/regex/` is gone, and it was never the plugin's.** A pattern is spelled `regexp: P` there,
+optionally `regexp: for-name: P`. The page had invented delimiters, which cost twice over: a real
+spec's `regexp:` section was read as a name match on a folder literally called `regexp: ...` and
+so matched nothing at all, silently, while `/Projects/` — a plain root-anchored path with a
+trailing slash — was compiled into a pattern and matched `Old Projects`. Both spellings of the
+plugin's form mean the same thing here, because rank 1 has only ever tested the folder **name**;
+the plugin's bare `regexp:` also matches the path, which this page does not do.
+
+**`a-z` is numeric-aware; `true a-z` is the plain one.** The plugin's own words: under `a-z`
+"numbers are treated specifically and 2 goes before 11", under `true a-z` "numbers are treated
+as texts and 11 goes before 2". The page had exactly one comparator, the plain one, under the
+name of the numeric one — so `2 drafts` and `10 archive` came out `10, 2` on the disc and `2, 10`
+in the explorer beside it — and it rejected `true a-z` outright, with a reason (folder
+timestamps) that is not true of it.
+
+**What is knowingly still not the plugin's, and why it is left alone.** A bare `My Folder` is an
+exact *root-level path* there, and a name match is spelled `target-folder: name: My Folder`. This
+page reads a bare name as the name match, which is more permissive, and changing it would move
+wedges on every vault that ships a spec. It is a separate decision with a golden behind it, not a
+parser fix. Nor does the page read `/...` (the folder and its immediate children only), or the
+`debug:` and `/!:` priority modifiers.
+
+**A section whose `target-folder:` did not resolve is dropped entire, pins and all.** It used to
+be reported skipped and then emitted anyway, aimed at the folder the spec file itself lives in,
+so every pin after the broken line re-ordered *that* folder. The dead section ends at the next
+`target-folder:`, which still reads normally. Line-level skip reporting is deliberately
+untouched by this: whether a line is outside the subset the page reads has nothing to do with
+which section it happens to sit in, so an `order-asc: modified` inside a dead section is still
+named.
 
 ## Only two questions ever reach the parser
 
@@ -122,6 +179,15 @@ opening it in name order shows them an order they deliberately moved away from. 
 An explicit value always wins, which is what makes a choice stick: the host persists on every
 change (`decisions/0009`), so a reader who picks Name keeps Name even in a spec-carrying vault.
 
+**The spec's notice under Folder order belongs to the explorer mode, and follows it.** github#172.
+"no sortspec found in this vault" and "N line(s) skipped" rendered under all three modes, so a
+reader who had chosen `Name` was told about lines that were not being read and a spec that was
+not being applied. It is gated on the resolved mode now — but gating alone would have been half a
+fix, because `setFolderOrder()` never rebuilt the options body: the note would have gone stale
+until the panel was next reopened, which is a worse failure than the one being fixed, since it
+looks right whenever anybody goes looking. The note has its own id and is refreshed beside the
+radio's `aria-checked` loop, which is the idiom already there.
+
 **Both settings surfaces must therefore report the RESOLVED mode, not the stored one.** With
 nothing stored, a control showing the stored value reads "Name" over a disc that is not in name
 order, and picking Name — already the visible selection — looks like a no-op. `liveFolderOrder()`
@@ -164,6 +230,15 @@ wrong tool for exactly the check it exists for. So the mirror carries one — un
 - **A line naming something not in the mirror is dropped, not passed through.** The page treats an
   unresolvable pin as ordinary wear and would carry on, but a mirror that kept real names for what
   it failed to map would be leaking the thing it cannot leak.
+- **The translator reads the same grammar the page does, or a whole section vanishes.**
+  github#172. It mapped `target-folder: .` and nothing else relative, so `./` and `./sub` — both
+  perfectly good to `sortTarget` — came back unmappable, and with the target unresolved every
+  line under them was dropped too: **four lines out of a five-section spec, counted only in
+  `specDropped`**. They resolve against the note's own dir now, exactly as `sortTarget` does, and
+  the same run drops 0. (`./*` was never affected: the wildcard strip leaves a bare `.`.) A
+  `regexp:` target stays unmappable and still takes its section, which is right — a pattern was
+  written against names the mirror deliberately does not have, so there is nothing to translate
+  it into.
 - **A spec is found BY ITS NAME**, so renaming it would hide it from the builder. A `sortspec`
   keeps that name; a folder note keeps its folder's mapped name, or it stops being a folder note.
   The sort plugin's own `data.json` is rewritten to point at the mirrored note, so a globally
