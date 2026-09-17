@@ -67,10 +67,21 @@ function sourceVault() {
   return join(store, hit);
 }
 
-function makeThrowawayVault(src) {
-  for (const f of ["main.js", "manifest.json", "styles.css"]) {
-    if (!existsSync(join(ROOT, f))) throw new Error(f + " is missing at the repo root -- run: node scripts/build-plugin.mjs");
+// github#178 -- --plugin-from keeps one harness over two builds
+const BUILT = ["main.js", "manifest.json", "styles.css"];
+function pluginDir() {
+  const from = arg("plugin-from", "");
+  const dir = from ? resolve(from) : ROOT;
+  for (const f of BUILT) {
+    if (!existsSync(join(dir, f))) {
+      throw new Error(f + " is missing in " + dir +
+        (from ? "" : " -- run: node scripts/build-plugin.mjs"));
+    }
   }
+  return dir;
+}
+
+function makeThrowawayVault(src, plugin) {
   const dest = join(WORK, basename(src));
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(WORK, { recursive: true });
@@ -79,7 +90,7 @@ function makeThrowawayVault(src) {
   mkdirSync(dot, { recursive: true });
   const plug = join(dot, "plugins", PLUGIN_ID);
   mkdirSync(plug, { recursive: true });
-  for (const f of ["main.js", "manifest.json", "styles.css"]) cpSync(join(ROOT, f), join(plug, f));
+  for (const f of BUILT) cpSync(join(plugin, f), join(plug, f));
   writeFileSync(join(dot, "community-plugins.json"), JSON.stringify([PLUGIN_ID]) + "\n");
   return dest;
 }
@@ -213,12 +224,14 @@ const PROBE = `(function () {
 /* -------------------------------------------------------------------- run -- */
 
 const src = sourceVault();
+const plugin = pluginDir();
 console.log("host-phone-check: " + findObsidian());
 console.log("vault:    " + src);
+console.log("plugin:   " + plugin);
 console.log("viewport: " + W + "x" + H);
 console.log("port:     " + PORT);
 
-const vault = makeThrowawayVault(src);
+const vault = makeThrowawayVault(src, plugin);
 console.log("throwaway vault: " + vault);
 
 // github#87
