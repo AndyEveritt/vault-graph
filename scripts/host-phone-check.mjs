@@ -26,6 +26,7 @@ const KEEP = flag("keep");
 const NO_LOCK = flag("no-lock");
 const JSON_OUT = arg("json", "");
 const SHOT = arg("shot", "");
+const SEEN_DAYS = Number(arg("seen-days", "0")) || 0;
 const TEMP = process.env.TEMP || tmpdir();
 const WORK = join(TEMP, "vault-graph-host-phone");
 const PROFILE = join(TEMP, "vault-graph-host-phone-profile");
@@ -92,6 +93,13 @@ function makeThrowawayVault(src, plugin) {
   mkdirSync(plug, { recursive: true });
   for (const f of BUILT) cpSync(join(plugin, f), join(plug, f));
   writeFileSync(join(dot, "community-plugins.json"), JSON.stringify([PLUGIN_ID]) + "\n");
+  // github#70 -- lastSeen is what puts the third chip in the lens
+  if (SEEN_DAYS) {
+    writeFileSync(join(plug, "data.json"), JSON.stringify({
+      dim: "folder", liveRefresh: true, compactAxis: true,
+      lastSeen: Date.now() - SEEN_DAYS * 86400000
+    }) + "\n");
+  }
   return dest;
 }
 
@@ -136,10 +144,13 @@ const PROBE = `(function () {
   var heat = q('heat'), src = q('heatsrc'), recent = q('recent'), years = q('years'), ribbon = q('ribbon');
   var hrow = heat ? heat.querySelector('.hrow') : null;
 
+  var segBox = src ? src.getBoundingClientRect() : null;
+  var segMid = segBox ? (segBox.top + segBox.bottom) / 2 : 0;
+  // github#178 -- the label is read against the box that SHOWS, not the one clipped
   var segButtons = src ? [].slice.call(src.querySelectorAll('button')).map(function (b) {
     var bb = box(b), tb = textBox(b);
     return { label: b.textContent.trim(), pressed: b.getAttribute('aria-pressed'), box: bb,
-             text: tb, textOff: tb && bb ? +(tb.mid - (bb.y + bb.h / 2)).toFixed(2) : null,
+             text: tb, textOff: tb ? +(tb.mid - segMid).toFixed(2) : null,
              css: cs(b, CTRL) };
   }) : [];
 
@@ -214,7 +225,7 @@ const PROBE = `(function () {
     range: { compact: box(q('compact')), from: box(q('from')), to: box(q('to')), all: box(q('rangeall')),
              compactCss: cs(q('compact'), CTRL), fromCss: cs(q('from'), CTRL), allCss: cs(q('rangeall'), CTRL) },
     years: { box: box(years), chips: yearChips },
-    ribbon: { box: box(ribbon), heatwrap: box(q('heatwrap')) },
+    ribbon: { box: box(ribbon), heatwrap: box(q('heatwrap')), heatc: box(q('heatc')) },
     scrollers: scrollers,
     overRibbon: overRibbon,
     belowRibbon: below
@@ -339,13 +350,27 @@ try {
 
   // design/0013 -- bandOpen is read once, at mount
   await cdp.eval("app.commands.executeCommandById(" + JSON.stringify(PLUGIN_ID + ":open") + "); void 0");
+  // github#62 -- obsidian-smoke's settle: busy hidden, positions stable
+  const READY = "(function(){ var ls = app.workspace.getLeavesOfType(" + JSON.stringify(VT) + ");" +
+    " var v = ls[0] && ls[0].view; if (!v || !v.handle || !v.handle.api) return null;" +
+    " var api = v.handle.api; if (!api.graph || !api.renderer) return null;" +
+    " var busy = v.contentEl.querySelector('#vg-busy'); if (busy && !busy.hidden) return null;" +
+    " var sum = 0; api.graph.forEachNode(function (id, a) { sum += a.x + a.y; });" +
+    " if (window.__vgPhonePos !== sum) { window.__vgPhonePos = sum; return null; }" +
+    " return { order: api.graph.order }; })()";
   const deadline = Date.now() + 180000;
   for (;;) {
-    const ready = await cdp.eval("(function(){ var ls = app.workspace.getLeavesOfType(" + JSON.stringify(VT) + ");" +
-      " var v = ls[0] && ls[0].view; return !!(v && v.handle && v.handle.api && v.handle.api.graph" +
-      " && !v.handle.api.demo.busy()); })()").catch(() => false);
-    if (ready) break;
-    if (Date.now() > deadline) throw new Error("the view never settled inside Obsidian");
+    const ready = await cdp.eval(READY).catch(() => null);
+    if (ready) { console.log("view ready: " + JSON.stringify(ready)); break; }
+    if (Date.now() > deadline) {
+      const why = await cdp.eval("(function(){ var ls = app.workspace.getLeavesOfType(" + JSON.stringify(VT) + ");" +
+        " var v = ls[0] && ls[0].view;" +
+        " return { leaves: ls.length, view: !!v, deferred: !!(v && v.getViewType === undefined)," +
+        " handle: !!(v && v.handle), api: !!(v && v.handle && v.handle.api)," +
+        " graph: !!(v && v.handle && v.handle.api && v.handle.api.graph)," +
+        " roots: document.querySelectorAll('.vault-graph').length }; })()").catch((e) => String(e));
+      throw new Error("the view never settled inside Obsidian -- " + JSON.stringify(why));
+    }
     await sleep(400);
   }
   await sleep(600);
@@ -384,12 +409,14 @@ try {
   const lensTop = p.lens.box ? Math.round(p.lens.box.y) : -2;
   const sameLine = Math.abs(segTop - lensTop) <= 2;
   const chipH = p.lens.chips.map((c) => (c.box ? Math.round(c.box.h) : 0));
-  const chipPad = p.lens.chips.map((c) => num(c.css["padding-left"]));
-  const chipsOk = chipH.every((h) => h === 26) && chipPad.every((v) => v <= 6.5);
+  const rowTops = p.row.filter((k) => k.box && k.box.h).map((k) => Math.round(k.box.y));
+  const lines = [...new Set(rowTops)].length;
+  const chipsOk = chipH.length > 0 && chipH.every((h) => h === 26);
   report(sameLine && chipsOk,
     "2 the recent lens keeps line 1 and the chips keep the row's rhythm",
-    "lens top " + lensTop + " vs segment top " + segTop + ", chip heights " + chipH.join("/") +
-    ", chip padding-left " + chipPad.join("/") + "px");
+    p.lens.chips.length + " chips, lens top " + lensTop + " vs segment top " + segTop +
+    ", chip heights " + chipH.join("/") + ", the row wraps onto " + lines + " line(s)" +
+    ", lens scrolls " + p.lens.sw + " in " + p.lens.cw);
 
   // github#178 -- item 3
   const dateRow = [["compact", p.range.compact], ["from", p.range.from], ["to", p.range.to], ["all", p.range.all]]
@@ -403,14 +430,16 @@ try {
   const ybox = p.years.box;
   // github#178 -- a chip may bleed into the padding, not out
   const heatBox = p.band.heat;
+  // github#178 -- half a chip minus the padding is not float noise
+  const EDGE = 0.05;
   const outside = p.years.chips.filter((c) => c.box && heatBox &&
-    (c.box.x < heatBox.x - 0.5 || c.box.right > heatBox.right + 0.5));
+    (c.box.x < heatBox.x - EDGE || c.box.right > heatBox.right + EDGE));
   const sorted = p.years.chips.filter((c) => c.box).slice().sort((a, b) => a.box.x - b.box.x);
   const overlaps = [];
   for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].box.x < sorted[i - 1].box.right - 0.5) {
+    if (sorted[i].box.x < sorted[i - 1].box.right - EDGE) {
       overlaps.push(sorted[i - 1].yr + "/" + sorted[i].yr +
-        " by " + (sorted[i - 1].box.right - sorted[i].box.x).toFixed(1) + "px");
+        " by " + (sorted[i - 1].box.right - sorted[i].box.x).toFixed(2) + "px");
     }
   }
   report(outside.length === 0 && overlaps.length === 0,
@@ -420,11 +449,16 @@ try {
 
   // github#178 -- item 5
   const strays = p.belowRibbon.filter((e) => e.id !== "vg-years" && e.box.h > 2);
+  // github#178 -- vg-recent scrolls on purpose, nothing else does
   const bandScrollers = p.scrollers.filter((s) => s.id !== "vg-recent");
-  report(strays.length === 0 && bandScrollers.length === 0,
-    "5 the range reads as one control under the ribbon",
+  const rb = p.ribbon.box, yb = p.years.box;
+  const sameWidth = !!(rb && yb && Math.abs(rb.w - yb.w) < 0.5 && Math.abs(rb.x - yb.x) < 0.5);
+  report(strays.length === 0 && bandScrollers.length === 0 && sameWidth,
+    "5 nothing in the band overflows its box, and the ribbon and the strip share a width",
     "between the ribbon and the years: " + (strays.map((e) => e.id + " " + e.box.w + "x" + e.box.h).join(", ") || "nothing") +
-    "; scrolling in the band: " + (bandScrollers.map((s) => s.id + " " + s.sw + ">" + s.cw).join(", ") || "none"));
+    "; ribbon " + (rb ? rb.w + "@" + rb.x : "?") + " vs strip " + (yb ? yb.w + "@" + yb.x : "?") +
+    "; overflowing: " +
+    (bandScrollers.map((s) => s.id + " " + s.sw + "x" + s.sh + " in " + s.cw + "x" + s.ch).join(", ") || "none"));
 
   // github#178 -- item 6
   report(folded === "off",

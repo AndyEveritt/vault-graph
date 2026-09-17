@@ -9543,6 +9543,11 @@ function mountVaultGraph(root, data, deps) {
     var positions = dateSpan.years.map(function (yy) {
       return Math.max(0, Math.min(w, ribbonX(Date.UTC(yy.y, 0, 1), w)));
     });
+    var minGap = Infinity;
+    for (var gi = 1; gi < positions.length; gi++) {
+      minGap = Math.min(minGap, positions[gi] - positions[gi - 1]);
+    }
+    var every = (positions.length > 1 && minGap < 28) ? 2 : 1;
     var cur = null;
     var cf = state.from === null ? dateSpan.lo : state.from;
     var ct = state.to === null ? dateSpan.hi : state.to;
@@ -9551,11 +9556,6 @@ function mountVaultGraph(root, data, deps) {
         ca.getUTCMonth() === 0 && ca.getUTCDate() === 1 &&
         (cb.getUTCMonth() === 11 && cb.getUTCDate() === 31 ||
          ct >= dateSpan.hi)) cur = ca.getUTCFullYear();
-    var minGap = Infinity;
-    for (var gi = 1; gi < positions.length; gi++) {
-      minGap = Math.min(minGap, positions[gi] - positions[gi - 1]);
-    }
-    var every = (positions.length > 1 && minGap < 28) ? 2 : 1;
     /** @type {HTMLButtonElement[]} */
     var made = [];
     /** @type {number[]} */
