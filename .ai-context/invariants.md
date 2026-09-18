@@ -3886,6 +3886,90 @@ asked for.
 node scripts/smoke.mjs --only "land by path"
 ```
 
+## A word count lands only while its build still owns that note
+
+github#184. Both `readWords()` callbacks in `plugin/main.js` guarded on **object identity** --
+`this.handle === handle` in the opening sweep, `this.handle === handle && handle.api === api` in the
+live path. A live refresh calls `api.applyData()` on the mount it already has: it creates no new
+handle and no new api by design, so identity is the same object across every build of one mounted
+page, and it cannot separate them. Two races followed from that.
+
+**Live versus live.** `readWords` is fired with `void` and `liveBuilding` is cleared in the `finally`
+without awaiting it, so refresh B runs to completion while A's reads are still out. A then resolves
+with the content it snapshotted *before* the edit and calls `setWords()` over B's fresh count.
+
+**The opening sweep versus a live refresh -- the wider window.** The background read after the mount
+walks **every file in the vault**. Any note edited during that sweep gets its live-refreshed count
+overwritten when the sweep's read for that note resolves. That window is the whole vault read, not
+one note's: seconds to minutes on a large vault rather than milliseconds. Either way the wrong count
+sticks on screen until that note happens to be edited again.
+
+**The counter is per PATH, not per build, and that distinction is the whole design.** The view
+carries `buildGen`, bumped once per `readWords()` call started, and `wordsGen`, a `path -> claim`
+map that `teardown()` clears. Each call claims the paths it is about to read -- every node for the
+opening sweep, `want` for a live refresh -- and a callback writes only while `wordsGen.get(id)` is
+still its own claim.
+
+A plain per-build counter, which is what the issue proposed, is **worse than the defect**. A live
+refresh re-reads only the notes that changed (`want` is the dirty set plus whatever the build has no
+previous count for), and it carries every other count forward from `lastData` -- which during the
+opening sweep is still `0`, because the sweep has not landed yet. So a per-build guard drops the
+entire sweep on the first edit and leaves every uncontested note holding nothing. Measured on the
+harness below, with the per-build variant in place: **one edit during the sweep left `setWords`
+called once instead of three times, and two of the three notes with no count at all.** Claiming per
+path drops exactly the contested read and lets the rest of the sweep land.
+
+```bash
+node scripts/words-race-check.mjs       # headless, ~10s, no display and no screen lock
+```
+
+The harness bundles the **real** `VaultGraphView` against stubbed `obsidian`, `src/page.js` and
+`src/engine/index` and runs it in headless Chrome over `cdp.mjs`, the same shape as
+`render-race-check.mjs`. It latches somewhere different, because these races are elsewhere: every
+`vault.cachedRead` **snapshots the note's content at the moment the read is made** and then parks
+its resolve on a gate the driver releases by id. That is what "A resolves with pre-edit content"
+means, made literal, and it is what lets two builds' reads be interleaved by hand rather than raced.
+`setWords` is the measurement -- what the **page** was left holding, not what the view thinks.
+Thirteen checks over five scenarios:
+
+| | before | after |
+|---|---|---|
+| a plain open, nothing racing — counts on the page | 3, 2, 1 | 3, 2, 1 (**regression guard**) |
+| refreshes A then B on one note, **A's read resolving last** — the page's count | `3`, A's stale read | **`5`, B's** |
+| — `setWords` calls | 5 | **4**, A's callback wrote nothing |
+| a note edited mid-sweep — the edited note's count | `1`, the pre-edit read | **`4`, the refresh's** |
+| — the two notes the refresh never claimed | 2, 3 | 2, 3 (**regression guard**) |
+| — with a per-BUILD guard instead | — | 2 of 3 notes hold **no count**, `setWords` 1 not 3 |
+| two refreshes claiming **different** notes — the first refresh's count | 3 | 3 (**regression guard**) |
+| — entries in the claim map, on a three-note vault | — | **3**, one per node, rebuilt each refresh |
+| the view closed with three reads still out — `setWords` calls after release | 0 | 0 |
+
+**4 of 13 checks fail before, 13 of 13 pass after.** The regression-guard rows pass on both sides on
+purpose: the fix has to drop the contested read *without* dropping the sweep, and a harness that only
+asserted the first half would have signed off the per-build variant.
+
+**The claim map is rebuilt from `next.nodes` on every live refresh**, carrying each unclaimed path's
+existing claim across and dropping any path the new build no longer has. Two reasons, and the first
+is the smaller one: without it the map accumulates an entry for every distinct path ever dirtied
+during the life of one mount, which for a view left open all day with renames in it is the growth
+shape github#120 exists for. The second is correctness -- a claim held on a path that has been
+renamed away would let a read land `setWords()` on an id the page no longer has. Scenario 3c
+measures the bound directly: **three entries on a three-note vault after two refreshes**, carrying
+three distinct claims (`three.md` still the opening sweep's, `one.md` the first refresh's,
+`two.md` the second's) -- which is the per-path design made visible.
+
+**`liveRebuild()`'s own `github#62` handle-identity guard is untouched** -- the
+`if (this.handle !== handle || handle.api !== api) return;` on the far side of `buildData`. That one
+stops an old *live result* reaching a replacement graph, which is a different race in a different
+place. What went is the identity test inside the two `readWords` callbacks, which the claim strictly
+subsumes: every way the handle or the api changes routes through `teardown()`, and `teardown()`
+clears the claim map, so a read that outlived its mount finds no claim and drops (scenario 4).
+
+**What this does not establish.** The window was reproduced on a three-note stub, not measured on a
+real vault: no figure was taken for how long the opening sweep actually runs on the 10k fixture, or
+how often a note is edited inside it in practice. The issue reported the defect from reading the
+code, and nothing here changes that provenance.
+
 ## Comments are pointers, and the count only goes down
 
 github#61 cut every comment in `plugin/`, `src/` and `scripts/` to a pointer — a bare

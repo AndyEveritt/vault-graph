@@ -615,6 +615,11 @@ class VaultGraphView extends ItemView {
     this.liveRefs = null;
     // github#140 -- the current render; only teardown() moves it
     this.renderGen = 0;
+    // github#184 -- one per word read started, so a late read can be told apart
+    this.buildGen = 0;
+    // github#184 -- path -> the build that owns that path's count
+    /** @type {Map<string, number>} */
+    this.wordsGen = new Map();
     // github#140 -- render() owns this now, not the Refresh button
     this.rebuilding = false;
      // github#70
@@ -640,6 +645,8 @@ class VaultGraphView extends ItemView {
   // github#62; github#140 -- the one place a render is invalidated
   teardown() {
     this.renderGen++;
+    // github#184 -- a pending word read outlives the mount it was started for
+    this.wordsGen.clear();
     // github#140 -- nothing is current after this, so nothing is busy
     this.rebuilding = false;
     // github#72
@@ -789,11 +796,23 @@ class VaultGraphView extends ItemView {
       const want = new Set(dirty);
       for (const n of next.nodes) if (wordsBefore(n.id) === undefined) want.add(n.id);
       if (!want.size) return;
+      // github#184 -- claim these paths, so a read still out for them is dropped
+      const claim = ++this.buildGen;
+      // github#184 -- rebuilt from next.nodes: a path that is gone cannot pile up
+      const held = this.wordsGen;
+      this.wordsGen = new Map();
+      for (const n of next.nodes) {
+        if (want.has(n.id)) { this.wordsGen.set(n.id, claim); continue; }
+        const was = held.get(n.id);
+        if (was !== undefined) this.wordsGen.set(n.id, was);
+      }
       void next.readWords((i, words) => {
         const node = next.nodes[i];
         if (!node) return;
+        // github#184 -- identity cannot separate two builds of the same mount
+        if (this.wordsGen.get(node.id) !== claim) return;
         node.words = words;
-        if (this.handle === handle && handle.api === api) api.setWords(node.id, words);
+        api.setWords(node.id, words);
       }, want).catch(() => {});
     } catch (e) {
       new Notice("Vault Graph: live refresh failed -- " + (e instanceof Error ? e.message : String(e)));
@@ -1076,13 +1095,18 @@ class VaultGraphView extends ItemView {
     this.mountMs = Math.round(performance.now() - t0);
 
     const handle = this.handle;
+    // github#184 -- this sweep owns every path until a newer build claims one
+    const claim = ++this.buildGen;
+    for (const node of data.nodes) this.wordsGen.set(node.id, claim);
     // github#58; github#72, design/0014 -- by PATH, never by index
     void data.readWords((i, words) => {
       const node = data.nodes[i];
       if (!node) return;
+      // github#184 -- per path, never per build: an unclaimed path still lands
+      if (this.wordsGen.get(node.id) !== claim) return;
       node.words = words;
       const api = handle.api;
-      if (api && api.setWords && this.handle === handle) api.setWords(node.id, words);
+      if (api && api.setWords) api.setWords(node.id, words);
     }).then((ms) => { data._spike.msWordsBackground = ms; }, () => {});
 
     // github#72
