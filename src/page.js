@@ -6592,7 +6592,7 @@ function mountVaultGraph(root, data, deps) {
         // github#131
         (a.ghost ? "" : '<a class="open" title="Open in Obsidian" href="obsidian://open?vault=' +
                         vault + '&file=' + file + '">Open</a>') +
-        '<button class="btn pin" data-pin="' + id + '" aria-pressed="' + isPinned(id) + '" title="' +
+        '<button class="btn pin" data-pin="' + esc(id) + '" aria-pressed="' + isPinned(id) + '" title="' +
           (isPinned(id) ? "Unpin from hub" : "Pin to hub") + '">' + pinSvg(isPinned(id)) +
           ' Pin to hub</button>' +
       '</div>';
@@ -6600,7 +6600,7 @@ function mountVaultGraph(root, data, deps) {
     if (nb.length) {
       h += '<div class="nb">Linked notes (' + nb.length + ')</div><ul>' +
         nb.slice(0, 40).map(function (n) {
-          return '<li><button data-go="' + n + '">' +
+          return '<li><button data-go="' + esc(n) + '">' +
                  esc(graph.getNodeAttribute(n, "label")) +
                  ' <span style="color:var(--text-3)">' + graph.getNodeAttribute(n, "deg") + '</span></button></li>';
         }).join("") + '</ul>';
@@ -7350,7 +7350,7 @@ function mountVaultGraph(root, data, deps) {
       });
       found.sort(function (p, o) { return graph.getNodeAttribute(o, "deg") - graph.getNodeAttribute(p, "deg"); });
       setHTML(hits, found.slice(0, 40).map(function (id) {
-        return '<button data-hit="' + id + '">' + esc(graph.getNodeAttribute(id, "label")) +
+        return '<button data-hit="' + esc(id) + '">' + esc(graph.getNodeAttribute(id, "label")) +
                ' <span style="color:var(--text-3)">' + graph.getNodeAttribute(id, "deg") + '</span></button>';
       }).join("") || '<div style="color:var(--text-3);font-size:11px;padding:4px">No match</div>');
       Array.prototype.forEach.call(hits.querySelectorAll("[data-hit]"), /** @param {HTMLElement} b */ function (b) {
