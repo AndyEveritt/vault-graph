@@ -173,6 +173,67 @@ check("a closing-script marker in frontmatter cannot escape the data script", as
   }
 });
 
+// github#183 -- ingest() (github#72) hands out a synthetic sequential id to every node,
+// ghosts included, and stores the vault-relative (or "ghost:...") string only under the
+// "path" attribute -- so a wikilink target with a quote in it never reaches these three
+// sites through a real build. Drive them directly through the exposed debug surface
+// instead: a node injected straight into __vg.graph carries whatever id we give it.
+check("a node id carrying quotes round-trips through data-pin, data-go and data-hit", async (p) => {
+  const r = await p.j(`(function () {
+    var EVIL = 'quote" onmouseover="window.__vg183=1\\' vgxsstoken';
+    var wasSelected = __vg.state.selected;
+    __vg.graph.addNode(EVIL, {
+      label: "vgxsstoken", x: 0, y: 0, size: 4, folder: "(unresolved)", sub: "", dirs: [],
+      ntype: "ghost", tags: [], path: "vgxsstoken.md", deg: 1, created: "", touched: "",
+      words: 0, ghost: true
+    });
+    // github#183 -- a fresh id, so neighboursOf()'s memo cache cannot already hold it
+    __vg.adj[EVIL] = [{ o: EVIL, w: 1 }];
+
+    __vg.select(EVIL);
+    var pinBtns = document.querySelectorAll("[data-pin]");
+    var pinHit = pinBtns.length === 1 ? pinBtns[0] : null;
+    var goHit = null;
+    document.querySelectorAll("[data-go]").forEach(function (b) {
+      if (b.getAttribute("data-go") === EVIL) goHit = b;
+    });
+
+    var q = document.querySelector("#vg-q");
+    q.value = "vgxsstoken";
+    q.dispatchEvent(new Event("input"));
+    var hitHit = null;
+    document.querySelectorAll("[data-hit]").forEach(function (b) {
+      if (b.getAttribute("data-hit") === EVIL) hitHit = b;
+    });
+
+    // github#183 -- leave the fixture as this check found it
+    q.value = ""; q.dispatchEvent(new Event("input"));
+    __vg.select(wasSelected);
+    delete __vg.adj[EVIL];
+    __vg.graph.dropNode(EVIL);
+
+    return {
+      EVIL: EVIL,
+      pinCount: pinBtns.length, pinVal: pinHit ? pinHit.getAttribute("data-pin") : null,
+      pinExtra: pinHit ? pinHit.hasAttribute("onmouseover") : null,
+      goVal: goHit ? goHit.getAttribute("data-go") : null, goExtra: goHit ? goHit.hasAttribute("onmouseover") : null,
+      hitVal: hitHit ? hitHit.getAttribute("data-hit") : null, hitExtra: hitHit ? hitHit.hasAttribute("onmouseover") : null
+    };
+  })()`);
+  const bad = [];
+  if (r.pinCount !== 1) bad.push("panel rendered " + r.pinCount + " pin button(s), not 1");
+  if (r.pinVal !== r.EVIL) bad.push("data-pin read back " + JSON.stringify(r.pinVal));
+  if (r.pinExtra) bad.push("data-pin button carries a live onmouseover");
+  if (r.goVal !== r.EVIL) bad.push("data-go read back " + JSON.stringify(r.goVal));
+  if (r.goExtra) bad.push("data-go button carries a live onmouseover");
+  if (r.hitVal !== r.EVIL) bad.push("data-hit read back " + JSON.stringify(r.hitVal));
+  if (r.hitExtra) bad.push("data-hit button carries a live onmouseover");
+  return { ok: !bad.length,
+           detail: bad.length ? bad.join(" | ")
+             : "id " + JSON.stringify(r.EVIL) + " round-tripped through data-pin, data-go and " +
+               "data-hit with no extra attribute on any of the three" };
+});
+
 check("legend opens folded to top-level folders", async (p) => {
   const r = await p.j(`{
     rows: document.querySelectorAll('#vg-legend .lgr').length,
