@@ -798,7 +798,14 @@ class VaultGraphView extends ItemView {
       if (!want.size) return;
       // github#184 -- claim these paths, so a read still out for them is dropped
       const claim = ++this.buildGen;
-      for (const path of want) this.wordsGen.set(path, claim);
+      // github#184 -- rebuilt from next.nodes: a path that is gone cannot pile up
+      const held = this.wordsGen;
+      this.wordsGen = new Map();
+      for (const n of next.nodes) {
+        if (want.has(n.id)) { this.wordsGen.set(n.id, claim); continue; }
+        const was = held.get(n.id);
+        if (was !== undefined) this.wordsGen.set(n.id, was);
+      }
       void next.readWords((i, words) => {
         const node = next.nodes[i];
         if (!node) return;

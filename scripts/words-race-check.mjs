@@ -204,6 +204,12 @@ H.release = (id) => {
 H.releaseLast = () => H.release(H.gates[H.gates.length - 1].id);
 H.releaseAll = () => { const n = H.gates.length; while (H.gates.length) H.release(H.gates[0].id); return n; };
 
+H.claims = () => {
+  const out = {};
+  for (const e of (H.view.wordsGen || [])) out[e[0]] = e[1];
+  return out;
+};
+
 H.snapshot = () => ({
   counts: Object.assign({}, H.counts),
   sets: H.sets.length,
@@ -405,6 +411,30 @@ try {
         "two.md " + s.counts["two.md"] + ", three.md " + s.counts["three.md"]);
   check(s.open === 0 && s.notices.length === 0, "no read left parked, no notice raised",
         "gates " + s.open + ", notices " + JSON.stringify(s.notices));
+
+  /* -- 3c: a second refresh that claims a DIFFERENT note ------------------- */
+  console.log("\n=== 3c: two refreshes claiming different notes, both reads out ===");
+  await j('window.__words.fresh({ "one.md": "a", "two.md": "b", "three.md": "c" })');
+  await j("window.__words.render()");
+  if (!(await settle())) throw new Error("scenario 3c never settled the open");
+  await j("window.__words.hold(true)");
+  await j('window.__words.set("one.md", "p p p")');
+  await j('window.__words.live(["one.md"])');
+  if (!(await settle())) throw new Error("scenario 3c: the first refresh never settled");
+  await j('window.__words.set("two.md", "q q q q q q")');
+  await j('window.__words.live(["two.md"])');
+  if (!(await settle())) throw new Error("scenario 3c: the second refresh never settled");
+  const claims = await j("window.__words.claims()");
+  await j("window.__words.releaseAll()");
+  await drain();
+  s = await j("window.__words.snapshot()");
+  console.log("  " + show(s) + ", claims " + JSON.stringify(claims));
+  check(s.counts["one.md"] === 3 && s.counts["two.md"] === 6,
+        "a refresh claiming another note leaves the first refresh's read standing",
+        "one.md " + s.counts["one.md"] + ", two.md " + s.counts["two.md"]);
+  check(Object.keys(claims).length === 3,
+        "the claim map is rebuilt per refresh, never longer than the node list",
+        "claims " + JSON.stringify(claims));
 
   /* -- 4: the view closes with reads still out ------------------------------ */
   console.log("\n=== 4: the view is closed while the sweep is still reading ===");
