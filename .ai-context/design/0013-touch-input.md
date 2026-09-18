@@ -929,6 +929,29 @@ for the identical `(max-width: 720px)` query. **0.00** per read.
   `atFit()`'s band. Found by reading the diff rather than by a measurement, stated rather than
   guarded: it needs two inputs a few milliseconds apart, and the next Fit tap corrects it.
 
+### github#182 named this guard as a suspect and CLEARED it
+
+github#182 -- a fitted disc that does not re-centre when the window resizes -- opened by naming
+`atFit()` as the likely cause: a resize keeps the ratio and moves the stage centre, so a camera
+"at fit" by ratio would not be at fit by position, and any resize path reaching the camera through
+`setPan` would skip the re-centre.
+
+**It is not the cause, and the reasoning it rests on is not what the guard does.** `atFit()` has
+never been a ratio-only test -- it compares x, y and angle within `1e-3` as well, as the band
+section above says -- so an off-centre camera fails it and still flies home. And on the resize path
+the question never arises: off a phone `phonePanWanted()` returns `storedPan`, which a resize does
+not change, so `syncPhonePan()` calls `setPan` at all only on a real flip.
+
+Measured rather than argued, on the demo fixture at `e4b962f` (the merge **before** github#175) and
+at `62e235d`: **identical readings, to the pixel** -- 225 px down after the stage went `672x772` to
+`672x322`, 320 px left after `672x772` to `1312x772`, with the camera at `(0.5, 0.5)` and the ratio
+at `0.954` throughout in both. A defect that predates a change by one merge and reproduces
+byte-identically on both sides of it was not introduced by that change.
+
+The real cause was a stage the renderer never re-measured: `resize()` runs only inside `render()`,
+and a container-only resize scheduled neither. github#182 has it, and nothing in this section
+changed.
+
 ## github#178 — the host's CSS, and the promise github#170 made and did not keep
 
 **Status** as-built · 2026-09-17 github#178

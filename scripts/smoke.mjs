@@ -3688,6 +3688,69 @@ check("fit frames the disc that is actually there", async (p) => {
   };
 }, { on: WALK, clock: "real" });
 
+// github#182 -- the drawn disc centre, from the two real rects
+const DRAWN_OFF = `(function () {
+  var r = __vg.renderer, st = r.getCamera().getState();
+  var cont = document.getElementById("vg-graph");
+  var cr = cont.getBoundingClientRect(), vr = cont.querySelector("canvas").getBoundingClientRect();
+  var v = r.graphToViewport({ x: 0, y: 0 });
+  return { dx: +((vr.left + v.x) - (cr.left + cr.width / 2)).toFixed(2),
+           dy: +((vr.top + v.y) - (cr.top + cr.height / 2)).toFixed(2),
+           stage: Math.round(cr.width) + "x" + Math.round(cr.height),
+           ratio: +st.ratio.toFixed(4) };
+})()`;
+
+// github#182 -- a fitted disc that loses the centre on a resize
+check("a resize re-centres a fitted disc on the new stage", async (p) => {
+  const bad = [];
+  const seen = [];
+  const host = `document.querySelector(".vault-graph")`;
+  try {
+    await p.eval(`document.querySelector("#vg-reset").click(); void 0`);
+    const fitted = await camSettle(p);
+    await sleep(400);
+    const at0 = await p.j(DRAWN_OFF);
+    seen.push(`fit ${at0.stage} (${at0.dx}, ${at0.dy})`);
+
+    // github#182 -- the viewport half; this one held on develop
+    for (const [w, h] of [[900, 1200], [1400, 700], [1600, 1000]]) {
+      await p.send("Emulation.setDeviceMetricsOverride",
+                   { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+      await sleep(900);
+      const m = await p.j(DRAWN_OFF);
+      seen.push(`${w}x${h} -> stage ${m.stage} (${m.dx}, ${m.dy})`);
+      if (Math.abs(m.dx) > 1 || Math.abs(m.dy) > 1) {
+        bad.push(`viewport ${w}x${h} left the disc (${m.dx}, ${m.dy}) off the stage centre`);
+      }
+      if (Math.abs(m.ratio - fitted.ratio) > fitted.ratio * 0.005) {
+        bad.push(`viewport ${w}x${h} moved the ratio off fit (${m.ratio} vs ${fitted.ratio})`);
+      }
+    }
+
+    // github#182 -- the container half; the one that actually failed
+    for (const [w, h] of [[640, 760], [1180, 420], [900, 640]]) {
+      await p.eval(`(function () { var el = ${host};
+        el.style.width = "${w}px"; el.style.height = "${h}px"; })(); void 0`);
+      await sleep(900);
+      const m = await p.j(DRAWN_OFF);
+      seen.push(`host ${w}x${h} -> stage ${m.stage} (${m.dx}, ${m.dy})`);
+      if (Math.abs(m.dx) > 1 || Math.abs(m.dy) > 1) {
+        bad.push(`a ${w}x${h} container left the disc (${m.dx}, ${m.dy}) off the stage centre`);
+      }
+      if (Math.abs(m.ratio - fitted.ratio) > fitted.ratio * 0.005) {
+        bad.push(`a ${w}x${h} container moved the ratio off fit (${m.ratio} vs ${fitted.ratio})`);
+      }
+    }
+    return { ok: !bad.length, detail: bad.length ? bad.join("; ") : seen.join(" | ") };
+  } finally {
+    await p.eval(`(function () { var el = ${host};
+      el.style.width = ""; el.style.height = ""; })(); void 0`).catch(() => {});
+    await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    await sleep(600);
+    await camReset(p).catch(() => {});
+  }
+}, { on: ["demo-vault"], clock: "real" });
+
 // github#14
 async function toRest(p) {
   await p.eval(`document.querySelector("#vg-reset").click(); void 0`);

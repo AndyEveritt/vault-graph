@@ -111,6 +111,8 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
   private readonly onWindowResize = (): void => {
     this.scheduleRefresh();
   };
+  // github#182 -- the container is the stage, not just the window
+  private containerRO: ResizeObserver | null = null;
 
   constructor(
     private readonly graph: GraphStore,
@@ -155,6 +157,13 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.captor = new MouseCaptor(mouse.canvas, host, win);
     this.bindCaptor();
     win.addEventListener("resize", this.onWindowResize);
+    // github#182 -- a popout is a different window from the global
+    const RO = (win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+    if (RO) {
+      const ro = new RO(() => this.scheduleRender());
+      ro.observe(this.container);
+      this.containerRO = ro;
+    }
 
     this.refresh();
   }
@@ -219,6 +228,9 @@ export class Renderer extends Emitter<EventMap> implements RendererApi {
     this.removeAllListeners();
     this.camera.kill();
     this.win.removeEventListener("resize", this.onWindowResize);
+    // github#182
+    this.containerRO?.disconnect();
+    this.containerRO = null;
     this.captor.kill();
     if (this.renderFrame !== null) this.win.cancelAnimationFrame(this.renderFrame);
     if (this.hoverFrame !== null) this.win.cancelAnimationFrame(this.hoverFrame);
