@@ -173,11 +173,7 @@ check("a closing-script marker in frontmatter cannot escape the data script", as
   }
 });
 
-// github#183 -- ingest() (github#72) hands out a synthetic sequential id to every node,
-// ghosts included, and stores the vault-relative (or "ghost:...") string only under the
-// "path" attribute -- so a wikilink target with a quote in it never reaches these three
-// sites through a real build. Drive them directly through the exposed debug surface
-// instead: a node injected straight into __vg.graph carries whatever id we give it.
+// github#183 -- drives the debug surface directly, see changelog-detail.md
 check("a node id carrying quotes round-trips through data-pin, data-go and data-hit", async (p) => {
   const r = await p.j(`(function () {
     var EVIL = 'quote" onmouseover="window.__vg183=1\\' vgxsstoken';
@@ -1885,6 +1881,8 @@ check("a picked day marks exactly the notes that tile counted", async (p) => {
     __vg.setHeatSource("created");
     return out;
   })()`);
+  // github#113 -- markDay starts a highlight ramp; wait it out
+  await settle(p);
   const bad = r.filter((x) => !x.skip && x.wrong > 0);
   return { ok: bad.length === 0,
            detail: r.map((x) => x.skip ? `${x.src}: no day to pick`
@@ -1964,6 +1962,8 @@ check("the band's control row does not move when its state changes", async (p) =
              countCh: getComputedStyle(document.getElementById("vg-recent"))
                         .getPropertyValue("--vg-count-ch").trim() };
   })()`);
+  // github#113 -- these each start a highlight ramp; wait it out
+  await settle(p);
   return { ok: r.worst === 0,
            detail: `${r.states} states, worst shift ${r.worst}px` +
                    (r.worst ? `  <- ${r.who}` : "") + `, count slot ${r.countCh}` };
@@ -4190,7 +4190,7 @@ check("clicking the overview fits the disc through fit(), with panning on or off
   const landed = await camSettle(p);
   const restOv = await ovState(p);
 
-  // github#79, design/0017 -- NOT camSettle: fit() lends panning back mid-flight
+  // github#79, design/0017, github#175 -- lent only for a real flight, not an at-fit toggle
   const panRestored = async () => {
     for (const dl = Date.now() + 4000; Date.now() < dl;) {
       if (!(await p.j(`!!__vg.renderer.getSetting("enableCameraPanning")`))) return true;
@@ -4217,13 +4217,14 @@ check("clicking the overview fits the disc through fit(), with panning on or off
         Math.abs(landed.x - 0.5) < 0.002 && Math.abs(landed.y - 0.5) < 0.002 &&
         Math.abs(landed.ratio - want1) < 0.03 && restOv.hidden &&
         Math.abs(landed2.x - 0.5) < 0.002 && Math.abs(landed2.ratio - want2) < 0.03 &&
-        lentOnToggle && settledToggle && lentOnTile && settledTile &&
+        !lentOnToggle && settledToggle && lentOnTile && settledTile &&
         !panOff.setting && !panOff.api,
     detail: `from ratio 0.35 a click landed at (${landed.x}, ${landed.y}) ratio ${landed.ratio} ` +
             `against ${want1.toFixed(4)} promised, and it hid itself again ` +
             `(${restOv.hidden}); with panning off it landed at (${landed2.x}, ${landed2.y}) ` +
-            `ratio ${landed2.ratio} against ${want2.toFixed(4)}; fit() lent panning back mid-flight ` +
-            `from the toggle ${lentOnToggle} and from the tile ${lentOnTile}, and restored it ` +
+            `ratio ${landed2.ratio} against ${want2.toFixed(4)}; toggling at rest lent panning ` +
+            `${lentOnToggle} (must be false), a genuine flight from the tile lent it ${lentOnTile} ` +
+            `(must be true), and restored it ` +
             `${settledToggle && settledTile ? "both times" : "NOT both times"} -- ended ` +
             `${panOff.setting ? "ON, leaked" : "off"}, api ${panOff.api}`,
   };

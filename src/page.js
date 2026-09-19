@@ -10679,6 +10679,16 @@ function mountVaultGraph(root, data, deps) {
       { click: true, target: ["ctxswatch", ""], act: "colours", why: "put it back to automatic too" },
       { settle: true, act: "colours", why: "let the palette snap back" },
 
+      // github#71 -- needs spec-vault, not demo-vault; see FULL_RUN_EXCLUDES
+      { click: true, target: ["id", "gear"], act: "sort", why: "open settings -- Folder order lives here" },
+      { settle: true, act: "sort", why: "let the panel open" },
+      { click: true, target: ["id", "fo-explorer"], act: "sort",
+        why: "switch Folder order to File explorer -- the vault's own custom-sort spec" },
+      { settle: true, act: "sort", why: "the wedges and the legend reorder to match it" },
+      { click: true, target: ["id", "fo-name"], act: "sort", why: "...and back to Name" },
+      { settle: true, act: "sort", why: "let it settle back into name order" },
+      { click: true, target: ["id", "gear"], act: "sort", why: "close settings -- leave a clean frame" },
+
       // github#3
       { rightclick: true, target: ["group", "(unlinked)"], act: "unlinked",
         why: "right-click the (unlinked) row -- always last in the legend" },
@@ -10769,17 +10779,16 @@ function mountVaultGraph(root, data, deps) {
         why: "tap a note -- the card rises as a sheet at the foot, the disc still above it" },
       { settle: true, act: "mobile", why: "let the card land and the links light" },
       { click: true, target: ["detailclose"], act: "mobile", why: "close the card" },
-      { click: true, target: ["id", "sheet"], act: "mobile",
-        why: "the folder list, search and view buttons slide up as a sheet" },
-      { settle: true, act: "mobile", why: "let the sheet arrive" },
+      // github#170 -- no #vg-sheet on a phone; solo scrolls there itself
       { click: true, target: ["only", "01"], act: "mobile",
-        why: "solo a folder -- the pill is always there on a phone, since there is no hover to " +
-             "reveal it with" },
-      { click: true, target: ["id", "sheet"], act: "mobile",
-        why: "put the sheet away -- everything else has gone behind it" },
-      { settle: true, act: "mobile", why: "let the rest recede" },
+        why: "solo a folder from the panel below the disc -- the page scrolls to it, nothing " +
+             "slides over the circle" },
+      { settle: true, act: "mobile", why: "let everything else recede" },
+      { click: true, target: ["id", "allon"], act: "mobile", why: "show everything again" },
+      { settle: true, act: "mobile", why: "let the disc fill back in" },
+      { hover: true, target: ["id", "graph"], act: "mobile", why: "scroll back up to the disc" },
       { dblclick: true, target: ["stage", "centre"], act: "mobile",
-        why: "double-tap fits what is left back into view, the way a double-click does" },
+        why: "double-tap fits the disc back into view, the way a double-click does" },
       { settle: true, act: "mobile", why: "let it fly home" }
     ];
   }
@@ -10787,7 +10796,7 @@ function mountVaultGraph(root, data, deps) {
   // github#34, github#73
   // github#82 -- collapse closes the hero: it is the last act and ends folded
   // github#72, design/0014
-  var FULL_RUN_EXCLUDES = ["subfoldercolor", "hiddenbydefault", "yearchip", "only05", "live", "mobile"];
+  var FULL_RUN_EXCLUDES = ["subfoldercolor", "hiddenbydefault", "yearchip", "only05", "live", "mobile", "sort"];
 
   /** @returns {DemoBeat[]} */
   function demoFullStoryboard() {
