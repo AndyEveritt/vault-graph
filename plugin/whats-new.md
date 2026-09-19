@@ -15,11 +15,10 @@
   beside the CHANGELOG entry; a PATCH leaves it as it is, and shows nothing.
   scripts/build-plugin.mjs refuses a file that breaks any of that.
 -->
-# 2.8.0
-- Three chips under the calendar band halo what you touched today, in the last seven days, or since you last had the graph open.
-- The band counts either date, Added or Touched, and every chip says which one it means.
-- The band's controls sit in one row at one height, and the fewer-more key is gone.
-- Two grey colour slots stay out of the automatic rotation, so a group is grey only on purpose.
-- The inner ring gets room in proportion to what it carries, and the outer ring's first row sits on the ring instead of crossing it.
-> vg-recent
-> vg-heatsrc
+# 2.9.0
+- On a phone the panel now sits below the disc in the page's own scroll, instead of covering the circle.
+- Panning is off on a phone -- the disc doesn't drift under your thumb -- and buttons throughout are sized for a finger.
+- A new Folder order setting lays wedges and the legend out the way your vault's own file explorer already sorts them.
+- Root notes take their place among the folders instead of always sitting first or last.
+- The heatmap band's own controls fit their row on a phone instead of spilling out of it.
+> vg-gear
