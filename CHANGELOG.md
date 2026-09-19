@@ -32,21 +32,8 @@ published tag breaks every link to it.
 
 ## 2.9.0 — "Mobile & Sort" — 2026-09-19
 
-**The disc now orders itself the way your vault's own file explorer does, and a phone finally
-gets a layout built for it instead of the desktop's borrowed one.**
-
-### Wedges follow your own order
-
-- A new **Folder order** setting in the gear menu: **Name** (today's default, numbers read as
-  numbers), **File explorer**, or **Size**. File explorer follows a Custom File Explorer Sorting
-  spec if your vault has one — pinned names first, then ascending or descending order, in that
-  plugin's own precedence.
-- The vault's root notes take their place among the folders under either mode, instead of
-  always sitting first or last.
-- Only the top-level wedges and both levels of the legend follow the chosen order; a folder's
-  own subfolders stay ordered by size, which is what gives its fan of tints their gradient.
-- A spec that can't be read falls back to name order rather than applying half of it, naming the
-  line it skipped the same way the plugin it mirrors reports its own syntax errors.
+**A phone finally gets a layout built for it instead of the desktop's borrowed one, and the disc
+now orders itself the way your vault's own file explorer does.**
 
 ### A layout built for a phone
 
@@ -60,6 +47,19 @@ gets a layout built for it instead of the desktop's borrowed one.**
   overflow their row at that width, now fit it.
 - This applies specifically on a real touchscreen at a phone's width; a narrow desktop window
   with a mouse keeps the existing folding-panel behaviour.
+
+### Wedges follow your own order
+
+- A new **Folder order** setting in the gear menu: **Name** (today's default, numbers read as
+  numbers), **File explorer**, or **Size**. File explorer follows a Custom File Explorer Sorting
+  spec if your vault has one — pinned names first, then ascending or descending order, in that
+  plugin's own precedence.
+- The vault's root notes take their place among the folders under either mode, instead of
+  always sitting first or last.
+- Only the top-level wedges and both levels of the legend follow the chosen order; a folder's
+  own subfolders stay ordered by size, which is what gives its fan of tints their gradient.
+- A spec that can't be read falls back to name order rather than applying half of it, naming the
+  line it skipped the same way the plugin it mirrors reports its own syntax errors.
 
 ### Fixed
 
