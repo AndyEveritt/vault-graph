@@ -30,6 +30,57 @@ published tag breaks every link to it.
 
 ---
 
+## 2.9.0 — "Mobile & Sort" — 2026-09-19
+
+**A phone finally gets a layout built for it instead of the desktop's borrowed one, and the disc
+now orders itself the way your vault's own file explorer does.**
+
+### A layout built for a phone
+
+- Reported by a reader on Reddit: the desktop's own panel and buttons used to sit on top of the
+  disc on a phone, covering the animation the page exists to show.
+- The panel now lives below the disc in the page's own scroll flow instead of over it — nothing
+  covers the circle, and a note's card opens inline in that scroll instead of as a sheet.
+- Panning is off on a phone — the disc doesn't drift under your thumb — and pinch-to-zoom, a
+  rotation, or a settings change mid-gesture no longer confuse it.
+- Buttons throughout are sized for a finger, and the heatmap band's own controls, which used to
+  overflow their row at that width, now fit it.
+- This applies specifically on a real touchscreen at a phone's width; a narrow desktop window
+  with a mouse keeps the existing folding-panel behaviour.
+
+### Wedges follow your own order
+
+- A new **Folder order** setting in the gear menu: **Name** (today's default, numbers read as
+  numbers), **File explorer**, or **Size**. File explorer follows a Custom File Explorer Sorting
+  spec if your vault has one — pinned names first, then ascending or descending order, in that
+  plugin's own precedence.
+- The vault's root notes take their place among the folders under either mode, instead of
+  always sitting first or last.
+- Only the top-level wedges and both levels of the legend follow the chosen order; a folder's
+  own subfolders stay ordered by size, which is what gives its fan of tints their gradient.
+- A spec that can't be read falls back to name order rather than applying half of it, naming the
+  line it skipped the same way the plugin it mirrors reports its own syntax errors.
+
+### Fixed
+
+- A disc that was fit to the window re-centres when the window resizes; it used to stay put and
+  drift off-frame.
+- Note names are escaped before they're written into the page's own click targets, so one with
+  quotes or brackets in it can no longer break them.
+- A background word-count read can no longer land after a newer one and overwrite its numbers.
+
+### Smaller things
+
+- A right-click menu behind the Developer setting: grid lines and slow motion, for anyone
+  poking at the cascade itself.
+- The comment gate runs on every push instead of only at release, and understands CSS well
+  enough to stop mistaking a `url()` or a `calc()` slash for a comment.
+- The release workflow runs the same five static gates the pre-push hook does.
+- The exporter's placeholder node for a missing note carries the two fields the renderer
+  requires.
+
+---
+
 ## 2.8.0 — "Recent" — 2026-09-15
 
 **The calendar band becomes something you point at the disc** — ask it what you touched today, in the last week, or since you last had the graph open.

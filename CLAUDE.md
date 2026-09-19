@@ -26,7 +26,7 @@ imported below; if you are a contributor, its absence is normal and nothing here
   walking dot may also be held *below* them by its clearance on the frame being drawn, never above.
 - **Only depth-1 subfolders with their own tint slot are pushed**; a sub-wedge earns a slot only if it can fill one.
 - **The page is scoped**: every CSS rule under `.vault-graph`, every id through `$()`; nothing shipped reaches the network.
-- **The layout matches its golden snapshot** on all three fixtures — never regenerate a golden to make a check pass.
+- **The layout matches its golden snapshot** on all five fixtures — never regenerate a golden to make a check pass.
 
 ## How to work here
 
@@ -91,7 +91,7 @@ imported below; if you are a contributor, its absence is normal and nothing here
   releasing.md`, and the `cut-release` skill).
 - Measure before and after; the numbers go into `.ai-context/changelog-detail.md`, which is
   the regression suite. A changed constant means `invariants.md` changes in the same commit.
-- Fixtures: three generated vaults (`scripts/make-*-vault.mjs`) in the shared store; never a
+- Fixtures: five generated vaults (`scripts/make-*-vault.mjs`) in the shared store; never a
   real vault, never a built `vault-graph.html`, in anything that reaches the repo.
 - `npm run lint` holds every finding at zero. `check-pii`, `check-scope`, `check-network` and
   the two determinism checks gate every push and have no skip flag.

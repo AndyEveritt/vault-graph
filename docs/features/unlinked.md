@@ -31,4 +31,4 @@ commit.
 | | |
 |---|---|
 | **Introduced in** | `1.9.0` — "Belonging" |
-| **Last re-recorded** | `2.8.0 — 2026-09-14` — 23.3 s at 1000x1000, encoded at 1000 px (2.63 MB) |
+| **Last re-recorded** | `2.9.0 — 2026-09-19` — 23.2 s at 1000x1000, encoded at 1000 px (2.70 MB) |

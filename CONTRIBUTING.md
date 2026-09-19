@@ -70,7 +70,7 @@ node scripts/code-map.mjs --check       # the generated map and index still matc
 node scripts/gallery-nav.mjs --check    # the gallery's "New in" strip still matches the feature pages
 node scripts/check-ci-parity.mjs        # every gate above also runs in CI, where a merge boundary can see it (github#147)
 npm run lint                            # tsc --noEmit on the engine, then on the JavaScript's own annotations, then typescript-eslint; every finding is held at zero
-node scripts/smoke.mjs                  # the invariant suite: four fixtures, each check on the ones its assertion is about
+node scripts/smoke.mjs                  # the invariant suite: five fixtures, each check on the ones its assertion is about
 ```
 
 **Only the last one has a skip flag.** `SKIP_SMOKE=1 git push` skips the suite; the fifteen
@@ -175,6 +175,30 @@ Since Obsidian 1.7.2 a tab restored in the background is **deferred**: the leaf 
 other harnesses open the graph in the foreground, which is the one state where that never
 happens — so this one quits and relaunches to get the leaf into the state a person's first
 restart of the day puts it in.
+
+And one more for anything about the band's controls at a phone's width, because the suite
+cannot see the one thing that decides them — the host's own CSS:
+
+```bash
+node scripts/build-plugin.mjs
+node scripts/host-phone-check.mjs                       # the demo fixture at 390x844
+node scripts/host-phone-check.mjs --w 320 --fixture 10k
+node scripts/host-phone-check.mjs --json before.json --shot shots/
+node scripts/host-phone-check.mjs --plugin-from <dir>   # a build made somewhere else
+```
+
+Every other phone check in this repo runs against the **exported page in Chrome**, which
+carries none of Obsidian's `app.css`. The plugin mounts `page.css` into Obsidian's own
+document, where `app.css` styles bare `button` and `input` elements and `.is-mobile` retunes
+those tokens to touch sizes — so a control that styles its colour and its font but not its
+`height` gets the host's 44 px, and no Chrome check can see it. This one installs the built
+plugin into a throwaway copy of a store fixture, launches a separate Obsidian on its own
+profile and port, turns on touch emulation, overrides the device metrics, calls
+`app.emulateMobile(true)` and only then opens the view — the ordering matters and each step
+carries its pointer in the file. It reports the band's six readings from github#178 with the
+number behind each. Like `obsidian-smoke.mjs` it needs Obsidian installed, takes a minute or
+two, and is not in the hook; it takes the `screen-left` lock, because it puts a window on that
+display.
 
 `git config core.hooksPath .githooks` once per clone runs those on every push to `develop` or
 `main`, along with a check that refuses to publish other people's names, two that keep the

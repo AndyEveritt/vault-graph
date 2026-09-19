@@ -206,6 +206,8 @@ export interface RendererEvents {
   leaveNode: NodeEvent;
   clickStage: StageEvent;
   doubleClickStage: StageEvent;
+  // github#165 -- was emitted but undeclared, so nothing could subscribe
+  rightClickStage: StageEvent;
   afterRender: void;
   // github#144 -- the engine says it; the page draws the notice
   contextLost: ContextEvent;

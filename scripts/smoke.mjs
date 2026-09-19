@@ -173,6 +173,63 @@ check("a closing-script marker in frontmatter cannot escape the data script", as
   }
 });
 
+// github#183 -- drives the debug surface directly, see changelog-detail.md
+check("a node id carrying quotes round-trips through data-pin, data-go and data-hit", async (p) => {
+  const r = await p.j(`(function () {
+    var EVIL = 'quote" onmouseover="window.__vg183=1\\' vgxsstoken';
+    var wasSelected = __vg.state.selected;
+    __vg.graph.addNode(EVIL, {
+      label: "vgxsstoken", x: 0, y: 0, size: 4, folder: "(unresolved)", sub: "", dirs: [],
+      ntype: "ghost", tags: [], path: "vgxsstoken.md", deg: 1, created: "", touched: "",
+      words: 0, ghost: true
+    });
+    // github#183 -- a fresh id, so neighboursOf()'s memo cache cannot already hold it
+    __vg.adj[EVIL] = [{ o: EVIL, w: 1 }];
+
+    __vg.select(EVIL);
+    var pinBtns = document.querySelectorAll("[data-pin]");
+    var pinHit = pinBtns.length === 1 ? pinBtns[0] : null;
+    var goHit = null;
+    document.querySelectorAll("[data-go]").forEach(function (b) {
+      if (b.getAttribute("data-go") === EVIL) goHit = b;
+    });
+
+    var q = document.querySelector("#vg-q");
+    q.value = "vgxsstoken";
+    q.dispatchEvent(new Event("input"));
+    var hitHit = null;
+    document.querySelectorAll("[data-hit]").forEach(function (b) {
+      if (b.getAttribute("data-hit") === EVIL) hitHit = b;
+    });
+
+    // github#183 -- leave the fixture as this check found it
+    q.value = ""; q.dispatchEvent(new Event("input"));
+    __vg.select(wasSelected);
+    delete __vg.adj[EVIL];
+    __vg.graph.dropNode(EVIL);
+
+    return {
+      EVIL: EVIL,
+      pinCount: pinBtns.length, pinVal: pinHit ? pinHit.getAttribute("data-pin") : null,
+      pinExtra: pinHit ? pinHit.hasAttribute("onmouseover") : null,
+      goVal: goHit ? goHit.getAttribute("data-go") : null, goExtra: goHit ? goHit.hasAttribute("onmouseover") : null,
+      hitVal: hitHit ? hitHit.getAttribute("data-hit") : null, hitExtra: hitHit ? hitHit.hasAttribute("onmouseover") : null
+    };
+  })()`);
+  const bad = [];
+  if (r.pinCount !== 1) bad.push("panel rendered " + r.pinCount + " pin button(s), not 1");
+  if (r.pinVal !== r.EVIL) bad.push("data-pin read back " + JSON.stringify(r.pinVal));
+  if (r.pinExtra) bad.push("data-pin button carries a live onmouseover");
+  if (r.goVal !== r.EVIL) bad.push("data-go read back " + JSON.stringify(r.goVal));
+  if (r.goExtra) bad.push("data-go button carries a live onmouseover");
+  if (r.hitVal !== r.EVIL) bad.push("data-hit read back " + JSON.stringify(r.hitVal));
+  if (r.hitExtra) bad.push("data-hit button carries a live onmouseover");
+  return { ok: !bad.length,
+           detail: bad.length ? bad.join(" | ")
+             : "id " + JSON.stringify(r.EVIL) + " round-tripped through data-pin, data-go and " +
+               "data-hit with no extra attribute on any of the three" };
+});
+
 check("legend opens folded to top-level folders", async (p) => {
   const r = await p.j(`{
     rows: document.querySelectorAll('#vg-legend .lgr').length,
@@ -496,10 +553,11 @@ check("layout matches its golden snapshot", async (p) => {
   const dd = await p.j("__vg.debugDump()");
   const vaultName = dd.vault.name;
   // github#86 -- tag-vault is the fourth, and the only one organised by tag
-  const fixture = ["demo-vault", "test-vault", "shape-vault", "tag-vault"]
+  // github#71 -- spec-vault is the fifth, and the only one not in name order
+  const fixture = ["demo-vault", "test-vault", "shape-vault", "tag-vault", "spec-vault"]
     .find((f) => vaultName.startsWith(f + "-"));
   if (!fixture) {
-    return { ok: true, detail: `NOT ASSERTED: "${vaultName}" is not one of the three named ` +
+    return { ok: true, detail: `NOT ASSERTED: "${vaultName}" is not one of the five named ` +
                                 `fixtures -- no golden snapshot to compare against` };
   }
   const snapPath = join(ROOT, "scripts", "layout-snapshots", `${fixture}.json`);
@@ -1168,6 +1226,396 @@ async (p) => {
   };
 });
 
+/* ---------------------------------------------------------------- github#71 -- */
+
+check("the wedge order follows the file explorer spec", async (p) => {
+  // github#71 -- D-13: derived from the spec the fixture ships
+  const r = await p.j(`(function(){
+    var was = __vg.folderOrder();
+    var spec = __vg.sortSpec();
+    if (!spec.ok || !spec.sections.length) return { sections: 0 };
+
+    var root = null, subs = [];
+    spec.sections.forEach(function(s){
+      if (s.target === "" && s.rank === 3) root = s;
+      // a section aimed at a top-level folder is the only other kind the disc can see.
+      // github#172 -- rank 1 holds a PATTERN, not a path: its target is the raw "regexp: P",
+      // which has no slash in it and would otherwise read here as a folder of that name
+      else if (s.rank !== 1 && s.target.indexOf("/") < 0 && s.target) subs.push(s);
+    });
+
+    __vg.setFolderOrder("name");
+    var byName = __vg.groupOrder();
+    var nameSubs = {};
+    subs.forEach(function(s){ nameSubs[s.target] = __vg.subOrderOf(s.target); });
+
+    __vg.setFolderOrder("explorer");
+    var bySpec = __vg.groupOrder();
+    var specSubs = {};
+    subs.forEach(function(s){ specSubs[s.target] = __vg.subOrderOf(s.target); });
+
+    __vg.setFolderOrder(was);
+    return { sections: spec.sections.length, byName: byName, bySpec: bySpec,
+             root: root ? { pins: root.pins, dir: root.dir } : null,
+             subs: subs.map(function(s){
+               return { target: s.target, pins: s.pins, dir: s.dir,
+                        name: nameSubs[s.target], spec: specSubs[s.target] };
+             }) };
+  })()`);
+
+  if (!r.sections) {
+    return { ok: true, detail: `NOT ASSERTED: this vault ships no sortspec -- only a ` +
+                                `spec-carrying fixture can show the order moving` };
+  }
+
+  const notes = [];
+  const fail = [];
+
+  // github#71 -- every pin that IS present must lead, in the spec's order
+  const leads = (list, pins, where) => {
+    const present = pins.filter((x) => list.includes(x));
+    if (!present.length) return null;                 // github#71 -- pins naming files, or folders now gone
+    const head = list.slice(0, present.length);
+    const ok = head.join("|") === present.join("|");
+    (ok ? notes : fail).push(`${where}: pinned [${present.join(", ")}] ` +
+      (ok ? "lead" : `EXPECTED to lead, got [${head.join(", ")}]`));
+    return ok;
+  };
+
+  if (r.root) {
+    const got = leads(r.bySpec.filter((g) => g.charAt(0) !== "("), r.root.pins, "wedges");
+    if (got === null) {
+      notes.push(`wedges: the root section pins ${r.root.pins.length} name(s), none of them a ` +
+                 `folder -- no wedge is expected to move`);
+    }
+  }
+  for (const s of r.subs) {
+    if (!s.spec || !s.spec.length) continue;
+    leads(s.spec, s.pins, `${s.target}'s subs`);
+    // github#71 -- a descending section must descend, once the pins are past
+    if (s.dir === "desc") {
+      const tail = s.spec.filter((x) => x && !s.pins.includes(x));
+      const sorted = tail.slice().sort((a, b) => a.localeCompare(b)).reverse();
+      if (tail.join("|") !== sorted.join("|")) {
+        fail.push(`${s.target}: order-desc did not descend -- [${tail.slice(0, 5).join(", ")}]`);
+      } else if (tail.length > 1) {
+        notes.push(`${s.target}: ${tail.length} unpinned entries descend (${tail[0]} first)`);
+      }
+    }
+  }
+
+  const wedgesMoved = r.byName.join("|") !== r.bySpec.join("|");
+  const anySubMoved = r.subs.some((s) => s.name && s.spec && s.name.join("|") !== s.spec.join("|"));
+  if (!wedgesMoved && !anySubMoved) {
+    fail.push("NOTHING MOVED -- the spec parsed but changed no order at all");
+  }
+
+  return {
+    ok: fail.length === 0,
+    detail: `${r.sections} section(s); wedges ${wedgesMoved ? "moved" : "unchanged"}, ` +
+            `sub-wedges ${anySubMoved ? "moved" : "unchanged"}; ` +
+            (fail.length ? fail.join("; ") : notes.join("; "))
+  };
+}, { on: "all" });   // github#71 -- NOT-ASSERTS where a fixture has no spec
+
+check("a vault with no sortspec is laid out in name order", async (p) => {
+  const r = await p.j(`(function(){
+    var spec = __vg.sortSpec();
+    var was = __vg.folderOrder();
+    __vg.setFolderOrder("explorer");
+    var drawn = __vg.groupOrder(), name = __vg.nameOrder();
+    __vg.setFolderOrder(was);
+    return { sections: spec.sections.length, drawn: drawn, name: name };
+  })()`);
+  if (r.sections) {
+    return { ok: true, detail: `NOT ASSERTED: this vault ships a sortspec (${r.sections} ` +
+                                `section(s)), so the explorer order is expected to differ` };
+  }
+  // github#71 -- no spec must be a no-op, not a half-applied order
+  const same = r.drawn.join("|") === r.name.join("|");
+  return { ok: same, detail: same
+    ? `no spec found; "File explorer" left all ${r.drawn.length} groups in name order`
+    : `no spec found but the order still moved: [${r.name.join(", ")}] -> [${r.drawn.join(", ")}]` };
+}, { on: "all" });   // github#71 -- every spec-free fixture asserts this; spec-vault NOT-ASSERTS
+
+check("an unreadable sortspec falls back to name order and names the line", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["alpha", "beta", "gamma"];
+    // a spec whose target-folder is empty, plus two lines outside the ordering subset
+    var broken = __vg.sortOrderFor(
+      [{ folder: "", origin: "broken.md",
+         text: "target-folder:\\n> a-z\\norder-asc: modified\\ngamma" }], "", names);
+    // and one that is simply not a spec at all
+    var junk = __vg.sortOrderFor(
+      [{ folder: "", origin: "junk.md", text: "%%%\\n/folders\\n" }], "", names);
+    return { broken: broken, junk: junk, names: names };
+  })()`);
+  // github#71 -- an empty target-folder drops its section, pin and all
+  const brokenSkips = r.broken.skipped.map((s) => s.line + ":" + s.text);
+  // github#172 -- gamma|alpha|beta was the section NOT being dropped
+  const keptOrder = r.broken.names.join("|") === r.names.join("|") && !r.broken.matched;
+  const namedTheLine = r.broken.skipped.length >= 2 &&
+                       r.broken.skipped.some((s) => /modified/.test(s.text)) &&
+                       r.broken.skipped.every((s) => s.line > 0 && !!s.why);
+  const junkIgnored = r.junk.names.join("|") === r.names.join("|") && r.junk.skipped.length >= 2;
+  return {
+    ok: namedTheLine && junkIgnored && keptOrder,
+    detail: `broken spec: ${r.broken.skipped.length} line(s) skipped [${brokenSkips.join(", ")}]` +
+            (namedTheLine ? "" : "  <- a skipped line must carry its number and a reason") +
+            `; order [${r.broken.names.join(", ")}], section matched: ${r.broken.matched}` +
+            (keptOrder ? "" : "  <- the broken section must be dropped, pin and all") +
+            `; a non-spec file skipped ${r.junk.skipped.length} line(s) and left the order alone` +
+            (junkIgnored ? "" : "  <- IT DID NOT")
+  };
+});
+
+check("a sortspec naming a folder that is gone is ignored, not fatal", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["alpha", "beta", "gamma"];
+    var text = [
+      "target-folder: /",
+      "deleted-folder",
+      "gamma",
+      "also-gone",
+      "",
+      "target-folder: vanished/*",
+      "order-desc: a-z"
+    ].join("\\n");
+    var got = __vg.sortOrderFor([{ folder: "", origin: "stale.md", text: text }], "", names);
+    // the section aimed at a folder that no longer exists must not match anything either
+    var vanished = __vg.sortOrderFor([{ folder: "", origin: "stale.md", text: text }], "alpha", names);
+    return { got: got, vanishedMatched: vanished.matched, names: names };
+  })()`);
+  // github#71 -- a stale pin is wear, not a syntax error: nothing is skipped
+  const led = r.got.names[0] === "gamma";
+  const kept = r.got.names.join("|") === "gamma|alpha|beta";
+  const quiet = r.got.skipped.length === 0;
+  return {
+    ok: led && kept && quiet && r.got.ok,
+    detail: `3 pins, 2 naming folders that do not exist -> [${r.got.names.join(", ")}]` +
+            (kept ? "" : "  <- EXPECTED gamma, alpha, beta") +
+            `; ${r.got.skipped.length} line(s) skipped` +
+            (quiet ? " (a stale pin is not a syntax error)" : "  <- SHOULD BE NONE") +
+            `; a section aimed at a vanished folder matched something else: ${r.vanishedMatched}`
+  };
+});
+
+// github#172
+check("a broken target-folder takes its pins with it, never the spec's own folder", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["alpha", "beta", "gamma"];
+    // the spec lives in Home; the pins after the broken line were aimed somewhere else entirely
+    var src = [{ folder: "Home", origin: "Home/sortspec.md", text: [
+      "target-folder: ",
+      "gamma",
+      "alpha",
+      "",
+      "target-folder: /",
+      "beta"
+    ].join("\\n") }];
+    return {
+      home: __vg.sortOrderFor(src, "Home", names),
+      root: __vg.sortOrderFor(src, "", names),
+      sections: __vg.parseSortSpec(src).sections.map(function(s){
+        return { target: s.target, rank: s.rank, pins: s.pins.slice() };
+      })
+    };
+  })()`);
+  const homeUntouched = !r.home.matched && r.home.names.join("|") === "alpha|beta|gamma";
+  // github#172 -- a dead section ends at the next target-folder
+  const nextStillRead = r.root.matched && r.root.names.join("|") === "beta|alpha|gamma";
+  const named = r.home.skipped.length === 1 && r.home.skipped[0].line === 1 &&
+                !!r.home.skipped[0].why;
+  const shape = r.sections.map((s) => `${s.target || "(root)"}@${s.rank}[${s.pins.join(" ")}]`);
+  return {
+    ok: homeUntouched && nextStillRead && named,
+    detail: `2 pins follow a valueless target-folder -> Home's own order ` +
+            `[${r.home.names.join(", ")}], section matched: ${r.home.matched}` +
+            (homeUntouched ? " (dropped, as it must be)"
+                           : "  <- EXPECTED alpha, beta, gamma and NO section aimed at Home") +
+            `; ${r.sections.length} section(s) survive [${shape.join(", ")}]` +
+            `; the section after it still read -> [${r.root.names.join(", ")}]` +
+            (nextStillRead ? "" : "  <- a dead section must not swallow the next one") +
+            `; ${r.home.skipped.length} line named` +
+            (named ? "" : "  <- the broken line must carry its number and a reason")
+  };
+}, { on: "all" });
+
+// github#172
+check("order-asc: a-z reads numbers as numbers, and true a-z as text", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["10 archive", "2 drafts", "1 inbox"];
+    var spec = function(line){
+      return [{ folder: "", origin: "s.md", text: "target-folder: /\\n" + line }];
+    };
+    return { az: __vg.sortOrderFor(spec("order-asc: a-z"), "", names),
+             txt: __vg.sortOrderFor(spec("order-asc: true a-z"), "", names),
+             desc: __vg.sortOrderFor(spec("order-desc: a-z"), "", names) };
+  })()`);
+  // github#172 -- relative order, so no locale's tie-break decides it
+  const before = (list, a, b) => list.indexOf(a) >= 0 && list.indexOf(a) < list.indexOf(b);
+  const numeric = before(r.az.names, "2 drafts", "10 archive");
+  const text = before(r.txt.names, "10 archive", "2 drafts");
+  const descends = before(r.desc.names, "10 archive", "2 drafts");
+  const bothApplied = r.az.skipped.length === 0 && r.txt.skipped.length === 0 &&
+                      !!r.az.matched && !!r.txt.matched;
+  return {
+    ok: numeric && text && descends && bothApplied,
+    detail: `a-z -> [${r.az.names.join(", ")}]` +
+            (numeric ? "" : "  <- 2 must come before 10; this is a plain localeCompare") +
+            `; true a-z -> [${r.txt.names.join(", ")}]` +
+            (text ? "" : "  <- 10 must come before 2 here") +
+            `; order-desc: a-z -> [${r.desc.names.join(", ")}]` +
+            (descends ? "" : "  <- it did not descend") +
+            `; ${r.az.skipped.length + r.txt.skipped.length} line(s) skipped` +
+            (bothApplied ? " (both directives applied)" : "  <- both are the plugin's own grammar")
+  };
+}, { on: "all" });
+
+// github#172
+check("a leading slash anchors a sortspec target at the vault root", async (p) => {
+  const r = await p.j(`(function(){
+    var names = ["one", "two", "three"];
+    var rooted = [{ folder: "", origin: "s.md", text: [
+      "target-folder: /Projects", "two", "",
+      "target-folder: Archive/Projects", "three"
+    ].join("\\n") }];
+    // a trailing slash is still a path, not a pattern between two delimiters
+    var trailing = [{ folder: "", origin: "s.md", text: "target-folder: /Projects/\\ntwo" }];
+    // the same anchoring in its relative spelling: "./" is the spec's own folder, exactly
+    var relative = [{ folder: "Notes", origin: "Notes/sortspec.md",
+                      text: "target-folder: ./\\ntwo" }];
+    var shape = function(src){
+      return __vg.parseSortSpec(src).sections.map(function(s){
+        return { target: s.target, rank: s.rank };
+      });
+    };
+    return {
+      shape: shape(rooted), trailingShape: shape(trailing), relativeShape: shape(relative),
+      atRoot: __vg.sortOrderFor(rooted, "Projects", names),
+      nested: __vg.sortOrderFor(rooted, "Archive/Projects", names),
+      deeper: __vg.sortOrderFor(rooted, "Old/Projects", names),
+      trailingAtRoot: __vg.sortOrderFor(trailing, "Projects", names),
+      trailingElsewhere: __vg.sortOrderFor(trailing, "Old Projects", names),
+      relativeSelf: __vg.sortOrderFor(relative, "Notes", names),
+      relativeElsewhere: __vg.sortOrderFor(relative, "Other/Notes", names)
+    };
+  })()`);
+  const fail = [];
+  const leads = (got, want, where) => {
+    if (got.names[0] !== want) fail.push(`${where}: expected ${want} to lead, got [${got.names.join(", ")}]`);
+  };
+  const untouched = (got, where) => {
+    if (got.matched) fail.push(`${where}: a root-anchored section reached it`);
+  };
+  // github#172 -- anchored means exact path at rank 3, never a name
+  const ranks = r.shape.map((s) => `${s.target}@${s.rank}`).join(", ");
+  if (r.shape.length !== 2 || r.shape.some((s) => s.rank !== 3)) {
+    fail.push(`/Projects and Archive/Projects must both be rank 3 exact paths, got [${ranks}]`);
+  }
+  if (r.trailingShape.length !== 1 || r.trailingShape[0].rank !== 3 ||
+      r.trailingShape[0].target !== "Projects") {
+    fail.push(`/Projects/ must be the path Projects at rank 3, got ` +
+              `[${r.trailingShape.map((s) => s.target + "@" + s.rank).join(", ")}]`);
+  }
+  if (r.relativeShape.length !== 1 || r.relativeShape[0].rank !== 3 ||
+      r.relativeShape[0].target !== "Notes") {
+    fail.push(`./ must be the path Notes at rank 3, got ` +
+              `[${r.relativeShape.map((s) => s.target + "@" + s.rank).join(", ")}]`);
+  }
+  leads(r.atRoot, "two", "Projects");
+  leads(r.nested, "three", "Archive/Projects");
+  leads(r.trailingAtRoot, "two", "Projects under /Projects/");
+  leads(r.relativeSelf, "two", "Notes under ./");
+  untouched(r.deeper, "Old/Projects");
+  untouched(r.trailingElsewhere, "Old Projects");
+  untouched(r.relativeElsewhere, "Other/Notes");
+  return {
+    ok: fail.length === 0,
+    detail: fail.length ? fail.join("; ")
+      : `/Projects and /Projects/ are both the root-level path Projects at rank 3, and ./ is ` +
+        `the spec's own folder; Old/Projects and Old Projects are reached by neither`
+  };
+}, { on: "all" });
+
+check("a folder keeps its colour when the wedge order changes", async (p) => {
+  const r = await p.j(`(function(){
+    var was = __vg.folderOrder();
+    var read = function(){
+      var out = {};
+      __vg.groupOrder().forEach(function(g){ out[g] = __vg.autoSlotOf(g); });
+      return { slots: out, order: __vg.groupOrder() };
+    };
+    __vg.setFolderOrder("name");   var byName = read();
+    __vg.setFolderOrder("size");   var bySize = read();
+    __vg.setFolderOrder("explorer"); var bySpec = read();
+    __vg.setFolderOrder(was);
+    return { byName: byName, bySize: bySize, bySpec: bySpec };
+  })()`);
+  // github#71 -- the goldens hold position and band, NOT colour
+  const drift = [];
+  for (const g of Object.keys(r.byName.slots)) {
+    for (const [label, m] of [["size", r.bySize], ["explorer", r.bySpec]]) {
+      if (m.slots[g] !== undefined && m.slots[g] !== r.byName.slots[g]) {
+        drift.push(`${g} ${r.byName.slots[g]}->${m.slots[g]} under ${label}`);
+      }
+    }
+  }
+  const sizeMoved = r.byName.order.join("|") !== r.bySize.order.join("|");
+  const specMoved = r.byName.order.join("|") !== r.bySpec.order.join("|");
+  return {
+    ok: drift.length === 0,
+    detail: `${Object.keys(r.byName.slots).length} groups; order actually moved under ` +
+            `size: ${sizeMoved}, explorer: ${specMoved}` +
+            (drift.length ? `; ${drift.length} REPAINTED: ${drift.slice(0, 4).join(", ")}`
+                          : "; every automatic slot unchanged")
+  };
+}, { on: "all" });   // github#71 -- MUST reach test-vault, where the slot walk cycles
+check("the vault root sorts with the folders, and keeps its colour there", async (p) => {
+  const r = await p.j(`(function(){
+    var was = __vg.rootInOrder;
+    var read = function(){
+      var o = __vg.groupOrder(), s = {};
+      o.forEach(function(g){ s[g] = __vg.autoSlotOf(g); });
+      return { order: o, slots: s };
+    };
+    __vg.setRootInOrder(false); var off = read();
+    __vg.setRootInOrder(true);  var on  = read();
+    var k = __vg.rootKey;
+    __vg.setRootInOrder(was === true);
+    return { off: off, on: on, key: k };
+  })()`);
+  const ROOT = "(vault root)";
+  if (r.off.order.indexOf(ROOT) < 0) {
+    return { ok: true, detail: `NOT ASSERTED: this vault has no ${ROOT} group` };
+  }
+  if (!r.key) return { ok: false, detail: `${ROOT} exists but no sort key was derived from its notes` };
+  // github#164 -- it sorts as its first note, among the real folders
+  const iOn = r.on.order.indexOf(ROOT);
+  const before = r.on.order[iOn - 1], after = r.on.order[iOn + 1];
+  const cmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+  const isReal = (g) => g && g.charAt(0) !== "_" && g.charAt(0) !== "(";
+  const seated = (!isReal(before) || cmp(before, r.key) < 0) &&
+                 (!isReal(after) || cmp(after, r.key) > 0);
+  // github#164 -- the archives stay in front, the two buckets stay at the back
+  const archivesFirst = r.on.order.filter((g) => g.charAt(0) === "_")
+    .every((g) => r.on.order.indexOf(g) < iOn);
+  const buckets = r.on.order.filter((g) => g === "(untagged)" || g === "(unlinked)");
+  const tailOk = buckets.every((g, i) => r.on.order[r.on.order.length - buckets.length + i] === g);
+  const sameSet = r.off.order.slice().sort().join("|") === r.on.order.slice().sort().join("|");
+  const moved = r.off.order.join("|") !== r.on.order.join("|");
+  // github#164, github#71 -- a bearing change must not repaint
+  const drift = Object.keys(r.off.slots).filter((g) => r.on.slots[g] !== r.off.slots[g]);
+  return {
+    ok: seated && archivesFirst && tailOk && sameSet && drift.length === 0,
+    detail: `sorts as "${r.key}": [${before || "-"}] < ${ROOT} < [${after || "-"}]; seated ${seated}; ` +
+            `moved ${moved}; archives still first ${archivesFirst}; buckets last ${tailOk}; ` +
+            `same groups ${sameSet}; ` +
+            (drift.length ? `${drift.length} REPAINTED: ${drift.slice(0, 4).join(", ")}`
+                          : "every automatic slot unchanged")
+  };
+}, { on: "all" });   // github#164 -- every fixture that has a root group
+
 /* ------------------------------------------------- github#86 D-9, design/0015 */
 
 check("a marked heatmap day haloes but never pushes", async (p) => {
@@ -1433,6 +1881,8 @@ check("a picked day marks exactly the notes that tile counted", async (p) => {
     __vg.setHeatSource("created");
     return out;
   })()`);
+  // github#113 -- markDay starts a highlight ramp; wait it out
+  await settle(p);
   const bad = r.filter((x) => !x.skip && x.wrong > 0);
   return { ok: bad.length === 0,
            detail: r.map((x) => x.skip ? `${x.src}: no day to pick`
@@ -1512,6 +1962,8 @@ check("the band's control row does not move when its state changes", async (p) =
              countCh: getComputedStyle(document.getElementById("vg-recent"))
                         .getPropertyValue("--vg-count-ch").trim() };
   })()`);
+  // github#113 -- these each start a highlight ramp; wait it out
+  await settle(p);
   return { ok: r.worst === 0,
            detail: `${r.states} states, worst shift ${r.worst}px` +
                    (r.worst ? `  <- ${r.who}` : "") + `, count slot ${r.countCh}` };
@@ -2171,6 +2623,963 @@ check("the panel toggles fold each panel away and give the space back", async (p
   };
 });
 
+// github#170, design/0013 -- the only checks here that emulate touch
+const PHONE_HIT = 44;
+// github#170 -- D-8: the band is read, not driven; its own floors
+const PHONE_BAND_H = 26;
+const PHONE_YEAR_H = 20;
+const PHONE_DEVICES = [{ name: "iPhone 14", w: 390, h: 844 }, { name: "Pixel 7", w: 412, h: 915 }];
+const PHONE_PROBE = `(function () {
+  var box = function (el) {
+    if (!el) return null;
+    var r = el.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height),
+             x: Math.round(r.left), y: Math.round(r.top),
+             r2: Math.round(r.right), b2: Math.round(r.bottom) };
+  };
+  var root = document.querySelector(".vault-graph");
+  var g = document.getElementById("vg-graph");
+  var gb = g ? g.getBoundingClientRect() : null;
+  // github#170 -- "over the disc" is over the CIRCLE, not its square
+  // github#170 -- the corner a round disc leaves empty is where the toggle went
+  var disc = null;
+  if (gb && window.__vg && __vg.renderer && __vg.graph) {
+    var R = __vg.renderer, G = __vg.graph;
+    var dcx = gb.left + gb.width / 2, dcy = gb.top + gb.height / 2, far = 0;
+    G.forEachNode(function (id) {
+      var dd = R.getNodeDisplayData(id);
+      if (!dd || dd.hidden) return;
+      var v = R.graphToViewport(G.getNodeAttributes(id));
+      var ax = v.x + gb.left - dcx, ay = v.y + gb.top - dcy;
+      var reach = Math.sqrt(ax * ax + ay * ay) + R.scaleSize(dd.size);
+      if (reach > far) far = reach;
+    });
+    // github#170 -- no dots drawn is no measurement; the box is the fallback
+    if (far > 0) disc = { cx: dcx, cy: dcy, r: far };
+  }
+  var SEL = "#vg-cam button, #vg-mob button, #vg-ov, #vg-heatsrc button, #vg-recent button," +
+            " #vg-compact, #vg-rangebox .dt, #vg-rangeall, #vg-years button," +
+            " #vg-dim button, .dimall button, .tools button, .lgr .eye, .lgr .tw, .lg .only";
+  var small = [], over = [], n = 0;
+  Array.prototype.forEach.call(document.querySelectorAll(SEL), function (el) {
+    var r = el.getBoundingClientRect();
+    if (!r.width && !r.height) return;
+    n++;
+    var owner = el.id || (el.closest("[id]") ? el.closest("[id]").id : el.tagName);
+    var name = el.id || owner + " " + (el.className || el.tagName);
+    // github#170 D-6 -- the year strip is on a date axis, so its width is the data
+    var yr = el.parentElement && el.parentElement.id === "vg-years";
+    // github#170 D-8 -- the calendar is a reference, not a keypad: its own floor, by height
+    var band = !!el.closest("#vg-heat");
+    var bad = yr ? r.height < ${PHONE_YEAR_H}
+            : band ? r.height < ${PHONE_BAND_H}
+            : (r.width < ${PHONE_HIT} || r.height < ${PHONE_HIT});
+    if (bad) small.push(name + " " + Math.round(r.width) + "x" + Math.round(r.height));
+    // github#170 -- nearest point of the box to the centre, against the radius
+    if (disc) {
+      var qx = Math.max(r.left, Math.min(disc.cx, r.right));
+      var qy = Math.max(r.top, Math.min(disc.cy, r.bottom));
+      var gap = Math.sqrt((qx - disc.cx) * (qx - disc.cx) + (qy - disc.cy) * (qy - disc.cy));
+      if (gap < disc.r) {
+        over.push(name + " " + Math.round(gap) + "px from the centre, disc r " +
+                  Math.round(disc.r));
+      }
+    } else if (gb && !(r.right <= gb.left || r.left >= gb.right ||
+                       r.bottom <= gb.top || r.top >= gb.bottom)) {
+      // github#170 -- unmeasurable must not read as clean; the square is stricter
+      over.push(name + " over the disc's box (the drawn disc could not be measured)");
+    }
+  });
+  var hrow = document.querySelector("#vg-heat .hrow"), outside = [], lines = {};
+  if (hrow) {
+    var hb = hrow.getBoundingClientRect();
+    Array.prototype.forEach.call(hrow.children, function (c) {
+      var r = c.getBoundingClientRect();
+      if (!r.width && !r.height) return;
+      if (r.left < hb.left - 0.5 || r.right > hb.right + 0.5) {
+        outside.push((c.id || c.className) + " " + Math.round(r.left) + ".." + Math.round(r.right));
+      }
+      if (c.id) lines[c.id] = Math.round(r.top);
+    });
+  }
+  // github#170 D-8 -- one line, never two: a wrapped lens costs the band a whole row
+  var lensRow = document.getElementById("vg-recent"), lensLines = 0;
+  if (lensRow) {
+    var tops = {};
+    Array.prototype.forEach.call(lensRow.children, function (c) {
+      var r = c.getBoundingClientRect();
+      if (r.width || r.height) tops[Math.round(r.top)] = 1;
+    });
+    lensLines = Object.keys(tops).length;
+  }
+  var pan = document.getElementById("vg-pan");
+  var band = document.getElementById("vg-band");
+  var sheet = document.getElementById("vg-sheet");
+  return { phone: !!__vg.phone, narrow: !!__vg.narrow,
+           lensLines: lensLines,
+           // github#170 -- the calendar starts folded on a phone; there is a way back
+           bandOpen: !!__vg.bandOpen, dataBand: root.getAttribute("data-band"),
+           bandLaidOut: !!(document.getElementById("vg-heat") || {}).offsetParent,
+           mob: box(document.getElementById("vg-mob")),
+           disc: disc ? { cx: Math.round(disc.cx), cy: Math.round(disc.cy),
+                          r: Math.round(disc.r) } : null,
+           bandBtn: !!(band && band.offsetParent),
+           sheetBtn: !!(sheet && sheet.offsetParent),
+           coarse: !!(window.matchMedia && matchMedia("(pointer: coarse)").matches),
+           scrollH: root.scrollHeight, clientH: root.clientHeight,
+           overflowY: getComputedStyle(root).overflowY,
+           graph: box(g), sidebar: box(document.getElementById("vg-sidebar")),
+           heat: box(document.getElementById("vg-heat")),
+           panning: !!__vg.panEnabled,
+           liveSetting: !!__vg.renderer.getSetting("enableCameraPanning"),
+           panLaidOut: !!(pan && pan.offsetParent),
+           controls: n, small: small, over: over,
+           hrowOutside: outside, compactY: lines["vg-compact"], rangeY: lines["vg-rangebox"] };
+})()`;
+
+// github#170, design/0013 -- bandOpen is read at mount, so boot at size
+// github#170 -- and a default is what a reader who never chose gets
+const reboot = async (p) => {
+  await p.eval(`(function () {
+    try {
+      var k = window.SETTINGS_KEY;
+      if (!k) return;
+      var v = JSON.parse(window.localStorage.getItem(k) || "{}");
+      delete v.bandOpen;
+      window.localStorage.setItem(k, JSON.stringify(v));
+    } catch (e) { /* github#170 -- a page with no store has nothing to forget */ }
+  })(); void 0`).catch(() => {});
+  await p.eval(`location.reload(); void 0`).catch(() => {});
+  await sleep(1200);
+  for (let i = 0; i < 160; i++) {
+    if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+    await sleep(250);
+  }
+  for (let i = 0; i < 200; i++) {
+    if (!(await p.j(`!!__vg.demo.busy()`).catch(() => false))) break;
+    await sleep(150);
+  }
+  await sleep(400);
+};
+
+// github#170 -- see .ai-context/mobile-harness.md
+const settlePan = async (p) => {
+  await toRest(p);
+  await sleep(1200);
+  let prev = null, stable = 0;
+  for (let i = 0; i < 25 && stable < 3; i++) {
+    const now = await p.j(`__vg.panEnabled + "/" +
+                           __vg.renderer.getSetting("enableCameraPanning")`);
+    stable = now === prev ? stable + 1 : 0;
+    prev = now;
+    await sleep(200);
+  }
+};
+
+// github#170
+check("a phone gets the disc whole and clear, on a page that scrolls", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  // github#170 -- these emulate touch, so they own putting the page back
+  const restore = async () => {
+    await p.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {});
+    await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    await sleep(500);
+    // github#170 -- a phone-booted page is not a desktop one; boot it again
+    await reboot(p);
+    await settlePan(p);
+  };
+  const said = [], bad = [];
+  try {
+    for (const d of PHONE_DEVICES) {
+      // github#170 -- the device before its viewport; see mobile-harness.md
+      await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+      await p.send("Emulation.setDeviceMetricsOverride",
+                   { width: d.w, height: d.h, deviceScaleFactor: dpr, mobile: true });
+      await sleep(700);
+      // github#170 -- boot it at this size; the default is a mount read
+      await reboot(p);
+      // github#170 -- see .ai-context/mobile-harness.md
+      await settlePan(p);
+      // github#170 -- the trace below scrolls the page; measure from the top
+      await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+      await sleep(200);
+      const r = await p.j(PHONE_PROBE);
+      const say = (cond, what) => { if (!cond) bad.push(d.name + ": " + what); return cond; };
+
+      say(r.coarse && r.phone, `the page does not call itself a phone (coarse ${r.coarse}, ` +
+                               `__vg.phone ${r.phone}) -- NARROW_PX and page.css disagree`);
+      say(r.over.length === 0, `${r.over.join(", ")} over the disc`);
+      say((r.overflowY === "auto" || r.overflowY === "scroll") && r.scrollH > r.clientH,
+          `the page does not scroll (overflow-y ${r.overflowY}, ${r.scrollH} in ${r.clientH})`);
+      say(!!r.graph && !!r.sidebar && r.sidebar.y >= r.graph.b2 - 1,
+          `the panel is not below the disc (panel top ${r.sidebar && r.sidebar.y}, ` +
+          `disc ends ${r.graph && r.graph.b2})`);
+      // github#170 -- the disc is the first thing on screen, not a reference band
+      say(!r.bandOpen && r.dataBand === "off" && !r.bandLaidOut,
+          `the calendar did not start folded (__vg.bandOpen ${r.bandOpen}, ` +
+          `data-band ${r.dataBand}, laid out ${r.bandLaidOut})`);
+      say(!!r.graph && r.graph.y <= 1,
+          `the disc does not start the page (disc top ${r.graph && r.graph.y})`);
+      // github#170 -- the toggle is in the disc square's own top-left corner
+      // github#170 -- a 0x0 box sits inside every corner; require a real one
+      say(!!r.mob && r.mob.w > 0 && r.mob.h > 0 &&
+          !!r.graph && r.mob.x >= r.graph.x - 1 && r.mob.y >= r.graph.y - 1 &&
+          r.mob.r2 <= r.graph.x + r.graph.w / 2 && r.mob.b2 <= r.graph.y + r.graph.h / 2,
+          `the calendar's toggle is not in the disc's top-left corner ` +
+          `(toggle ${r.mob && r.mob.x},${r.mob && r.mob.y}..${r.mob && r.mob.r2},` +
+          `${r.mob && r.mob.b2}; disc square ${r.graph && r.graph.x},${r.graph && r.graph.y} ` +
+          `${r.graph && r.graph.w}x${r.graph && r.graph.h})`);
+      say(r.bandBtn && !r.sheetBtn,
+          `the calendar's toggle is ${r.bandBtn ? "drawn" : "NOT DRAWN"} and the sheet's is ` +
+          `${r.sheetBtn ? "STILL DRAWN" : "not"}`);
+      say(!r.panning && !r.panLaidOut,
+          `pan is ${r.panning ? "ON" : "off"} and its toggle is ` +
+          `${r.panLaidOut ? "drawn" : "not drawn"}`);
+
+      // github#170 -- folded is a fold, not a removal: the toggle brings it back
+      // github#170 -- and everything INSIDE the band can only be measured open
+      const tapBand = async () => {
+        await p.eval(`document.getElementById("vg-band").click(); void 0`);
+        await sleep(900);
+        await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+        await sleep(200);
+        return p.j(PHONE_PROBE);
+      };
+      const ro = await tapBand();
+      say(ro.bandOpen && ro.dataBand === "on" && ro.bandLaidOut,
+          `the toggle did not open the calendar (__vg.bandOpen ${ro.bandOpen}, ` +
+          `data-band ${ro.dataBand}, laid out ${ro.bandLaidOut})`);
+      say(!!ro.heat && !!ro.graph && ro.heat.b2 <= ro.graph.y + 1,
+          `the opened band is not above the disc (band ends ${ro.heat && ro.heat.b2}, ` +
+          `disc starts ${ro.graph && ro.graph.y})`);
+      say(ro.over.length === 0, `${ro.over.join(", ")} over the disc with the band open`);
+      say(ro.lensLines === 1, `the recent lens wrapped onto ${ro.lensLines} lines`);
+      say(ro.small.length === 0, `${ro.small.length} control(s) under their floor ` +
+                                 `(${PHONE_HIT}px, or ${PHONE_BAND_H}/${PHONE_YEAR_H}px tall ` +
+                                 `inside the calendar): ` + ro.small.join(", "));
+      say(ro.hrowOutside.length === 0,
+          `band controls outside their row: ${ro.hrowOutside.join(", ")}`);
+      say(ro.compactY !== undefined && ro.compactY === ro.rangeY,
+          `the compact toggle is on its own line (y ${ro.compactY} against the range's ` +
+          `${ro.rangeY})`);
+      // github#170 -- and folds again, back to the geometry r was measured at
+      const rf = await tapBand();
+      say(!rf.bandOpen && rf.dataBand === "off" && !rf.bandLaidOut &&
+          !!rf.graph && rf.graph.y <= 1,
+          `the toggle did not fold the calendar again (__vg.bandOpen ${rf.bandOpen}, ` +
+          `data-band ${rf.dataBand}, disc top ${rf.graph && rf.graph.y})`);
+
+      // github#170 -- a thumb lands on the disc; it must scroll from there
+      const gx = r.graph ? r.graph.x + Math.round(r.graph.w / 2) : Math.round(d.w / 2);
+      const gy = r.graph ? r.graph.y + Math.round(r.graph.h / 2) : Math.round(d.h / 4);
+      await p.eval(`(function () { window.__sev = [];
+        var l = document.querySelector("#vg-graph .vg-layer-mouse"); if (!l) return false;
+        window.__soff = function () {};
+        ["touchstart", "touchmove"].forEach(function (t) {
+          var h = function (e) { window.__sev.push(t + ":" + (e.cancelable ? "live" : "TAKEN") +
+            ":" + (e.defaultPrevented ? "prevented" : "free")); };
+          l.addEventListener(t, h, false);
+          var prev = window.__soff;
+          window.__soff = function () { l.removeEventListener(t, h, false); prev(); };
+        }); return true; })()`);
+      for (const [type, pts] of [["touchStart", [{ x: gx, y: gy, id: 1 }]],
+                                 ["touchMove", [{ x: gx, y: gy - 40, id: 1 }]],
+                                 ["touchMove", [{ x: gx, y: gy - 100, id: 1 }]],
+                                 ["touchEnd", []]]) {
+        await p.send("Input.dispatchTouchEvent", { type, touchPoints: pts }).catch(() => {});
+        await sleep(60);
+      }
+      await sleep(250);
+      const trace = await p.j(`(window.__sev || []).join(" | ")`);
+      await p.eval(`if (window.__soff) window.__soff(); void 0`);
+      const freed = trace.indexOf("touchmove:live:prevented") < 0 && trace.indexOf("TAKEN") >= 0;
+      say(freed, `a thumb cannot scroll the page from the disc [${trace}] ` +
+                 `(panEnabled ${r.panning}, enableCameraPanning ${r.liveSetting}, ` +
+                 `touch-action ${await p.j(
+                   `getComputedStyle(document.querySelector("#vg-graph .vg-layer-mouse")).touchAction`)})`);
+      const cam = await p.j(`(function () { var c = __vg.renderer.getCamera().getState();
+                             return { x: c.x, y: c.y }; })()`);
+      say(Math.abs(cam.x - 0.5) < 1e-6 && Math.abs(cam.y - 0.5) < 1e-6,
+          `that swipe panned the camera to ${cam.x.toFixed(4)},${cam.y.toFixed(4)}`);
+
+      // github#170 -- and the same while a cascade walks, not only at rest
+      const g2 = await biggestGroup(p);
+      let midOver = [];
+      if (g2) {
+        await clickEye(p, g2);
+        await sleep(240);
+        midOver = (await p.j(PHONE_PROBE)).over;
+        await p.eval(`__vg.state.hidden.folder = {}; __vg.syncAlpha(); __vg.applyLayout(false); void 0`);
+        await sleep(200);
+        await toRest(p);
+      }
+      say(midOver.length === 0, `mid-cascade, ${midOver.join(", ")} over the disc`);
+      // github#170 -- D-9: a fitted disc has nowhere to pan to; a zoomed one does
+      // github#170 -- not settlePan: that clicks Fit, the thing being measured
+      const panAt = async () => {
+        let prev = null, stable = 0;
+        for (let i = 0; i < 25 && stable < 3; i++) {
+          const now = await p.j(`__vg.panEnabled + "/" + __vg.camAtRest`);
+          stable = now === prev ? stable + 1 : 0;
+          prev = now;
+          await sleep(160);
+        }
+        return p.j(`__vg.panEnabled`);
+      };
+      const atRest = await panAt();
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      const zoomed = await panAt();
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      const refit = await panAt();
+      say(!atRest && zoomed && !refit,
+          `pan across a zoom: at rest ${atRest}, zoomed in ${zoomed}, back at fit ${refit}`);
+
+      said.push(`${d.name}: band folded at load, disc ${r.graph.w}x${r.graph.h} at ` +
+                `${r.graph.y} (drawn r ${r.disc && r.disc.r}), toggle ${r.mob.w}x${r.mob.h} at ` +
+                `${r.mob.x},${r.mob.y}, panel at ${r.sidebar.y}, scrolls by ` +
+                `${r.scrollH - r.clientH}px; opened: band ${ro.heat.h}px at ${ro.heat.y}, ` +
+                `disc at ${ro.graph.y}, lens on ${ro.lensLines} line, ${ro.controls} ` +
+                `controls with ${ro.small.length} under ${PHONE_HIT}, pan ` +
+                `${r.panning ? "on" : "off"}`);
+    }
+
+    // github#170, design/0013 -- a desk's stored open must not reach a phone
+    // github#170 -- nor its own tap write over one; found on the real vault
+    const stored = await p.j(`(function () {
+      try {
+        var k = window.SETTINGS_KEY;
+        if (!k) return false;
+        var v = JSON.parse(window.localStorage.getItem(k) || "{}");
+        v.bandOpen = true;
+        window.localStorage.setItem(k, JSON.stringify(v));
+        return JSON.parse(window.localStorage.getItem(k)).bandOpen === true;
+      } catch (e) { return false; }
+    })()`);
+    if (!stored) bad.push(`could not store a band choice to check a phone ignores it`);
+    await p.eval(`location.reload(); void 0`).catch(() => {});
+    await sleep(1200);
+    for (let i = 0; i < 160; i++) {
+      if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+      await sleep(250);
+    }
+    await sleep(600);
+    const rs = await p.j(PHONE_PROBE);
+    if (!(rs.phone && !rs.bandOpen && rs.dataBand === "off")) {
+      bad.push(`a desk's stored "open" reached a phone (__vg.phone ${rs.phone}, ` +
+               `__vg.bandOpen ${rs.bandOpen}, data-band ${rs.dataBand})`);
+    }
+    // github#170 -- opening it here leaves the desk's choice as it was
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const kept = await p.j(`(function () {
+      try {
+        return JSON.parse(window.localStorage.getItem(window.SETTINGS_KEY) || "{}").bandOpen;
+      } catch (e) { return "unreadable"; }
+    })()`);
+    const openedHere = await p.j(`!!__vg.bandOpen`);
+    if (kept !== true || !openedHere) {
+      bad.push(`a phone's tap wrote over the desk's choice (stored now ${kept}, ` +
+               `opened here ${openedHere})`);
+    }
+    said.push(`a desk's stored "open" does not reach a phone, and a tap here left it ${kept}`);
+  } finally {
+    await restore();
+  }
+  return { ok: bad.length === 0, detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#170 -- the other half of the predicate: narrow alone is not a phone
+check("a narrow window with a pointer keeps the desktop's answer", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  let r = null;
+  try {
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: 390, height: 844, deviceScaleFactor: dpr, mobile: false });
+    await sleep(700);
+    // github#170 -- booted here, so the calendar's default is the real one
+    await reboot(p);
+    await settlePan(p);
+    r = await p.j(PHONE_PROBE);
+  } finally {
+    await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    await sleep(500);
+    await reboot(p);
+    await settlePan(p);
+  }
+  // github#170 -- the calendar folds for a phone, never a narrow mouse
+  const ok = r && !r.coarse && !r.phone && r.narrow && r.panning && r.panLaidOut &&
+             r.overflowY === "hidden" && r.bandOpen && r.dataBand === "on";
+  return {
+    ok: !!ok,
+    detail: `390x844 with a fine pointer: coarse ${r && r.coarse}, __vg.narrow ${r && r.narrow}, ` +
+            `__vg.phone ${r && r.phone}, overflow-y ${r && r.overflowY}, ` +
+            `pan ${r && r.panning ? "on" : "OFF"}, toggle ` +
+            `${r && r.panLaidOut ? "drawn" : "NOT DRAWN"}, calendar ` +
+            `${r && r.bandOpen ? "open" : "FOLDED"} (data-band ${r && r.dataBand})` +
+            (ok ? "" : "  <- A NARROW DESKTOP WINDOW TOOK THE PHONE LAYOUT"),
+  };
+});
+
+// github#173, design/0013 -- the three items that reproduced, one check each
+const PHONE_TRACE_ON = `(function () { window.__sev = [];
+  var l = document.querySelector("#vg-graph .vg-layer-mouse"); if (!l) return false;
+  window.__soff = function () {};
+  ["touchstart", "touchmove"].forEach(function (t) {
+    var h = function (e) { window.__sev.push(t + "/" + e.touches.length + ":" +
+      (e.cancelable ? "live" : "TAKEN") + ":" +
+      (e.defaultPrevented ? "prevented" : "free")); };
+    l.addEventListener(t, h, false);
+    var prev = window.__soff;
+    window.__soff = function () { l.removeEventListener(t, h, false); prev(); };
+  }); return true; })()`;
+
+const traceOff = async (p) => {
+  const t = await p.j(`(window.__sev || []).join(" | ")`);
+  await p.eval(`if (window.__soff) window.__soff(); void 0`);
+  return t;
+};
+// github#173 -- a real finger; see .ai-context/mobile-harness.md
+const finger = async (p, type, pts) => {
+  await p.send("Input.dispatchTouchEvent", { type, touchPoints: pts }).catch(() => {});
+  await sleep(60);
+};
+const camRatio = (p) => p.j(`+__vg.renderer.getCamera().getState().ratio.toFixed(5)`);
+// github#173 -- the disc's centre now, not before a scroll
+const discAt = (p) => p.j(`(function () { var g = document.getElementById("vg-graph");
+  var r = g.getBoundingClientRect();
+  return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+// github#173, github#170 -- not settlePan: that clicks Fit, the thing measured
+const panSettled = async (p) => {
+  let prev = null, stable = 0;
+  for (let i = 0; i < 25 && stable < 3; i++) {
+    const now = await p.j(`__vg.panEnabled + "/" + __vg.camAtRest + "/" +
+                           __vg.renderer.getCamera().getState().ratio`);
+    stable = now === prev ? stable + 1 : 0;
+    prev = now;
+    await sleep(160);
+  }
+};
+const phoneOn = async (p, d, dpr) => {
+  // github#170 -- the device before its viewport; see mobile-harness.md
+  await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  await p.send("Emulation.setDeviceMetricsOverride",
+               { width: d.w, height: d.h, deviceScaleFactor: dpr, mobile: true });
+  await sleep(700);
+  await reboot(p);
+  await settlePan(p);
+};
+const phoneOff = async (p) => {
+  await p.send("Emulation.setTouchEmulationEnabled", { enabled: false }).catch(() => {});
+  await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+  await sleep(500);
+  await reboot(p);
+  await settlePan(p);
+};
+
+// github#173 -- item 1: every settings change pushes this
+check("a settings push keeps a phone's zoom", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  try {
+    for (const d of PHONE_DEVICES) {
+      await phoneOn(p, d, dpr);
+      const rest = await camRatio(p), panRest = await p.j(`!!__vg.panEnabled`);
+      if (panRest) bad.push(`${d.name}: pan was already armed at fit (ratio ${rest})`);
+      // github#170, design/0013 -- the zoom is what arms pan on a phone
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      await panSettled(p);
+      const zoomed = await camRatio(p), panZoom = await p.j(`!!__vg.panEnabled`);
+      if (!(zoomed < rest - 1e-4 && panZoom)) {
+        bad.push(`${d.name}: the zoom did not arm pan (ratio ${rest} -> ${zoomed}, ` +
+                 `pan ${panZoom}) -- nothing to discard, so this check cannot fail`);
+      }
+      // github#173 -- exactly what plugin/main.js applyHiddenDefaults() does
+      await p.eval(`__vg.setPanEnabled(true); void 0`);
+      await sleep(900);
+      await panSettled(p);
+      const after = await camRatio(p), panAfter = await p.j(`!!__vg.panEnabled`);
+      if (Math.abs(after - zoomed) > 1e-4 || !panAfter) {
+        bad.push(`${d.name}: a settings push discarded the zoom (ratio ${zoomed} -> ` +
+                 `${after}, pan ${panZoom} -> ${panAfter})`);
+      }
+      // github#173 -- and at fit it still answers false, so pan is not simply on
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      await settlePan(p);
+      await p.eval(`__vg.setPanEnabled(true); void 0`);
+      await sleep(600);
+      await settlePan(p);
+      const panFit = await p.j(`!!__vg.panEnabled`);
+      if (panFit) bad.push(`${d.name}: a settings push armed pan on a fitted disc`);
+      said.push(`${d.name}: fit ${rest} pan off, zoomed ${zoomed} pan on, after the push ` +
+                `${after} pan ${panAfter ? "on" : "OFF"}, refit pan ${panFit ? "ON" : "off"}`);
+    }
+    // github#173 -- off a phone the settings row still wins, as it always did
+    await phoneOff(p);
+    await p.eval(`__vg.setPanEnabled(false); void 0`);
+    await sleep(700);
+    const deskOff = await p.j(`!!__vg.panEnabled`);
+    await p.eval(`__vg.setPanEnabled(true); void 0`);
+    await sleep(700);
+    const deskOn = await p.j(`!!__vg.panEnabled`);
+    if (deskOff || !deskOn) {
+      bad.push(`a desk no longer follows the settings row (off -> ${deskOff}, on -> ${deskOn})`);
+    }
+    said.push(`a desk still follows the row: off ${deskOff}, on ${deskOn}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#173 -- item 2: bandOpen was a mount read, the layout a query
+check("the calendar follows a phone that rotates", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const store = (v) => p.j(`(function () { try {
+      var k = window.SETTINGS_KEY; if (!k) return "no key";
+      var s = JSON.parse(window.localStorage.getItem(k) || "{}");
+      ${v === undefined ? "" : `s.bandOpen = ${v}; window.localStorage.setItem(k, JSON.stringify(s));`}
+      return String(JSON.parse(window.localStorage.getItem(k) || "{}").bandOpen);
+    } catch (e) { return "unreadable"; } })()`);
+  const at = async (w, h) => {
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: w, height: h, deviceScaleFactor: dpr, mobile: true });
+    await sleep(1400);
+    return p.j(`(function () { var root = document.querySelector(".vault-graph");
+      return JSON.stringify({ phone: !!__vg.phone, bandOpen: !!__vg.bandOpen,
+        dataBand: root.getAttribute("data-band"),
+        laidOut: !!(document.getElementById("vg-heat") || {}).offsetParent }); })()`)
+      .then(JSON.parse);
+  };
+  try {
+    await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    // github#173 -- a coarse device narrow enough to be a phone
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: 700, height: 900, deviceScaleFactor: dpr, mobile: true });
+    await sleep(700);
+    const wrote = await store(true);
+    if (wrote !== "true") bad.push(`could not store a desk's open (${wrote})`);
+    await p.eval(`location.reload(); void 0`).catch(() => {});
+    await sleep(1200);
+    for (let i = 0; i < 160; i++) {
+      if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+      await sleep(250);
+    }
+    await sleep(600);
+    const booted = await at(700, 900);
+    if (!(booted.phone && !booted.bandOpen && booted.dataBand === "off")) {
+      bad.push(`700x900 coarse did not fold (phone ${booted.phone}, bandOpen ` +
+               `${booted.bandOpen}, data-band ${booted.dataBand})`);
+    }
+    // github#173 -- rotate: the same device, wide enough to stop being a phone
+    const wide = await at(900, 700);
+    if (!(!wide.phone && wide.bandOpen && wide.dataBand === "on" && wide.laidOut)) {
+      bad.push(`rotating to 900x700 kept the phone's fold (phone ${wide.phone}, ` +
+               `bandOpen ${wide.bandOpen}, data-band ${wide.dataBand}, laid out ${wide.laidOut}) ` +
+               `-- the desk's stored open did not come back`);
+    }
+    // github#173 -- and a tap at desk width is the desk's, written through
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const folded = await store();
+    const foldedHere = await p.j(`!!__vg.bandOpen`);
+    if (folded !== "false" || foldedHere) {
+      bad.push(`a tap at desk width was not written through (stored ${folded}, ` +
+               `bandOpen ${foldedHere})`);
+    }
+    // github#173 -- back folds; out again honours the new choice
+    const back = await at(700, 900);
+    if (!(back.phone && !back.bandOpen && back.dataBand === "off")) {
+      bad.push(`rotating back to 700x900 did not fold (phone ${back.phone}, ` +
+               `bandOpen ${back.bandOpen}, data-band ${back.dataBand})`);
+    }
+    const again = await at(900, 700);
+    if (!(!again.phone && !again.bandOpen)) {
+      bad.push(`the desk's new "folded" was not honoured on the way out (phone ` +
+               `${again.phone}, bandOpen ${again.bandOpen}) -- storedBand went stale`);
+    }
+    // github#173, github#170 -- a phone's tap still writes nothing
+    const onPhone = await at(700, 900);
+    const was = await store();
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const kept = await store();
+    const openedHere = await p.j(`!!__vg.bandOpen`);
+    if (kept !== was || !openedHere) {
+      bad.push(`a phone's tap did not open the band for the session only (stored ` +
+               `${was} -> ${kept}, opened here ${openedHere}, phone ${onPhone.phone})`);
+    }
+    said.push(`booted 700x900 coarse folded, rotated to 900x700 open, a desk tap stored ` +
+              `${folded}, rotated back folded, out again ${again.bandOpen ? "open" : "folded"}, ` +
+              `a phone's tap opened it and left the store ${kept}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#173 -- item 3: what the flight claims, what a late finger does
+check("a swipe after Fit still scrolls, and a late finger still pinches", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const swipe = async (p2, c) => {
+    await p2.eval(PHONE_TRACE_ON);
+    await finger(p2, "touchStart", [{ x: c.x, y: c.y, id: 1 }]);
+    await finger(p2, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 }]);
+    await finger(p2, "touchMove", [{ x: c.x, y: c.y - 100, id: 1 }]);
+    await finger(p2, "touchEnd", []);
+    return traceOff(p2);
+  };
+  const free = (t) => t.indexOf("live:prevented") < 0 && t.indexOf("TAKEN") >= 0;
+  try {
+    for (const d of PHONE_DEVICES) {
+      await phoneOn(p, d, dpr);
+      await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+      await sleep(200);
+      const c = await discAt(p);
+
+      // github#173 -- the control: a thumb on a resting disc is the browser's
+      const rest = await swipe(p, c);
+      if (!free(rest)) {
+        bad.push(`${d.name}: a thumb cannot scroll from a resting disc [${rest}] ` +
+                 `-- the control failed, so the row below means nothing`);
+      }
+      // github#173 -- and the same swipe inside fit()'s 380ms flight
+      await settlePan(p);
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      const flying = await p.j(`!!__vg.renderer.getCamera().enabledPanning`);
+      const after = await swipe(p, c);
+      if (!flying) {
+        bad.push(`${d.name}: the fit flight was over before the swipe (enabledPanning ` +
+                 `${flying}) -- this check could not have failed`);
+      }
+      if (!free(after)) {
+        bad.push(`${d.name}: the fit flight claimed the swipe [${after}]`);
+      }
+      await sleep(700);
+      await settlePan(p);
+
+      // github#173 -- the other half does NOT reproduce; the measurement
+      const pinch = async (late) => {
+        await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                       if (b) b.click(); })(); void 0`);
+        await sleep(900);
+        await settlePan(p);
+        // github#173 -- the swipes above really scroll; aim from the top again
+        await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+        await sleep(200);
+        const c = await discAt(p);
+        const from = await camRatio(p);
+        if (late) {
+          await finger(p, "touchStart", [{ x: c.x, y: c.y, id: 1 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 100, id: 1 }]);
+          await finger(p, "touchStart", [{ x: c.x, y: c.y - 100, id: 1 },
+                                         { x: c.x + 60, y: c.y, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 140, id: 1 },
+                                        { x: c.x + 140, y: c.y + 40, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 180, id: 1 },
+                                        { x: c.x + 220, y: c.y + 80, id: 2 }]);
+        } else {
+          await finger(p, "touchStart", [{ x: c.x, y: c.y, id: 1 },
+                                         { x: c.x + 60, y: c.y, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 },
+                                        { x: c.x + 140, y: c.y + 40, id: 2 }]);
+          await finger(p, "touchMove", [{ x: c.x, y: c.y - 80, id: 1 },
+                                        { x: c.x + 220, y: c.y + 80, id: 2 }]);
+        }
+        const to = await camRatio(p);
+        await finger(p, "touchEnd", [{ x: c.x + 220, y: c.y + 80, id: 2 }]);
+        await finger(p, "touchEnd", []);
+        await sleep(300);
+        return { from, to, by: +(from / to).toFixed(3) };
+      };
+      const clean = await pinch(false), late = await pinch(true);
+      if (clean.by < 2) {
+        bad.push(`${d.name}: the control pinch barely zoomed (x${clean.by}, ` +
+                 `${clean.from} -> ${clean.to})`);
+      }
+      if (late.by < 1.3) {
+        bad.push(`${d.name}: a late second finger lost the pinch (x${late.by}, ` +
+                 `${late.from} -> ${late.to})`);
+      }
+      said.push(`${d.name}: at rest [${rest}], after Fit [${after}]; pinch x${clean.by} ` +
+                `both down, x${late.by} second finger late`);
+    }
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#175, design/0013 -- the four items raised after github#173 merged
+// github#175 -- items 1 and 2: setPan(false) flew a disc home
+check("a swipe in the tail of a fit flight still scrolls", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const swipe = async (c) => {
+    await p.eval(PHONE_TRACE_ON);
+    await finger(p, "touchStart", [{ x: c.x, y: c.y, id: 1 }]);
+    // github#175 -- the flag claimsTouch reads, sampled after stopAnimation()
+    const held = await p.j(`!!__vg.renderer.getCamera().enabledPanning`);
+    await finger(p, "touchMove", [{ x: c.x, y: c.y - 40, id: 1 }]);
+    await finger(p, "touchMove", [{ x: c.x, y: c.y - 100, id: 1 }]);
+    await finger(p, "touchEnd", []);
+    return { trace: await traceOff(p), held };
+  };
+  const free = (t) => t.indexOf("live:prevented") < 0 && t.indexOf("TAKEN") >= 0;
+  try {
+    for (const d of PHONE_DEVICES) {
+      await phoneOn(p, d, dpr);
+      // github#175 -- the settled ratio at rest IS fitRatio(); nothing to expose
+      const FIT = await camRatio(p);
+      if (await p.j(`!!__vg.panEnabled`)) {
+        bad.push(`${d.name}: pan was armed at fit (ratio ${FIT})`);
+      }
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      await sleep(700);
+      await panSettled(p);
+      const zoomed = await camRatio(p);
+      if (!(zoomed < FIT - 1e-4 && await p.j(`!!__vg.panEnabled`))) {
+        bad.push(`${d.name}: the zoom did not arm pan (${FIT} -> ${zoomed}) -- ` +
+                 `nothing would claim the swipe, so this check cannot fail`);
+      }
+      await p.eval(`document.querySelector(".vault-graph").scrollTop = 0; void 0`);
+      await sleep(150);
+      const c = await discAt(p);
+      await p.eval(`(function () { var b = document.getElementById("vg-reset");
+                     if (b) b.click(); })(); void 0`);
+      // github#175 -- 345ms into a 380ms flight: its tail, where the ratio has
+      // github#175 -- climbed back over phonePanWanted()'s own threshold
+      await sleep(345);
+      const tail = await camRatio(p);
+      const { trace, held } = await swipe(c);
+      // github#175 -- both halves, or a pass is meaningless: the finger has to
+      // github#175 -- land with the flight still up AND past the pan threshold
+      if (!(tail > FIT * 0.995 && tail < FIT - 1e-5)) {
+        bad.push(`${d.name}: the finger missed the tail (ratio ${tail}, fit ${FIT}, ` +
+                 `threshold ${+(FIT * 0.995).toFixed(5)}) -- retimed, not fixed`);
+      }
+      if (held) {
+        bad.push(`${d.name}: panning was armed as the swipe began -- setPan(false) ` +
+                 `flew a disc already home [${trace}]`);
+      }
+      if (!free(trace)) {
+        bad.push(`${d.name}: the flight's tail claimed the swipe [${trace}]`);
+      }
+      said.push(`${d.name}: fit ${FIT}, zoomed ${zoomed}, at +345ms ${tail}, ` +
+                `panning ${held ? "ARMED" : "off"}, [${trace}]`);
+      await sleep(700);
+      await settlePan(p);
+    }
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#179 -- see .ai-context/awaiting-a-page-promise.md
+const RIDE_CAP_MS = 5000;
+const rideCap = (promise, what) => {
+  // github#179 -- the race's loser still settles, and may reject
+  promise.catch(() => {});
+  return Promise.race([promise, new Promise((_, rej) => {
+    const t = setTimeout(() => rej(new Error(`${what} did not settle in ${RIDE_CAP_MS}ms`)),
+                         RIDE_CAP_MS);
+    if (t.unref) t.unref();
+  })]);
+};
+
+// github#175 -- item 3 did NOT reproduce; asserted, not fixed
+// github#179 -- p.eval awaits; p.j stringifies the Promise first
+check("a settings push during a fit flight changes nothing", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  // github#175 -- the same flight twice, with and without the push that
+  // github#175 -- applyHiddenDefaults() makes; the two rides have to agree
+  // github#179 -- a throwing tick stops the sampler, with its message
+  // github#179 -- rideCap() ends a page that stopped ticking at all
+  const ride = (push) => rideCap(p.eval(`(function () {
+    var s = [], t0 = Date.now(), pushed = -1;
+    var b = document.getElementById("vg-reset");
+    if (!b) return Promise.resolve(JSON.stringify({ why: "the page has no #vg-reset" }));
+    b.click();
+    return new Promise(function (res) {
+      var stop = function (why) {
+        clearInterval(iv);
+        res(JSON.stringify({ s: s, pushed: pushed, why: why }));
+      };
+      var iv = setInterval(function () {
+        try {
+          var t = Date.now() - t0, st = __vg.renderer.getCamera().getState();
+          if (${push ? "true" : "false"} && pushed < 0 && t >= 110) {
+            pushed = t; __vg.setPanEnabled(true);
+          }
+          s.push([t, +st.ratio.toFixed(5), __vg.panEnabled ? 1 : 0,
+                  __vg.renderer.getSetting("enableCameraPanning") ? 1 : 0]);
+          if (t > 1500) stop("");
+        } catch (e) { stop("the sampler threw: " + ((e && e.message) || e)); }
+      }, 30);
+    });
+  })()`), `the ${push ? "pushed" : "plain"} ride`).then(JSON.parse);
+  const read = (r) => {
+    const a = r.s || [];
+    const edge = (k) => {
+      for (let i = 1; i < a.length; i++) if (!a[i][k] && a[i - 1][k]) return a[i][0];
+      return -1;
+    };
+    return { panOff: edge(2), panningOff: edge(3), pushed: r.pushed, why: r.why || "",
+             samples: a.length,
+             flips: a.reduce((n, x, i) => n + (i && x[2] !== a[i - 1][2] ? 1 : 0), 0) };
+  };
+  try {
+    await phoneOn(p, PHONE_DEVICES[0], dpr);
+    const out = [];
+    for (const push of [false, true]) {
+      await settlePan(p);
+      await p.eval(`(function () { var b = document.getElementById("vg-zin");
+                     if (b) { b.click(); b.click(); } })(); void 0`);
+      await sleep(700);
+      await panSettled(p);
+      if (!(await p.j(`!!__vg.panEnabled`))) {
+        bad.push(`the zoom did not arm pan, so the push has no transient to read`);
+      }
+      out.push(read(await ride(push)));
+      await sleep(600);
+    }
+    const plain = out[0], pushed = out[1];
+    // github#179 -- a ride that stopped early measured nothing
+    for (const [name, r] of [["plain", plain], ["pushed", pushed]]) {
+      if (r.why) bad.push(`the ${name} ride stopped early: ${r.why}`);
+      else if (r.samples < 40) {
+        bad.push(`the ${name} ride sampled ${r.samples} time(s) over 1500ms -- ` +
+                 `too coarse to place an edge`);
+      }
+    }
+    if (pushed.pushed < 0) bad.push(`the push never fired -- this could not have failed`);
+    if (pushed.flips !== plain.flips) {
+      bad.push(`the push changed how often pan flipped (${plain.flips} -> ${pushed.flips})`);
+    }
+    // github#175 -- 60ms is two sample periods; the measured spread was 1ms
+    if (Math.abs(pushed.panningOff - plain.panningOff) > 60) {
+      bad.push(`the push extended the flying (panning off ${plain.panningOff}ms -> ` +
+               `${pushed.panningOff}ms)`);
+    }
+    // github#175 -- and one 380ms ride, not the two items 1 and 2 used to leave
+    if (!(plain.panningOff > 300 && plain.panningOff < 700)) {
+      bad.push(`the disc did not fly home exactly once (panning off at ` +
+               `${plain.panningOff}ms against a 380ms flight)`);
+    }
+    said.push(`no push: pan off ${plain.panOff}ms, panning off ${plain.panningOff}ms, ` +
+              `flips ${plain.flips} | pushed at ${pushed.pushed}ms: pan off ` +
+              `${pushed.panOff}ms, panning off ${pushed.panningOff}ms, flips ${pushed.flips}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#175 -- item 4: the flip re-assigned storedBand to itself and saved
+check("a rotation to landscape writes the host nothing", async (p) => {
+  const dpr = await p.j(`window.devicePixelRatio || 1`);
+  const said = [], bad = [];
+  const at = async (w, h) => {
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: w, height: h, deviceScaleFactor: dpr, mobile: true });
+    await sleep(1400);
+    return p.j(`(function () { var r = document.querySelector(".vault-graph");
+      return JSON.stringify({ phone: !!__vg.phone, bandOpen: !!__vg.bandOpen,
+        dataBand: r.getAttribute("data-band"),
+        laidOut: !!(document.getElementById("vg-heat") || {}).offsetParent }); })()`)
+      .then(JSON.parse);
+  };
+  try {
+    await p.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    await p.send("Emulation.setDeviceMetricsOverride",
+                 { width: 700, height: 900, deviceScaleFactor: dpr, mobile: true });
+    await sleep(700);
+    // github#175 -- a desk that stored "open", so the flip has one to restore
+    await p.eval(`(function () { var k = window.SETTINGS_KEY;
+      var s = JSON.parse(window.localStorage.getItem(k) || "{}");
+      s.bandOpen = true; window.localStorage.setItem(k, JSON.stringify(s)); })(); void 0`);
+    await p.eval(`location.reload(); void 0`).catch(() => {});
+    await sleep(1200);
+    for (let i = 0; i < 160; i++) {
+      if (await p.j(`!!(window.__vg && __vg.renderer && __vg.graph)`).catch(() => false)) break;
+      await sleep(250);
+    }
+    await sleep(600);
+    const folded = await at(700, 900);
+    if (!(folded.phone && !folded.bandOpen)) {
+      bad.push(`700x900 coarse did not fold (phone ${folded.phone}, bandOpen ` +
+               `${folded.bandOpen}) -- there is no flip to count`);
+    }
+    // github#175 -- onBandOpen here IS saveSettings({bandOpen}); count the calls
+    const wrapped = await p.j(`(function () { window.__vgBw = 0;
+      var o = window.saveSettings; if (typeof o !== "function") return false;
+      window.__vgBwOff = function () { window.saveSettings = o; };
+      window.saveSettings = function (patch) {
+        if (patch && Object.prototype.hasOwnProperty.call(patch, "bandOpen")) window.__vgBw++;
+        return o(patch);
+      }; return true; })()`);
+    if (!wrapped) bad.push(`no saveSettings to wrap -- the count would mean nothing`);
+    const wide = await at(900, 700);
+    const writes = await p.j(`window.__vgBw`);
+    await p.eval(`if (window.__vgBwOff) window.__vgBwOff(); void 0`);
+    if (!(!wide.phone && wide.bandOpen && wide.dataBand === "on" && wide.laidOut)) {
+      bad.push(`rotating to 900x700 lost the desk's open (phone ${wide.phone}, ` +
+               `bandOpen ${wide.bandOpen}, data-band ${wide.dataBand}, laid out ` +
+               `${wide.laidOut}) -- github#173's restore must survive this`);
+    }
+    if (writes !== 0) {
+      bad.push(`the rotation wrote the host ${writes} time(s) for a stored value`);
+    }
+    // github#175 -- a real desk choice still writes: the gate is "it moved"
+    await p.eval(`document.getElementById("vg-band").click(); void 0`);
+    await sleep(900);
+    const stored = await p.j(`(function () { try { return String(JSON.parse(
+      window.localStorage.getItem(window.SETTINGS_KEY) || "{}").bandOpen);
+    } catch (e) { return "unreadable"; } })()`);
+    if (stored !== "false") {
+      bad.push(`a tap at desk width stopped being written through (stored ${stored})`);
+    }
+    said.push(`folded at 700x900, rotated to 900x700 open and laid out, host writes ` +
+              `${writes}, a desk tap still stored ${stored}`);
+  } finally {
+    await phoneOff(p);
+  }
+  return { ok: bad.length === 0,
+           detail: said.join(" | ") + (bad.length ? "  <- " + bad.join("; ") : "") };
+});
+
+// github#175 -- item 5: the allocation github#173 took out of phone()
+check("narrow() costs no MediaQueryList", async (p) => {
+  const per = (expr, n) => p.j(`(function () { var c = 0, o = window.matchMedia;
+    window.matchMedia = function (q) { c++; return o.call(window, q); };
+    try { for (var i = 0; i < ${n}; i++) { ${expr} } } finally { window.matchMedia = o; }
+    return c / ${n}; })()`);
+  const narrow = await per(`void __vg.narrow;`, 20);
+  const phone = await per(`void __vg.phone;`, 20);
+  const bad = [];
+  if (narrow !== 0) bad.push(`narrow() builds ${narrow} MediaQueryList per read`);
+  // github#175 -- github#173's hoist, so a regression there surfaces here too
+  if (phone !== 0) bad.push(`phone() builds ${phone} MediaQueryList per read`);
+  return { ok: bad.length === 0,
+           detail: `matchMedia per read: narrow() ${narrow}, phone() ${phone}` +
+                   (bad.length ? `  <- ${bad.join("; ")}` : "") };
+});
+
 // github#13
 
 // github#13
@@ -2339,6 +3748,69 @@ check("fit frames the disc that is actually there", async (p) => {
             `(${small.x}, ${small.y})`,
   };
 }, { on: WALK, clock: "real" });
+
+// github#182 -- the drawn disc centre, from the two real rects
+const DRAWN_OFF = `(function () {
+  var r = __vg.renderer, st = r.getCamera().getState();
+  var cont = document.getElementById("vg-graph");
+  var cr = cont.getBoundingClientRect(), vr = cont.querySelector("canvas").getBoundingClientRect();
+  var v = r.graphToViewport({ x: 0, y: 0 });
+  return { dx: +((vr.left + v.x) - (cr.left + cr.width / 2)).toFixed(2),
+           dy: +((vr.top + v.y) - (cr.top + cr.height / 2)).toFixed(2),
+           stage: Math.round(cr.width) + "x" + Math.round(cr.height),
+           ratio: +st.ratio.toFixed(4) };
+})()`;
+
+// github#182 -- a fitted disc that loses the centre on a resize
+check("a resize re-centres a fitted disc on the new stage", async (p) => {
+  const bad = [];
+  const seen = [];
+  const host = `document.querySelector(".vault-graph")`;
+  try {
+    await p.eval(`document.querySelector("#vg-reset").click(); void 0`);
+    const fitted = await camSettle(p);
+    await sleep(400);
+    const at0 = await p.j(DRAWN_OFF);
+    seen.push(`fit ${at0.stage} (${at0.dx}, ${at0.dy})`);
+
+    // github#182 -- the viewport half; this one held on develop
+    for (const [w, h] of [[900, 1200], [1400, 700], [1600, 1000]]) {
+      await p.send("Emulation.setDeviceMetricsOverride",
+                   { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+      await sleep(900);
+      const m = await p.j(DRAWN_OFF);
+      seen.push(`${w}x${h} -> stage ${m.stage} (${m.dx}, ${m.dy})`);
+      if (Math.abs(m.dx) > 1 || Math.abs(m.dy) > 1) {
+        bad.push(`viewport ${w}x${h} left the disc (${m.dx}, ${m.dy}) off the stage centre`);
+      }
+      if (Math.abs(m.ratio - fitted.ratio) > fitted.ratio * 0.005) {
+        bad.push(`viewport ${w}x${h} moved the ratio off fit (${m.ratio} vs ${fitted.ratio})`);
+      }
+    }
+
+    // github#182 -- the container half; the one that actually failed
+    for (const [w, h] of [[640, 760], [1180, 420], [900, 640]]) {
+      await p.eval(`(function () { var el = ${host};
+        el.style.width = "${w}px"; el.style.height = "${h}px"; })(); void 0`);
+      await sleep(900);
+      const m = await p.j(DRAWN_OFF);
+      seen.push(`host ${w}x${h} -> stage ${m.stage} (${m.dx}, ${m.dy})`);
+      if (Math.abs(m.dx) > 1 || Math.abs(m.dy) > 1) {
+        bad.push(`a ${w}x${h} container left the disc (${m.dx}, ${m.dy}) off the stage centre`);
+      }
+      if (Math.abs(m.ratio - fitted.ratio) > fitted.ratio * 0.005) {
+        bad.push(`a ${w}x${h} container moved the ratio off fit (${m.ratio} vs ${fitted.ratio})`);
+      }
+    }
+    return { ok: !bad.length, detail: bad.length ? bad.join("; ") : seen.join(" | ") };
+  } finally {
+    await p.eval(`(function () { var el = ${host};
+      el.style.width = ""; el.style.height = ""; })(); void 0`).catch(() => {});
+    await p.send("Emulation.clearDeviceMetricsOverride").catch(() => {});
+    await sleep(600);
+    await camReset(p).catch(() => {});
+  }
+}, { on: ["demo-vault"], clock: "real" });
 
 // github#14
 async function toRest(p) {
@@ -2718,7 +4190,7 @@ check("clicking the overview fits the disc through fit(), with panning on or off
   const landed = await camSettle(p);
   const restOv = await ovState(p);
 
-  // github#79, design/0017 -- NOT camSettle: fit() lends panning back mid-flight
+  // github#79, design/0017, github#175 -- lent only for a real flight, not an at-fit toggle
   const panRestored = async () => {
     for (const dl = Date.now() + 4000; Date.now() < dl;) {
       if (!(await p.j(`!!__vg.renderer.getSetting("enableCameraPanning")`))) return true;
@@ -2745,13 +4217,14 @@ check("clicking the overview fits the disc through fit(), with panning on or off
         Math.abs(landed.x - 0.5) < 0.002 && Math.abs(landed.y - 0.5) < 0.002 &&
         Math.abs(landed.ratio - want1) < 0.03 && restOv.hidden &&
         Math.abs(landed2.x - 0.5) < 0.002 && Math.abs(landed2.ratio - want2) < 0.03 &&
-        lentOnToggle && settledToggle && lentOnTile && settledTile &&
+        !lentOnToggle && settledToggle && lentOnTile && settledTile &&
         !panOff.setting && !panOff.api,
     detail: `from ratio 0.35 a click landed at (${landed.x}, ${landed.y}) ratio ${landed.ratio} ` +
             `against ${want1.toFixed(4)} promised, and it hid itself again ` +
             `(${restOv.hidden}); with panning off it landed at (${landed2.x}, ${landed2.y}) ` +
-            `ratio ${landed2.ratio} against ${want2.toFixed(4)}; fit() lent panning back mid-flight ` +
-            `from the toggle ${lentOnToggle} and from the tile ${lentOnTile}, and restored it ` +
+            `ratio ${landed2.ratio} against ${want2.toFixed(4)}; toggling at rest lent panning ` +
+            `${lentOnToggle} (must be false), a genuine flight from the tile lent it ${lentOnTile} ` +
+            `(must be true), and restored it ` +
             `${settledToggle && settledTile ? "both times" : "NOT both times"} -- ended ` +
             `${panOff.setting ? "ON, leaked" : "off"}, api ${panOff.api}`,
   };
@@ -5921,6 +7394,255 @@ check("the picker stays inside the mount", async (p) => {
                    `${r.inside ? "inside" : "OUTSIDE the mount"}` };
 });
 
+/* ------------------------------------------------------------------ github#165 */
+const DEV_EMPTY_POINT = `(function(){
+  var o = document.getElementById("vg-graph").getBoundingClientRect();
+  // A corner inset, not the centre: the hub hole in the middle of the disc holds the
+  // unlinked notes on the fixtures that have any, so the centre is not reliably empty.
+  // The event goes to the MOUSE CANVAS, not to #vg-graph: that canvas is where the
+  // renderer's captor listens, and an event dispatched at the host would bubble past it
+  // without ever reaching a listener on a descendant.
+  return { host: __vg.renderer.getCanvases().mouse,
+           x: Math.round(o.left + 18), y: Math.round(o.top + 18) };
+})()`;
+const DEV_RIGHT_CLICK = `(function(){
+  var at = ${DEV_EMPTY_POINT};
+  var ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+                                           clientX: at.x, clientY: at.y });
+  at.host.dispatchEvent(ev);
+  return { menu: document.querySelector('[id$="ctxmenu"]'), prevented: ev.defaultPrevented };
+})()`;
+
+check("the disc's right-click does nothing until Developer debug is on", async (p) => {
+  const r = await p.j(`(function(){
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    // Whatever the host handed this page, assert from a known state.
+    __vg.setDevTools(false);
+    var off = ${DEV_RIGHT_CLICK};
+    var hiddenOff = menu.hidden;
+
+    __vg.setDevTools(true);
+    var on = ${DEV_RIGHT_CLICK};
+    var openOn = !menu.hidden;
+    var grid = menu.querySelector("[data-grid]");
+    var speeds = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
+      return b.getAttribute("data-speed"); });
+    var swatches = menu.querySelectorAll(".swatch").length;
+
+    // Turning the setting off must shut a menu it opened, not leave one behind it.
+    __vg.setDevTools(false);
+    return { preventedOff: off.prevented, hiddenOff: hiddenOff, preventedOn: on.prevented,
+             openOn: openOn, hasGrid: !!grid, speeds: speeds, swatches: swatches,
+             shutByToggle: menu.hidden };
+  })()`);
+  const ok = !r.preventedOff && r.hiddenOff && r.preventedOn && r.openOn && r.hasGrid &&
+             r.speeds.join(",") === "1,2,4,8" && r.swatches === 0 && r.shutByToggle;
+  return { ok, detail: `off: preventDefault=${r.preventedOff} (must be false so the host keeps ` +
+    `its own menu), stayed hidden=${r.hiddenOff}; on: preventDefault=${r.preventedOn}, ` +
+    `opened=${r.openOn}, grid item=${r.hasGrid}, speed multipliers=[${r.speeds.join(", ")}], ` +
+    `${r.swatches} colour swatches (must be 0 -- this is not the legend's menu); ` +
+    `setting off again shut it=${r.shutByToggle}` };
+});
+
+// github#165
+check("a right-click on a note still pins it, and opens no developer menu", async (p) => {
+  const r = await p.j(`(function(){
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    var o = document.getElementById("vg-graph").getBoundingClientRect();
+    var host = __vg.renderer.getCanvases().mouse;   // where the captor listens
+    // The biggest visible note, so the hit test lands on it rather than near it.
+    var best = null, bs = -1;
+    __vg.graph.forEachNode(function (id) {
+      if (!__vg.visible(id) || (__vg.alpha[id] || 0) < 0.9) return;
+      var dd = __vg.renderer.getNodeDisplayData(id);
+      if (!dd || dd.hidden) return;
+      var sz = __vg.renderer.scaleSize(dd.size);
+      if (sz > bs) { bs = sz; best = id; }
+    });
+    if (!best) return { skip: true };
+    var a = __vg.graph.getNodeAttributes(best);
+    var v = __vg.renderer.graphToViewport({ x: a.x, y: a.y });
+
+    __vg.setDevTools(true);
+    var was = __vg.isPinned(best);
+    host.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true,
+      clientX: Math.round(v.x + o.left), clientY: Math.round(v.y + o.top) }));
+    var pinned = __vg.isPinned(best);
+    var stayedShut = menu.hidden;
+    if (__vg.isPinned(best) !== was) __vg.togglePin(best);   // leave the page as found
+    __vg.setDevTools(false);
+    return { skip: false, size: Math.round(bs * 10) / 10, was: was,
+             pinned: pinned, stayedShut: stayedShut, restored: __vg.isPinned(best) === was };
+  })()`);
+  if (r.skip) return { ok: true, detail: "no visible note to aim at on this shape" };
+  const ok = r.pinned !== r.was && r.stayedShut && r.restored;
+  return { ok, detail: `aimed at a ${r.size}px note with Developer debug ON: pinned ` +
+    `${r.was} -> ${r.pinned} (rightClickNode still owns it), developer menu stayed ` +
+    `shut=${r.stayedShut}, pin restored=${r.restored}` };
+});
+
+// github#165
+check("the developer menu's grid item draws the wedge overlay", async (p) => {
+  // github#165 -- settles between halves; the draw hook paints, not the click
+  const before = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    __vg.setDevTools(true);
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
+    var pressed = b.getAttribute("aria-pressed");
+    b.click();
+    return { started: !!cv && !cv.hidden, pressed: pressed,
+             closed: document.querySelector('[id$="ctxmenu"]').hidden };
+  })()`);
+  await settle(p);
+  const on = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    // Read the canvas BEFORE reopening the menu and clicking: the click turns the overlay
+    // back off, and a property read after it would be measuring the wrong half.
+    var out = { drawn: !!cv && !cv.hidden,
+                inHost: !!(cv && cv.parentElement && cv.parentElement.id === "vg-graph"),
+                painted: !!(cv && cv.width > 0 && cv.height > 0) };
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
+    out.pressed = b.getAttribute("aria-pressed");
+    b.click();
+    return out;
+  })()`);
+  await settle(p);
+  const off = await p.j(`(function(){
+    var cv = document.querySelector(".vg-wedge-debug");
+    __vg.setDevTools(false);
+    return { gone: !!cv && cv.hidden };
+  })()`);
+  const ok = !before.started && before.pressed === "false" && before.closed &&
+             on.drawn && on.inHost && on.painted && on.pressed === "true" && off.gone;
+  return { ok, detail: `overlay at rest=${before.started} (must be false); the item reads ` +
+    `pressed=${before.pressed} and closes the menu=${before.closed}; a frame later the ` +
+    `lattice is drawn=${on.drawn} on a ${on.painted ? "sized" : "ZERO-SIZED"} canvas, ` +
+    `inside #vg-graph=${on.inHost}, and the item now reads ` +
+    `pressed=${on.pressed}; clicking again hides it=${off.gone}` };
+});
+
+// github#165
+check("the grid drawn from the menu is the whole grid, and no dot moves to get it", async (p) => {
+  // github#165 -- two assertions: the cells came back, and no note moved
+  const before = await p.j(`(function(){
+    __vg.setDevTools(true);
+    __vg.setWedgeGrid(false);            // start from cells-are-null, the reachable state
+    var pos = {};
+    __vg.graph.forEachNode(function (id, a) { pos[id] = [a.x, a.y]; });
+    window.__smokeGrid = pos;
+    return { cells: (__vg.wedgeCells() || []).length, notes: Object.keys(pos).length };
+  })()`);
+  await settle(p);
+  const after = await p.j(`(function(){
+    var b = ${DEV_RIGHT_CLICK}.menu.querySelector("[data-grid]");
+    b.click();
+    var cells = (__vg.wedgeCells() || []).length;
+    var was = window.__smokeGrid, moved = 0, worst = 0;
+    __vg.graph.forEachNode(function (id, a) {
+      var w = was[id];
+      if (!w) return;
+      var d = Math.hypot(a.x - w[0], a.y - w[1]);
+      if (d > 0.5) moved++;
+      if (d > worst) worst = d;
+    });
+    // wedgeTrace() walks the seam geometry the overlay draws between adjacent cells, so a
+    // non-empty trace is a second, independent witness that the cells came back.
+    var trace = (__vg.wedgeTrace() || []).length;
+    delete window.__smokeGrid;
+    __vg.setWedgeGrid(false);
+    __vg.setDevTools(false);
+    return { cells: cells, moved: moved, worst: Math.round(worst * 100) / 100, trace: trace };
+  })()`);
+  const ok = before.cells === 0 && after.cells > 0 && after.moved === 0 && after.trace > 0;
+  return { ok, detail: `wedge cells ${before.cells} -> ${after.cells} on one click of the ` +
+    `menu item (0 after would mean the band radii drawn alone); ${after.trace} seam-trace ` +
+    `rows; of ${before.notes} notes ${after.moved} moved, worst ${after.worst} units` };
+});
+
+// github#165
+check("the grid's key sits bottom left, clear of every button over the graph", async (p) => {
+  // github#165 -- canvas, so DBG.legendBox is the only thing to measure
+  await p.j(`(function(){ __vg.setDevTools(true); return __vg.setWedgeGrid(true); })()`);
+  await settle(p);
+  const r = await p.j(`(function(){
+    var host = document.getElementById("vg-graph");
+    var hb = host.getBoundingClientRect();
+    var box = __vg.wedgeLegendBox();
+    if (!box) return { missing: true };
+    // Host coordinates -> viewport, so the sibling control group is comparable.
+    var key = { left: hb.left + box.x, top: hb.top + box.y,
+                right: hb.left + box.x + box.w, bottom: hb.top + box.y + box.h };
+    var hits = [];
+    ["vg-cam", "vg-viewbtns", "vg-tools"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el || el.hidden) return;
+      var b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      if (key.left < b.right && key.right > b.left &&
+          key.top < b.bottom && key.bottom > b.top) hits.push(id);
+    });
+    // Every button that actually sits over the graph, whatever it is called.
+    var overlapAny = [];
+    [].forEach.call(host.parentElement.querySelectorAll("button"), function (el) {
+      var b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      if (key.left < b.right && key.right > b.left &&
+          key.top < b.bottom && key.bottom > b.top) overlapAny.push(el.id || el.title || "?");
+    });
+    var inHost = box.x >= 0 && box.y >= 0 &&
+                 box.x + box.w <= host.clientWidth + 0.5 &&
+                 box.y + box.h <= host.clientHeight + 0.5;
+    // Bottom left: left of the midpoint, below it.
+    var bottomLeft = box.x + box.w / 2 < host.clientWidth / 2 &&
+                     box.y + box.h / 2 > host.clientHeight / 2;
+    __vg.setWedgeGrid(false);
+    __vg.setDevTools(false);
+    return { missing: false, box: box, host: [host.clientWidth, host.clientHeight],
+             hits: hits, overlapAny: overlapAny, inHost: inHost, bottomLeft: bottomLeft };
+  })()`);
+  if (r.missing) return { ok: false, detail: "the overlay drew no key -- DBG.legendBox is null" };
+  const ok = r.hits.length === 0 && r.overlapAny.length === 0 && r.inHost && r.bottomLeft;
+  return { ok, detail: `key ${r.box.w}x${r.box.h} at ${r.box.x},${r.box.y} in a ` +
+    `${r.host[0]}x${r.host[1]} host: bottom-left=${r.bottomLeft}, inside=${r.inHost}, ` +
+    `named control groups overlapped=[${r.hits.join(", ") || "none"}], ` +
+    `any button over the graph overlapped=[${r.overlapAny.join(", ") || "none"}]` };
+});
+
+// github#165
+check("the developer menu's slow motion reaches the animation clock", async (p) => {
+  const r = await p.j(`(function(){
+    var menu = document.querySelector('[id$="ctxmenu"]');
+    var pick = function (mul) {
+      var b = ${DEV_RIGHT_CLICK}.menu.querySelector('[data-speed="' + mul + '"]');
+      var checked = b.getAttribute("aria-checked");
+      b.click();
+      return checked;
+    };
+    var before = __vg.timeScale;
+    __vg.setDevTools(true);
+    var checked2Before = pick(2);
+    var at2 = __vg.timeScale;
+    pick(8);
+    var at8 = __vg.timeScale;
+    // Reopened at 8x, the 8x entry is the one that reads checked and Normal does not.
+    ${DEV_RIGHT_CLICK};
+    var marks = [].map.call(menu.querySelectorAll("[data-speed]"), function (b) {
+      return b.getAttribute("data-speed") + ":" + b.getAttribute("aria-checked"); });
+    menu.querySelector('[data-speed="1"]').click();
+    var back = __vg.timeScale;
+    __vg.setDevTools(false);
+    __vg.timeScale = before;   // the suite's own fast clock, put back
+    return { before: before, checked2Before: checked2Before, at2: at2, at8: at8,
+             marks: marks, back: back, restored: __vg.timeScale };
+  })()`);
+  const ok = r.checked2Before === "false" && r.at2 === 2.5 && r.at8 === 10 &&
+             r.marks.join(" ") === "1:false 2:false 4:false 8:true" &&
+             r.back === 1.25 && r.restored === r.before;
+  return { ok, detail: `timeScale ${r.before} -> 2x=${r.at2} -> 8x=${r.at8} -> Normal=${r.back} ` +
+    `(x1, x2, x4, x8 of the 1.25 default); reopened at 8x the marks read ` +
+    `[${r.marks.join(", ")}]; restored to ${r.restored}` };
+});
+
 check("focus web stays above dim notes", async (p) => {
   const r = await p.j(`__vg.checkFocusWeb()`);
   if (!r.geomGaps) return { ok: true, detail: `${r.node} (degree ${r.degree}): no in-disc samples on this shape, nothing to measure` };
@@ -6649,9 +8371,12 @@ function resolveVaults() {
   if (arg("url", "")) return [{ path: "", label: "the page passed with --url" }];
 
   const out = [];
+  // github#71 -- the trio share one list, by delegation
   const GENERATORS = ["make-demo-vault.mjs", "make-test-vault.mjs", "make-shape-vault.mjs"];
   // github#86 -- hashes ONLY its own generator; the other three do not move
   const TAG_GENERATORS = ["make-tag-vault.mjs"];
+  // github#71 -- delegates to nothing, so it gets its OWN list
+  const SPEC_GENERATORS = ["make-spec-vault.mjs"];
   // github#106 -- format 2 stamps the note count
   const FIXTURE_FORMAT = 2;
   const storeRoot = fixtureStore(ROOT);
@@ -6732,6 +8457,9 @@ function resolveVaults() {
   // github#86, design/0015 -- the only tag-ORGANISED fixture; --end pinned
   gen("make-tag-vault.mjs", ["--end", "2026-09-09"], "tag-vault",
       "the tag-organised vault (nested tags, 8% untagged)", TAG_GENERATORS);
+  // github#71 -- --end PINNED: its dated subfolders would age out weekly
+  gen("make-spec-vault.mjs", ["--end", "2026-09-08"], "spec-vault",
+      "the sortspec vault (wedges out of name order)", SPEC_GENERATORS);
 
   if (!out.length) throw new Error("no vault to check, and none could be generated");
   return out;
@@ -6742,7 +8470,8 @@ async function buildFor(v) {
   const scratch = join(mkdtempSync(join(tmpdir(), "vg-smoke-build-")), "vault-graph.html");
   const b = spawnSync(process.execPath,
                       [join(HERE, "..", "src", "build-graph.mjs"), "--out", scratch]
-                        .concat(v.path ? ["--vault", v.path] : []),
+                        .concat(v.path ? ["--vault", v.path] : [])
+                        .concat(v.build || []),
                       { encoding: "utf8" });
   // github#106 -- fail here, before any browser is launched
   if (b.status !== 0) {

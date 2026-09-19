@@ -13,7 +13,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);
 
 export const FIXTURE_MAX_AGE_DAYS = 7;
-export const FIXTURE_NAMES = ["demo-vault", "test-vault", "shape-vault", "tag-vault"];
+// github#71, github#103 -- a name missing here is a fixture the stamp does not require
+export const FIXTURE_NAMES = ["demo-vault", "test-vault", "shape-vault", "tag-vault", "spec-vault"];
 
 function git(args, cwd) {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
@@ -306,6 +307,8 @@ function selftest() {
     seed("shape-vault", "cccccccc", today, false);
     // github#86
     seed("tag-vault", "dddddddd", "2026-09-09", true);
+    // github#71 -- pinned: its dated subfolders would otherwise age out weekly
+    seed("spec-vault", "eeeeeeee", "2026-09-08", true);
 
     expect("no stamp yet -> miss", !lookup("HEAD", repo).ok);
     const wrote = pass({ fixtures: currentFixtures(repo), checks: 3, cwd: repo });
@@ -426,6 +429,11 @@ function selftest() {
                            checks: 3, cwd: repo });
     expect("a run missing the tag vault refuses to record",
            !three.wrote && /tag-vault did not run/.test(three.why));
+    // github#71 -- and the fifth like the fourth
+    const four = pass({ fixtures: currentFixtures(repo).filter((f) => f.name !== "spec-vault"),
+                          checks: 3, cwd: repo });
+    expect("a run missing the sortspec vault refuses to record",
+           !four.wrote && /spec-vault did not run/.test(four.why));
     const stampFile = lookup("HEAD", repo).file;
     const full = readFileSync(stampFile, "utf8");
     const cut = JSON.parse(full);
