@@ -173,11 +173,7 @@ check("a closing-script marker in frontmatter cannot escape the data script", as
   }
 });
 
-// github#183 -- ingest() (github#72) hands out a synthetic sequential id to every node,
-// ghosts included, and stores the vault-relative (or "ghost:...") string only under the
-// "path" attribute -- so a wikilink target with a quote in it never reaches these three
-// sites through a real build. Drive them directly through the exposed debug surface
-// instead: a node injected straight into __vg.graph carries whatever id we give it.
+// github#183 -- drives the debug surface directly, see changelog-detail.md
 check("a node id carrying quotes round-trips through data-pin, data-go and data-hit", async (p) => {
   const r = await p.j(`(function () {
     var EVIL = 'quote" onmouseover="window.__vg183=1\\' vgxsstoken';
