@@ -10679,6 +10679,17 @@ function mountVaultGraph(root, data, deps) {
       { click: true, target: ["ctxswatch", ""], act: "colours", why: "put it back to automatic too" },
       { settle: true, act: "colours", why: "let the palette snap back" },
 
+      // github#71 -- needs a vault that ships a sortspec (spec-vault), so this act is excluded
+      // from the full run and the hero (see FULL_RUN_EXCLUDES) and recorded on its own
+      { click: true, target: ["id", "gear"], act: "sort", why: "open settings -- Folder order lives here" },
+      { settle: true, act: "sort", why: "let the panel open" },
+      { click: true, target: ["id", "fo-explorer"], act: "sort",
+        why: "switch Folder order to File explorer -- the vault's own custom-sort spec" },
+      { settle: true, act: "sort", why: "the wedges and the legend reorder to match it" },
+      { click: true, target: ["id", "fo-name"], act: "sort", why: "...and back to Name" },
+      { settle: true, act: "sort", why: "let it settle back into name order" },
+      { click: true, target: ["id", "gear"], act: "sort", why: "close settings -- leave a clean frame" },
+
       // github#3
       { rightclick: true, target: ["group", "(unlinked)"], act: "unlinked",
         why: "right-click the (unlinked) row -- always last in the legend" },
@@ -10787,7 +10798,7 @@ function mountVaultGraph(root, data, deps) {
   // github#34, github#73
   // github#82 -- collapse closes the hero: it is the last act and ends folded
   // github#72, design/0014
-  var FULL_RUN_EXCLUDES = ["subfoldercolor", "hiddenbydefault", "yearchip", "only05", "live", "mobile"];
+  var FULL_RUN_EXCLUDES = ["subfoldercolor", "hiddenbydefault", "yearchip", "only05", "live", "mobile", "sort"];
 
   /** @returns {DemoBeat[]} */
   function demoFullStoryboard() {
