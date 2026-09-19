@@ -64,13 +64,17 @@ DOM targets take a mouse press at the point, with no move before it: Chrome's to
 does not turn a synthesized tap into a click on an ordinary button, which is the same reason the
 disc needed a touch captor in the first place.
 
-**Unverified against github#170: the two `["id", "sheet"]` beats.** The CSS that ships the new
-phone layout hides `#vg-sheet` entirely under `(max-width: 720px) and (pointer: coarse)` (there is
-nothing left for it to toggle — the panel is always in the scroll flow now), which means those two
-beats target a zero-size, hidden element and should log `target not found -- skipping` rather than
-opening or closing anything. The beats were left as they are (github#170's own decision: reuse the
-act rather than rewrite its beats), but this was reasoned from the CSS, not watched on camera —
-look at the first take before trusting the rest of this clip.
+**The old sheet beats are gone — confirmed, not just reasoned about.** A full re-record of this
+act crashed partway on exactly the risk above: the two `["id", "sheet"]` clicks target
+`#vg-sheet`, which `(max-width: 720px) and (pointer: coarse)` hides outright, so its bounding box
+is zero-size and the driver's own `demoWhere()` returns `null` for it rather than a soft
+"not found" — the act aborted mid-run rather than skipping the beat. The act now clicks
+`["only", "01"]` directly instead: on a phone the folder list is already in the page's own scroll
+flow with nothing to open, so soloing a folder from it scrolls straight there on its own
+(`Element.scrollIntoView`, the same mechanism every other act's on-disc targets already use). The
+folder is then shown again (`["id", "allon"]`), and a hover on `#vg-graph` scrolls the page back
+up before the closing double-tap — otherwise that beat's coordinates would land on whatever the
+scroll had left under them, not the disc.
 
 ## Regenerating this feature's clip
 
@@ -100,4 +104,4 @@ selects nothing. See `.ai-context/mobile-harness.md`.
 | | |
 |---|---|
 | **Introduced in** | `2.1.0 (github#73)` |
-| **Last re-recorded** | `2.8.0 — 2026-09-14` — 18.2 s at 420x900, encoded at native width (1.18 MB) |
+| **Last re-recorded** | `2.9.0 — 2026-09-19` — 9.9 s at 420x900, encoded at native width (1.80 MB) |

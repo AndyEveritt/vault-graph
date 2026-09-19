@@ -10780,17 +10780,17 @@ function mountVaultGraph(root, data, deps) {
         why: "tap a note -- the card rises as a sheet at the foot, the disc still above it" },
       { settle: true, act: "mobile", why: "let the card land and the links light" },
       { click: true, target: ["detailclose"], act: "mobile", why: "close the card" },
-      { click: true, target: ["id", "sheet"], act: "mobile",
-        why: "the folder list, search and view buttons slide up as a sheet" },
-      { settle: true, act: "mobile", why: "let the sheet arrive" },
+      // github#170 -- no sheet to open any more: the panel already lives below the disc
+      // in the page's own scroll, so soloing a folder from it scrolls straight there
       { click: true, target: ["only", "01"], act: "mobile",
-        why: "solo a folder -- the pill is always there on a phone, since there is no hover to " +
-             "reveal it with" },
-      { click: true, target: ["id", "sheet"], act: "mobile",
-        why: "put the sheet away -- everything else has gone behind it" },
-      { settle: true, act: "mobile", why: "let the rest recede" },
+        why: "solo a folder from the panel below the disc -- the page scrolls to it, nothing " +
+             "slides over the circle" },
+      { settle: true, act: "mobile", why: "let everything else recede" },
+      { click: true, target: ["id", "allon"], act: "mobile", why: "show everything again" },
+      { settle: true, act: "mobile", why: "let the disc fill back in" },
+      { hover: true, target: ["id", "graph"], act: "mobile", why: "scroll back up to the disc" },
       { dblclick: true, target: ["stage", "centre"], act: "mobile",
-        why: "double-tap fits what is left back into view, the way a double-click does" },
+        why: "double-tap fits the disc back into view, the way a double-click does" },
       { settle: true, act: "mobile", why: "let it fly home" }
     ];
   }
