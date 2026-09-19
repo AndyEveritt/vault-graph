@@ -10679,8 +10679,7 @@ function mountVaultGraph(root, data, deps) {
       { click: true, target: ["ctxswatch", ""], act: "colours", why: "put it back to automatic too" },
       { settle: true, act: "colours", why: "let the palette snap back" },
 
-      // github#71 -- needs a vault that ships a sortspec (spec-vault), so this act is excluded
-      // from the full run and the hero (see FULL_RUN_EXCLUDES) and recorded on its own
+      // github#71 -- needs spec-vault, not demo-vault; see FULL_RUN_EXCLUDES
       { click: true, target: ["id", "gear"], act: "sort", why: "open settings -- Folder order lives here" },
       { settle: true, act: "sort", why: "let the panel open" },
       { click: true, target: ["id", "fo-explorer"], act: "sort",
@@ -10780,8 +10779,7 @@ function mountVaultGraph(root, data, deps) {
         why: "tap a note -- the card rises as a sheet at the foot, the disc still above it" },
       { settle: true, act: "mobile", why: "let the card land and the links light" },
       { click: true, target: ["detailclose"], act: "mobile", why: "close the card" },
-      // github#170 -- no sheet to open any more: the panel already lives below the disc
-      // in the page's own scroll, so soloing a folder from it scrolls straight there
+      // github#170 -- no #vg-sheet on a phone; solo scrolls there itself
       { click: true, target: ["only", "01"], act: "mobile",
         why: "solo a folder from the panel below the disc -- the page scrolls to it, nothing " +
              "slides over the circle" },

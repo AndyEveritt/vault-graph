@@ -291,9 +291,7 @@ try {
   const releases = parseReleases(readFileSync(join(ROOT, "CHANGELOG.md"), "utf8"));
   const FAR = releases.filter((r) => semver(r.version)[2] === 0 && semver(r.version)[0] === maj).map((r) => r.version).slice(-1)[0] || PREV_MINOR;
   const wantAll = releaseChain({ releases, lastSeen: FAR, installed: N, note });
-  // github#170-ish -- CHAIN_MAX truncates the head into a single "N earlier releases" link
-  // (plugin/main.js's mountNote), so once the range from FAR to N outgrows it the rendered
-  // chain is shorter than releaseChain()'s own list and starts with that collapse link
+  // github#83 -- models CHAIN_MAX's collapse; see the fix commit
   const want = wantAll.length > CHAIN_MAX ? wantAll.slice(wantAll.length - CHAIN_MAX) : wantAll;
   const collapsedCount = wantAll.length - want.length;
   console.log("several releases behind ({ lastSeenVersion: " + FAR + " }, " + N + ")");
