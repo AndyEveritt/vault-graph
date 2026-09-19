@@ -43,4 +43,4 @@ that's what `release.ps1`'s staleness check reads.
 | | |
 |---|---|
 | **Introduced in** | `2.9.0 (github#71)` |
-| **Last re-recorded** | `never — clip not yet recorded` |
+| **Last re-recorded** | `2.9.0 — 2026-09-19` — 10.4 s at 1000x1000, encoded at 1000 px (0.56 MB) |
