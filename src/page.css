@@ -298,8 +298,10 @@
   .vault-graph .tools button:hover, .vault-graph .mini button:hover, .vault-graph button.btn:hover {
     color: var(--text-1); border-color: var(--border-strong);
   }
+  .vault-graph .tools button:disabled { opacity: .45; cursor: default; }
   /* github#71 -- the segmented Folder order radio borrows the pressed look */
   .vault-graph .mini button[aria-pressed="true"], .vault-graph button.btn[aria-pressed="true"],
+  .vault-graph .tools button[aria-pressed="true"],
   .vault-graph .mini button[role="radio"][aria-checked="true"],
   /* github#165 */
   .vault-graph .mini button[role="menuitemradio"][aria-checked="true"] {

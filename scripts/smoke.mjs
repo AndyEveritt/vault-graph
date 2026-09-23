@@ -6060,6 +6060,55 @@ check("a pin hidden by a filter is skipped, not released", async (p) => {
                        `${after} held` };
 }, { on: "all" });
 
+check("pinned links only shows the pins and every note linked to any of them", async (p) => {
+  const drawn = () => p.j(`(function(){ var out = [];
+    __vg.graph.forEachNode(function(id){ if ((__vg.alpha[id]||0) > 0.5) out.push(id); });
+    return out.sort(); })()`);
+  // the pins and their neighbours, among the notes the disc draws with the filter off
+  const want = (shown) => p.j(`(function(){ var shown = ${JSON.stringify(shown)}, set = {};
+    var on = {}; shown.forEach(function(id){ on[id] = 1; });
+    __vg.pinned().forEach(function(id){
+      if (on[id]) set[id] = 1;
+      // every link, not the drawn share the store keeps once a vault is dense (lazyEdges)
+      (__vg.adj[id] || []).forEach(function(e){ if (on[e.o]) set[e.o] = 1; });
+    });
+    return Object.keys(set).sort(); })()`);
+  const btn = () => p.j(`(function(){ var b = document.getElementById("vg-linked");
+    return b ? { disabled: b.disabled, pressed: b.getAttribute("aria-pressed") } : null; })()`);
+  await p.eval(`__vg.clearPins(); void 0`);
+  await settle(p);
+  const idle = await btn();
+  const all = await drawn();
+  const ids = await pinN(p, 2);
+  const armed = await btn();
+  await p.eval(`document.getElementById("vg-linked").click(); void 0`);
+  await settle(p);
+  const two = await drawn(), twoWant = await want(all);
+  // a sparse disc's pitch grows a pin's base; two pins in the hub must still not touch
+  const hubClear = await p.j(`(function(){ var R = __vg.renderer, ids = __vg.pinned(), d = [];
+    ids.forEach(function(id){ var dd = R.getNodeDisplayData(id);
+      if (dd) d.push({ v: R.graphToViewport(__vg.graph.getNodeAttributes(id)), r: R.scaleSize(dd.size) }); });
+    if (d.length < 2) return null;
+    return Math.round(Math.hypot(d[0].v.x - d[1].v.x, d[0].v.y - d[1].v.y) - d[0].r - d[1].r); })()`);
+  await p.eval(`__vg.pin(${JSON.stringify(ids[1])}); void 0`);
+  await settle(p);
+  const one = await drawn(), oneWant = await want(all);
+  await p.eval(`__vg.linkedOnly(false); void 0`);
+  await settle(p);
+  const back = await drawn();
+  await p.eval(`__vg.clearPins(); void 0`);
+  await settle(p);
+  const same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+  const ok = !!idle && idle.disabled && !!armed && !armed.disabled &&
+             same(two, twoWant) && two.length < all.length && hubClear !== null && hubClear > 0 &&
+             same(one, oneWant) && one.length <= two.length &&
+             back.length === all.length;
+  return { ok, detail: `button idle ${JSON.stringify(idle)}, armed ${JSON.stringify(armed)}; ` +
+                       `${all.length} drawn -> ${two.length} with 2 pins (want ${twoWant.length}) -> ` +
+                       `${one.length} with 1 (want ${oneWant.length}) -> ${back.length} off; ` +
+                       `the two pins clear each other by ${hubClear}px` };
+});
+
 // github#12 -- PIN_MAX in src/page.js; a change there changes this
 const PIN_MAX = 13;
 
