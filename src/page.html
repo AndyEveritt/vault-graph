@@ -53,10 +53,13 @@
 
     <div class="block">
       <div class="lbl">View</div>
+      <div class="row" style="margin-bottom:7px">
+        <div class="lbl" style="margin:0">Pinned links only</div>
+        <div class="mini"><button id="vg-linked" type="button" aria-pressed="false" disabled
+                title="Show only the notes pinned to the hub and the notes linked to any of them. Pin a note first.">Enabled</button></div>
+      </div>
       <div class="tools">
         <button id="vg-refresh" title="Back to the defaults, and replay the intro. Clears highlights and the date range, and returns each folder to the visibility set in the gear -- so archives go back to hidden. This page is a snapshot -- its data was baked in when it was built -- so to pick up notes written since, rebuild it with refresh-graph.ps1 (or build-graph.mjs). The Obsidian plugin rebuilds in place instead.">Refresh</button>
-        <button id="vg-linked" type="button" aria-pressed="false" disabled
-                title="Show only the notes pinned to the hub and the notes linked to any of them. Pin a note first.">Pinned links only</button>
         <button id="vg-png">Save PNG</button>
         <button id="vg-dbg" title="Copy the exact layout state, for a bug report">Debug</button>
       </div>
