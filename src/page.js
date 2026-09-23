@@ -882,7 +882,7 @@ function mountVaultGraph(root, data, deps) {
    * @property {boolean} curveEdges
    * @property {boolean} logoTwoRing
    * @property {string[]} pinned
-   * @property {boolean} linkedOnly                           only the pins and their links
+   * @property {string} pinLinks                             "" | "any" | "every"; the pins and their links
    */
   /** @type {State} */
   var state = {
@@ -913,7 +913,7 @@ function mountVaultGraph(root, data, deps) {
     curveEdges: true,
     logoTwoRing: true,
     pinned: [],
-    linkedOnly: false
+    pinLinks: ""
   };
 
   // github#72, design/0014
@@ -3228,47 +3228,56 @@ function mountVaultGraph(root, data, deps) {
     hubChanged(true);
   }
 
-  // linked-only -- the pins and every note one link from any of them
-  function linkedOnlyOn() { return state.linkedOnly && state.pinned.length > 0; }
+  // pin links -- the pins, and the notes one link from any of them or from every one
+  var PIN_LINKS = ["", "any", "every"];
+  function linkedOn() { return !!state.pinLinks && state.pinned.length > 0; }
 
   /** @type {Record<string, boolean> | null} */
   var linkedSet = null;
   /** @type {string[] | null} the pin list the set was built from; pin() and unpin() drop it */
   var linkedKey = null;
+  var linkedMode = "";
 
   /** @param {string} id */
   function inLinked(id) {
-    if (!linkedSet || linkedKey !== state.pinned) {
+    if (!linkedSet || linkedKey !== state.pinned || linkedMode !== state.pinLinks) {
       /** @type {Record<string, boolean>} */
       var set = dict();
-      state.pinned.forEach(function (p) {
-        if (!graph.hasNode(p)) return;
+      /** @type {Record<string, number>} */
+      var hits = dict();
+      var pins = state.pinned.filter(function (p) { return graph.hasNode(p); });
+      pins.forEach(function (p) {
         set[p] = true;
-        neighboursOf(p).forEach(function (n) { set[n] = true; });
+        neighboursOf(p).forEach(function (n) { hits[n] = (hits[n] || 0) + 1; });
       });
+      var need = state.pinLinks === "every" ? pins.length : 1;
+      Object.keys(hits).forEach(function (n) { if (hits[n] >= need) set[n] = true; });
       linkedSet = set;
       linkedKey = state.pinned;
+      linkedMode = state.pinLinks;
     }
     return !!linkedSet[noteOf(id)];
   }
 
-  invalidatesOnData("linked-only set", function () { linkedSet = null; });
+  invalidatesOnData("pin links set", function () { linkedSet = null; });
 
   function syncLinkedUI() {
-    var btn = $("linked");
-    if (!btn) return;
-    btn.setAttribute("aria-pressed", state.linkedOnly ? "true" : "false");
-    /** @type {HTMLButtonElement} */ (btn).disabled = !state.pinned.length && !state.linkedOnly;
+    var sel = /** @type {HTMLSelectElement | null} */ ($("pinlinks"));
+    if (!sel) return;
+    sel.value = state.pinLinks;
+    sel.disabled = !state.pinned.length && !state.pinLinks;
+    sel.setAttribute("data-on", linkedOn() ? "1" : "0");
   }
 
-  /** @param {boolean} on */
-  function setLinkedOnly(on) {
-    on = !!on;
-    if (state.linkedOnly === on) return;
-    var was = linkedOnlyOn();
-    state.linkedOnly = on;
+  /** @param {string} mode "" | "any" | "every" */
+  function setPinLinks(mode) {
+    if (PIN_LINKS.indexOf(mode) < 0) mode = "";
+    if (state.pinLinks === mode) return;
+    var was = linkedOn(), wasMode = state.pinLinks;
+    state.pinLinks = mode;
     syncLinkedUI();
-    if (linkedOnlyOn() !== was) cascade(null, { colToggle: true });
+    // "any" and "every" agree on a single pin, but the cascade is cheap to skip only when off
+    if (linkedOn() !== was || (was && wasMode !== mode)) cascade(null, { colToggle: true });
   }
 
   function releaseHover() {
@@ -3280,8 +3289,8 @@ function mountVaultGraph(root, data, deps) {
   function hubChanged(animate) {
     releaseHover();
     pinnedPlan = null;
-    // linked-only -- a pin changes what is shown, so the disc re-packs as for any filter
-    if (state.linkedOnly) cascade(releaseHover, { colToggle: true });
+    // pin links -- a pin changes what is shown, so the disc re-packs as for any filter
+    if (state.pinLinks) cascade(releaseHover, { colToggle: true });
     else applyLayout(!!animate, releaseHover);
     placeLogo();
     persistPins();
@@ -5503,7 +5512,7 @@ function mountVaultGraph(root, data, deps) {
     if (leaving[id] && !oldWorld) return false;
     var a = graph.getNodeAttributes(id);
     if (isHidden(groupOf(id))) return false;
-    if (linkedOnlyOn() && !inLinked(id)) return false;
+    if (linkedOn() && !inLinked(id)) return false;
     var d = fileDirs(id, a);
     if (!d.length) {
       if (state.hiddenSub[fileGroup(id, a) + "/"]) return false;
@@ -7568,7 +7577,7 @@ function mountVaultGraph(root, data, deps) {
     state.hoverDay = null;
     // github#70, decisions/0009
     setRecent(null);
-    state.linkedOnly = false;
+    state.pinLinks = "";
     syncLinkedUI();
     recentT = 0;
     recentDim = recentSet;
@@ -7660,7 +7669,8 @@ function mountVaultGraph(root, data, deps) {
     if ($("pan")) $("pan").onclick = function () { storedPan = !panEnabled; setPan(storedPan, true); };
     // github#79
     if ($("ov")) $("ov").onclick = fit;
-    if ($("linked")) $("linked").onclick = function () { setLinkedOnly(!state.linkedOnly); };
+    var pinLinksSel = /** @type {HTMLSelectElement | null} */ ($("pinlinks"));
+    if (pinLinksSel) pinLinksSel.onchange = function () { setPinLinks(pinLinksSel.value); };
     syncLinkedUI();
     setPan(panEnabled, false);
     // github#23
@@ -11965,7 +11975,7 @@ function mountVaultGraph(root, data, deps) {
                     pin: /** @param {string} id */ function (id) { togglePin(id); },
                     pinned: function () { return state.pinned.slice(); },
                     clearPins: function () { state.pinned = []; hubChanged(false); },
-                    linkedOnly: /** @param {boolean} on */ function (on) { setLinkedOnly(on); },
+                    pinLinks: /** @param {string} mode */ function (mode) { setPinLinks(mode); },
                     // github#143 -- what the host is handed, and what it reads back
                     pinsStored: function () { return pinsStored(); },
                     pinsFrom: /** @param {unknown} want */ function (want) { return pinsFrom(want); },
